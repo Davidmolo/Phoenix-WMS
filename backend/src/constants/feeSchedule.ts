@@ -1,0 +1,26 @@
+/** Phoenix published rates — CT_Warehouse_Lease_Proforma §8 + Marketing plan rate sheet. */
+export const DEFAULT_FEE_SCHEDULE = {
+  crossDockPerPallet: 25,
+  crossDockFreeDwellHours: 48,
+  crossDockPerTrailer: 425,
+  crossDockMinimum: 150,
+  unloadLoadMinimum: 125,
+  unloadLoadPerPallet: 14,
+  unloadLoadPerTrailer: 200,
+  handStackPerHour: 65,
+  floorStoragePerPalletMo: 20,
+  rackStoragePerPalletMo: 26,
+  inOutHandlingPerPallet: 14,
+  afterFreeDwellPerPalletDay: 10,
+  accountMinimumPallets: 15,
+  accountMinimumMonthlyFee: 300,
+  longTermStorageCapPct: 45,
+  sortRelabelPerHour: 65,
+  sortRelabelPerCase: 2,
+  afterHoursSurchargePct: 35,
+  noShowFee: 100,
+  detentionPerHour: 90,
+  detentionFreeHours: 2,
+  notes:
+    "From CT_Warehouse_Lease_Proforma §8 + Marketing plan rate sheet (cross-dock ~$25/pallet; hybrid storage ~$20/pallet/mo).",
+} as const;

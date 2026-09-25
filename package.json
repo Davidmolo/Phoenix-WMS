@@ -1,0 +1,13 @@
+{
+  "name": "phoenix-wms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phoenix Cross Dock WMS — monorepo",
+  "scripts": {
+    "dev:api": "npm --prefix backend run dev",
+    "dev:web": "npm --prefix frontend run dev",
+    "seed": "npm --prefix backend run seed",
+    "build:api": "npm --prefix backend run build",
+    "build:web": "npm --prefix frontend run build"
+  }
+}
