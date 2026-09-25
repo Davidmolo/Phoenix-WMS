@@ -20,9 +20,13 @@ const shipmentSchema = new Schema(
     billAsFtl: { type: Boolean, default: false },
     ftlRateApplied: { type: Number, default: null },
     palletIds: [{ type: Schema.Types.ObjectId, ref: "Pallet" }],
+    /** Portal request that created this expected appointment (when approved). */
+    requestId: { type: Schema.Types.ObjectId, ref: "Request", default: null },
     scheduledAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     notes: { type: String, default: "" },
+    jobName: { type: String, default: "" },
+    poNumber: { type: String, default: "" },
   },
   { timestamps: true }
 );

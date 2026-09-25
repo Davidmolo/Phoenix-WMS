@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
   Badge,
@@ -21,12 +22,14 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
-import type { Customer, Location, Pallet, Shipment, Warehouse } from "@/types";
+import { sqftFromInches } from "@/lib/palletSpace";
+import type { Customer, DashboardKpis, Location, Pallet, Shipment, Warehouse } from "@/types";
 
 export default function OperationsPage() {
   const { token } = useAuth();
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
+  const { data: dashData, reload: reloadDash } = useApiQuery<{ kpis: DashboardKpis }>("/dashboard");
   const { data: shipData, reload: reloadShipments } = useApiQuery<{ shipments: Shipment[] }>(
     "/shipments"
   );
@@ -35,6 +38,7 @@ export default function OperationsPage() {
   const warehouse = whData?.warehouses?.[0];
   const customers = custData?.customers ?? [];
   const sba = customers.find((c) => c.billingMethod === "contract") || customers[0];
+  const kpis = dashData?.kpis;
 
   const { data: locData, reload: reloadLocs } = useApiQuery<{ locations: Location[] }>(
     warehouse ? `/locations?warehouseId=${warehouse._id}&available=true` : null
@@ -44,12 +48,22 @@ export default function OperationsPage() {
   const [palletCount, setPalletCount] = useState(1);
   const [description, setDescription] = useState("");
   const [ref, setRef] = useState("");
+  const [poOrJob, setPoOrJob] = useState("");
+  const [dimLength, setDimLength] = useState(48);
+  const [dimWidth, setDimWidth] = useState(48);
   const [billAsFtl, setBillAsFtl] = useState(false);
   const [carrier, setCarrier] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [selectedShipIds, setSelectedShipIds] = useState<string[]>([]);
+  const [labelPallet, setLabelPallet] = useState<Pallet | null>(null);
+
+  const sqftEach = useMemo(() => sqftFromInches(dimLength, dimWidth), [dimLength, dimWidth]);
+  const neededSqft = sqftEach * palletCount;
+  const availableSqft = kpis?.availableSqft;
+  const spaceTight =
+    availableSqft != null && neededSqft > availableSqft;
 
   useEffect(() => {
     if (sba && !customerId) setCustomerId(sba._id);
@@ -81,17 +95,22 @@ export default function OperationsPage() {
           palletCount,
           description,
           ref,
+          poOrJob,
+          dimLength,
+          dimWidth,
+          sqft: sqftEach,
           billAsFtl,
           carrier,
           locationIds,
         }),
       });
       setMessage(
-        `Received ${result.pallets.length} pallet(s) on shipment ${result.shipment._id.slice(-6)}`
+        `Received ${result.pallets.length} pallet(s) · ${sqftEach} SF each · labels ready`
       );
       setDescription("");
       setRef("");
-      await Promise.all([reloadShipments(), reloadPallets(), reloadLocs()]);
+      if (result.pallets[0]) setLabelPallet(result.pallets[0]);
+      await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Receive failed");
     } finally {
@@ -119,7 +138,7 @@ export default function OperationsPage() {
       });
       setMessage(`Shipped ${selectedShipIds.length} pallet(s) — ${result.shipment._id.slice(-6)}`);
       setSelectedShipIds([]);
-      await Promise.all([reloadShipments(), reloadPallets(), reloadLocs()]);
+      await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ship failed");
     } finally {
@@ -159,10 +178,32 @@ export default function OperationsPage() {
     <AppShell>
       <PageHeader
         title="Receive / Ship"
-        description="Inbound receipt posts SBA $20 handling (or $520 FTL). Outbound frees floor locations."
+        description="Inbound posts contract handling. Capture PO/Job + pallet footprint for space tracking and labels."
       />
       <Alert>{error}</Alert>
       {message ? <Alert tone="info">{message}</Alert> : null}
+      {spaceTight ? (
+        <Alert>
+          This receipt needs ~{neededSqft} SF but only {availableSqft} SF is available in the
+          warehouse. You can still receive, but capacity is tight.
+        </Alert>
+      ) : null}
+
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MiniStat
+          label="Capacity"
+          value={kpis?.capacitySqft != null ? `${kpis.capacitySqft.toLocaleString()} SF` : "…"}
+        />
+        <MiniStat
+          label="Occupied"
+          value={kpis?.occupiedSqft != null ? `${kpis.occupiedSqft.toLocaleString()} SF` : "…"}
+        />
+        <MiniStat
+          label="Available"
+          value={kpis?.availableSqft != null ? `${kpis.availableSqft.toLocaleString()} SF` : "…"}
+        />
+        <MiniStat label="Open slots" value={locData?.locations?.length ?? "…"} />
+      </div>
 
       <div className="mb-6 grid gap-5 lg:grid-cols-2">
         <Card>
@@ -183,6 +224,15 @@ export default function OperationsPage() {
                   ))}
                 </Select>
               </div>
+              <div>
+                <Label>PO / Job name</Label>
+                <Input
+                  value={poOrJob}
+                  onChange={(e) => setPoOrJob(e.target.value)}
+                  placeholder="One reference — PO or job name"
+                  required
+                />
+              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label>Pallet count</Label>
@@ -196,9 +246,40 @@ export default function OperationsPage() {
                 </div>
                 <div>
                   <Label>Carrier</Label>
-                  <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="Optional" />
+                  <Input
+                    value={carrier}
+                    onChange={(e) => setCarrier(e.target.value)}
+                    placeholder="Optional"
+                  />
                 </div>
               </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <Label>Length (in)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={dimLength}
+                    onChange={(e) => setDimLength(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <Label>Width (in)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={dimWidth}
+                    onChange={(e) => setDimWidth(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <Label>Sq ft / pallet</Label>
+                  <Input value={sqftEach} readOnly className="bg-surface-2" />
+                </div>
+              </div>
+              <p className="m-0 text-xs text-muted">
+                Standard 48″×48″ = 16 SF. This load uses ~{neededSqft} SF.
+              </p>
               <div>
                 <Label>Reference / BOL</Label>
                 <Input value={ref} onChange={(e) => setRef(e.target.value)} />
@@ -216,10 +297,6 @@ export default function OperationsPage() {
                 />
                 Bill as FTL ($520) instead of per-pallet handling
               </label>
-              <p className="m-0 text-xs text-muted">
-                Available slots: {locData?.locations?.length ?? "…"} · Warehouse:{" "}
-                {warehouse?.name || "—"}
-              </p>
               <Button type="submit" loading={busy}>
                 Receive pallets
               </Button>
@@ -238,7 +315,7 @@ export default function OperationsPage() {
                   activePallets.map((p) => (
                     <label
                       key={p._id}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-surface"
+                      className="flex flex-wrap items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-surface"
                     >
                       <input
                         type="checkbox"
@@ -252,6 +329,10 @@ export default function OperationsPage() {
                       />
                       <span className="font-semibold">{p.externalId}</span>
                       <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                      <span className="text-xs text-muted">
+                        {p.jobName || p.poNumber || "—"}
+                        {p.sqft != null ? ` · ${p.sqft} SF` : ""}
+                      </span>
                     </label>
                   ))
                 )}
@@ -272,6 +353,19 @@ export default function OperationsPage() {
         emptyTitle="No shipments yet"
         emptyDescription="Receive your first inbound load above."
       />
+
+      {labelPallet ? (
+        <PalletLabelPreview pallet={labelPallet} onClose={() => setLabelPallet(null)} />
+      ) : null}
     </AppShell>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[var(--radius)] border border-border bg-surface px-3 py-2.5 shadow-[var(--shadow)]">
+      <div className="text-[10px] font-semibold tracking-wide text-muted uppercase">{label}</div>
+      <div className="mt-1 text-[15px] font-bold tabular-nums text-navy">{value}</div>
+    </div>
   );
 }

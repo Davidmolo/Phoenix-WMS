@@ -69,6 +69,15 @@ export default function DashboardPage() {
             <KpiCard label="Customers" value={loading ? "…" : kpis?.customers} />
             <KpiCard label="Open charges" value={loading ? "…" : kpis?.openCharges} />
             <KpiCard label="Open slots" value={loading ? "…" : kpis?.locationsAvailable} />
+            <KpiCard
+              label="Available SF"
+              value={loading ? "…" : kpis?.availableSqft?.toLocaleString()}
+              hint={
+                kpis?.capacitySqft != null
+                  ? `${kpis.occupiedSqft?.toLocaleString() ?? 0} / ${kpis.capacitySqft.toLocaleString()} SF used`
+                  : undefined
+              }
+            />
           </>
         ) : null}
       </KpiGrid>

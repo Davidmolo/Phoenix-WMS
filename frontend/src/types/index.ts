@@ -32,6 +32,10 @@ export type Pallet = {
   warehouseId?: string;
   locationId?: string | PalletLocation | null;
   weightLbs?: number | null;
+  sqft?: number | null;
+  dimLength?: number | null;
+  dimWidth?: number | null;
+  dimHeight?: number | null;
   receivedAt?: string | null;
   shippedAt?: string | null;
   jobName?: string;
@@ -69,6 +73,9 @@ export type DashboardKpis = {
   customers: number;
   openCharges?: number;
   locationsAvailable?: number;
+  capacitySqft?: number;
+  occupiedSqft?: number;
+  availableSqft?: number;
 };
 
 export type Warehouse = {
@@ -94,7 +101,9 @@ export type Lpn = {
   status: string;
   description?: string;
   qty: number;
+  kind?: string;
   palletId?: string | null;
+  palletIds?: Array<string | { _id: string; externalId?: string; status?: string }>;
   customerId: string;
 };
 
@@ -110,4 +119,7 @@ export type Shipment = {
   scheduledAt?: string | null;
   notes?: string;
   palletIds?: string[];
+  requestId?: string | null;
+  jobName?: string;
+  poNumber?: string;
 };

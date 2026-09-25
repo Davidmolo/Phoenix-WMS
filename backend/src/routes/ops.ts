@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Types } from "mongoose";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Company } from "../models/Company";
 import { Warehouse } from "../models/Warehouse";
@@ -9,6 +10,7 @@ import { Accessorial } from "../models/Accessorial";
 import { Shipment } from "../models/Shipment";
 import { Lpn } from "../models/Lpn";
 import { Location } from "../models/Location";
+import { Request as WhRequest } from "../models/Request";
 
 const router = Router();
 
@@ -38,17 +40,20 @@ router.get("/warehouses", async (req, res, next) => {
 router.get("/dashboard", async (req, res, next) => {
   try {
     const companyId = req.auth!.companyId;
+    const companyOid = new Types.ObjectId(companyId);
     const customerFilter =
       req.auth!.role === "customer" ? { customerId: req.auth!.customerId } : {};
+
+    const activeStatus = { $in: ["received", "stored", "staged"] };
 
     const [activePallets, pendingRequests, draftInvoices, customers, openCharges, locationsAvailable] =
       await Promise.all([
         Pallet.countDocuments({
           companyId,
           ...customerFilter,
-          status: { $in: ["received", "stored", "staged"] },
+          status: activeStatus,
         }),
-        (await import("../models/Request")).Request.countDocuments({
+        WhRequest.countDocuments({
           companyId,
           ...customerFilter,
           status: "pending",
@@ -63,6 +68,22 @@ router.get("/dashboard", async (req, res, next) => {
           : Location.countDocuments({ companyId, palletId: null }),
       ]);
 
+    const warehouse = await Warehouse.findOne({ companyId, active: true }).sort({ name: 1 });
+    const capacitySqft = Number(warehouse?.sqft) || 0;
+    const match: Record<string, unknown> = {
+      companyId: companyOid,
+      status: activeStatus,
+    };
+    if (req.auth!.role === "customer" && req.auth!.customerId) {
+      match.customerId = new Types.ObjectId(String(req.auth!.customerId));
+    }
+    const occupiedAgg = await Pallet.aggregate([
+      { $match: match },
+      { $group: { _id: null, occupiedSqft: { $sum: { $ifNull: ["$sqft", 16] } } } },
+    ]);
+    const occupiedSqft = Math.round((occupiedAgg[0]?.occupiedSqft ?? 0) * 100) / 100;
+    const availableSqft = Math.max(0, Math.round((capacitySqft - occupiedSqft) * 100) / 100);
+
     const recentShipments = await Shipment.find({ companyId, ...customerFilter })
       .sort({ createdAt: -1 })
       .limit(5);
@@ -75,6 +96,9 @@ router.get("/dashboard", async (req, res, next) => {
         customers,
         openCharges,
         locationsAvailable,
+        capacitySqft,
+        occupiedSqft,
+        availableSqft,
       },
       recentShipments,
     });

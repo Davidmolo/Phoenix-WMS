@@ -18,7 +18,14 @@ type SetupResponse = {
   warehouses: Warehouse[];
   warehouseId: string | null;
   locations: Location[];
-  summary: { total: number; occupied: number; available: number };
+  summary: {
+    total: number;
+    occupied: number;
+    available: number;
+    capacitySqft?: number;
+    occupiedSqft?: number;
+    availableSqft?: number;
+  };
 };
 
 export default function WarehousePage() {
@@ -49,10 +56,13 @@ export default function WarehousePage() {
       />
       <Alert>{error}</Alert>
 
-      <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
+      <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
         <Stat label="Total slots" value={data?.summary.total} />
-        <Stat label="Occupied" value={data?.summary.occupied} />
-        <Stat label="Available" value={data?.summary.available} />
+        <Stat label="Occupied slots" value={data?.summary.occupied} />
+        <Stat label="Open slots" value={data?.summary.available} />
+        <Stat label="Capacity SF" value={data?.summary.capacitySqft} />
+        <Stat label="Occupied SF" value={data?.summary.occupiedSqft} />
+        <Stat label="Available SF" value={data?.summary.availableSqft} />
       </div>
 
       <Card>
@@ -89,7 +99,9 @@ function Stat({ label, value }: { label: string; value?: number }) {
     <Card>
       <CardBody>
         <div className="text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</div>
-        <div className="mt-1 text-2xl font-bold">{value ?? "—"}</div>
+        <div className="mt-1 text-2xl font-bold tabular-nums">
+          {value != null ? value.toLocaleString() : "—"}
+        </div>
       </CardBody>
     </Card>
   );

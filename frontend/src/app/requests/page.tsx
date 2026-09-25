@@ -30,10 +30,8 @@ export default function RequestsPage() {
 
   const [type, setType] = useState<"Inbound" | "Outbound">("Inbound");
   const [qty, setQty] = useState(1);
-  const [ref, setRef] = useState("");
+  const [poOrJob, setPoOrJob] = useState("");
   const [notes, setNotes] = useState("");
-  const [jobName, setJobName] = useState("");
-  const [poNumber, setPoNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -53,18 +51,16 @@ export default function RequestsPage() {
           type,
           qty,
           palletCount: qty,
-          ref,
+          ref: poOrJob,
           notes,
-          jobName,
-          poNumber,
+          jobName: poOrJob,
+          poNumber: poOrJob,
           status: "pending",
         }),
       });
       setMsg("Request submitted");
-      setRef("");
+      setPoOrJob("");
       setNotes("");
-      setJobName("");
-      setPoNumber("");
       await reload();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Failed to submit");
@@ -79,12 +75,21 @@ export default function RequestsPage() {
     setErr("");
     setMsg("");
     try {
-      await api(`/requests/${id}`, {
+      const result = await api<{
+        request: WhRequest;
+        expectedShipment?: { _id: string; direction: string; status: string } | null;
+      }>(`/requests/${id}`, {
         method: "PATCH",
         token,
         body: JSON.stringify({ status }),
       });
-      setMsg(`Request ${status}`);
+      if (status === "approved" && result.expectedShipment) {
+        setMsg(
+          `Approved — expected ${result.expectedShipment.direction} created. Open Expected to receive when the truck arrives.`
+        );
+      } else {
+        setMsg(`Request ${result.request.status}`);
+      }
       await reload();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Update failed");
@@ -110,19 +115,9 @@ export default function RequestsPage() {
       render: (r) => r.qty,
     },
     {
-      key: "po",
-      header: "PO",
-      render: (r) => r.poNumber || "—",
-    },
-    {
-      key: "job",
-      header: "Job",
-      render: (r) => r.jobName || "—",
-    },
-    {
       key: "ref",
-      header: "Ref",
-      render: (r) => r.ref || "—",
+      header: "PO / Job",
+      render: (r) => r.jobName || r.poNumber || r.ref || "—",
     },
     {
       key: "date",
@@ -206,17 +201,14 @@ export default function RequestsPage() {
                   onChange={(e) => setQty(Number(e.target.value))}
                 />
               </div>
-              <div>
-                <Label>PO number</Label>
-                <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
-              </div>
-              <div>
-                <Label>Job name</Label>
-                <Input value={jobName} onChange={(e) => setJobName(e.target.value)} />
-              </div>
               <div className="sm:col-span-2">
-                <Label>Reference</Label>
-                <Input value={ref} onChange={(e) => setRef(e.target.value)} />
+                <Label>PO / Job name</Label>
+                <Input
+                  value={poOrJob}
+                  onChange={(e) => setPoOrJob(e.target.value)}
+                  placeholder="One reference — PO or job name"
+                  required
+                />
               </div>
               <div className="sm:col-span-2">
                 <Label>Notes</Label>

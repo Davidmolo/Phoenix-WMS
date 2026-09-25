@@ -113,6 +113,10 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       ref = "",
       poNumber = "",
       jobName = "",
+      poOrJob = "",
+      dimLength,
+      dimWidth,
+      sqft,
     } = req.body;
 
     if (!warehouseId || !customerId) {
@@ -125,6 +129,10 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       res.status(404).json({ error: "Customer not found" });
       return;
     }
+
+    const { resolvePalletSqft, splitClientReference } = await import("../services/palletSpace");
+    const refs = splitClientReference(poOrJob || poNumber || jobName);
+    const footprint = resolvePalletSqft({ sqft, dimLength, dimWidth });
 
     const count = Math.max(1, Math.min(50, Number(palletCount) || 1));
     const shipment = await Shipment.create({
@@ -165,8 +173,11 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         externalId,
         status: locationId ? "stored" : "received",
         description: description || `Inbound receipt ${ref || shipment.id}`,
-        poNumber,
-        jobName,
+        poNumber: refs.poNumber,
+        jobName: refs.jobName,
+        dimLength: footprint.dimLength,
+        dimWidth: footprint.dimWidth,
+        sqft: footprint.sqft,
         ref,
         receivedAt: new Date(),
       });
@@ -181,7 +192,9 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         warehouseId,
         customerId,
         palletId: pallet._id,
+        palletIds: [pallet._id],
         code: await nextLpnCode(companyId),
+        kind: "unit",
         description: pallet.description,
         qty: 1,
         status: "active",
@@ -251,7 +264,8 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
 
 /**
  * Ship outbound pallets.
- * Body: { warehouseId, customerId, palletIds: string[], billAsFtl?, carrier? }
+ * Body: { warehouseId, customerId, palletIds?: string[], lpnId?: string, billAsFtl?, carrier? }
+ * Cesar: pass lpnId to ship an entire staging plate in one scan.
  */
 router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
   try {
@@ -259,14 +273,29 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
     const {
       warehouseId,
       customerId,
-      palletIds = [],
+      palletIds: bodyPalletIds = [],
+      lpnId,
       billAsFtl = false,
       carrier = "",
       trailerNumber = "",
     } = req.body;
 
-    if (!warehouseId || !customerId || !Array.isArray(palletIds) || palletIds.length === 0) {
-      res.status(400).json({ error: "warehouseId, customerId, and palletIds are required" });
+    let palletIds: string[] = Array.isArray(bodyPalletIds) ? [...bodyPalletIds] : [];
+
+    if (lpnId) {
+      const lpn = await Lpn.findOne({ _id: lpnId, companyId });
+      if (!lpn) {
+        res.status(404).json({ error: "LPN not found" });
+        return;
+      }
+      const fromLpn = new Set<string>();
+      if (lpn.palletId) fromLpn.add(String(lpn.palletId));
+      for (const id of lpn.palletIds || []) fromLpn.add(String(id));
+      palletIds = [...fromLpn];
+    }
+
+    if (!warehouseId || !customerId || palletIds.length === 0) {
+      res.status(400).json({ error: "warehouseId, customerId, and palletIds (or lpnId) are required" });
       return;
     }
 
@@ -292,6 +321,7 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       trailerNumber,
       billAsFtl: Boolean(billAsFtl),
       palletIds: pallets.map((p) => p._id),
+      notes: lpnId ? `Shipped via LPN ${lpnId}` : "",
     });
 
     for (const p of pallets) {
@@ -302,11 +332,15 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       p.shippedAt = new Date();
       p.locationId = null;
       await p.save();
-      await Lpn.updateMany(
-        { palletId: p._id, companyId },
-        { $set: { status: "shipped" } }
-      );
     }
+
+    await Lpn.updateMany(
+      {
+        companyId,
+        $or: [{ palletId: { $in: palletIds } }, { palletIds: { $in: palletIds } }],
+      },
+      { $set: { status: "shipped" } }
+    );
 
     const customer = await Customer.findOne({ _id: customerId, companyId });
     if (customer?.billingMethod === "contract" && billAsFtl && customer.contractFtlRate) {

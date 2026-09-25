@@ -86,6 +86,11 @@ export default function ExpectedPage() {
       header: "Status",
       render: (s) => <Badge tone={statusTone(s.status)}>{s.status}</Badge>,
     },
+    {
+      key: "ref",
+      header: "PO / Job",
+      render: (s) => s.jobName || s.poNumber || "—",
+    },
     { key: "carrier", header: "Carrier", render: (s) => s.carrier || "—" },
     { key: "notes", header: "Notes", render: (s) => s.notes || "—" },
     {

@@ -2,9 +2,11 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
+import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
   Badge,
+  Button,
   Card,
   CardBody,
   CardTitle,
@@ -31,6 +33,7 @@ export default function InventoryPage() {
   const { data, error, loading } = useApiQuery<{ pallets: Pallet[] }>("/pallets");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [printPallet, setPrintPallet] = useState<Pallet | null>(null);
 
   const rows = useMemo(() => {
     const list = data?.pallets ?? [];
@@ -60,19 +63,14 @@ export default function InventoryPage() {
       render: (p) => locationCode(p),
     },
     {
-      key: "job",
-      header: "Job",
-      render: (p) => p.jobName || "—",
-    },
-    {
-      key: "po",
-      header: "PO",
-      render: (p) => p.poNumber || "—",
-    },
-    {
       key: "ref",
-      header: "Ref",
-      render: (p) => p.ref || "—",
+      header: "PO / Job",
+      render: (p) => p.jobName || p.poNumber || "—",
+    },
+    {
+      key: "sqft",
+      header: "Sq ft",
+      render: (p) => (p.sqft != null ? p.sqft : "—"),
     },
     {
       key: "recv",
@@ -85,7 +83,7 @@ export default function InventoryPage() {
     <AppShell>
       <PageHeader
         title={user?.role === "customer" ? "My pallets" : "Inventory"}
-        description="Pallets tracked in Suite 5 — filter by status, click a row for detail"
+        description="Filter by status · select a row for detail and barcode label"
       />
       <Alert>{error}</Alert>
 
@@ -124,29 +122,50 @@ export default function InventoryPage() {
             {!selected ? (
               <p className="mt-2 text-sm text-muted">Select a pallet row to view full detail.</p>
             ) : (
-              <dl className="mt-3 space-y-2.5 text-sm">
-                <DetailRow label="ID" value={selected.externalId} />
-                <DetailRow
-                  label="Status"
-                  value={<Badge tone={statusTone(selected.status)}>{selected.status}</Badge>}
-                />
-                <DetailRow label="Location" value={locationCode(selected)} />
-                <DetailRow label="Job" value={selected.jobName || "—"} />
-                <DetailRow label="PO" value={selected.poNumber || "—"} />
-                <DetailRow label="Ref" value={selected.ref || "—"} />
-                <DetailRow
-                  label="Weight"
-                  value={selected.weightLbs != null ? `${selected.weightLbs} lbs` : "—"}
-                />
-                <DetailRow label="Received" value={dateLabel(selected.receivedAt)} />
-                <DetailRow label="Shipped" value={dateLabel(selected.shippedAt)} />
-                <DetailRow label="Description" value={selected.description || "—"} />
-                <DetailRow label="Notes" value={selected.notes || "—"} />
-              </dl>
+              <>
+                <dl className="mt-3 space-y-2.5 text-sm">
+                  <DetailRow label="ID" value={selected.externalId} />
+                  <DetailRow
+                    label="Status"
+                    value={<Badge tone={statusTone(selected.status)}>{selected.status}</Badge>}
+                  />
+                  <DetailRow label="Location" value={locationCode(selected)} />
+                  <DetailRow
+                    label="PO / Job"
+                    value={selected.jobName || selected.poNumber || "—"}
+                  />
+                  <DetailRow
+                    label="Footprint"
+                    value={
+                      selected.dimLength && selected.dimWidth
+                        ? `${selected.dimLength}" × ${selected.dimWidth}"`
+                        : "—"
+                    }
+                  />
+                  <DetailRow
+                    label="Sq ft"
+                    value={selected.sqft != null ? `${selected.sqft} SF` : "—"}
+                  />
+                  <DetailRow
+                    label="Weight"
+                    value={selected.weightLbs != null ? `${selected.weightLbs} lbs` : "—"}
+                  />
+                  <DetailRow label="Received" value={dateLabel(selected.receivedAt)} />
+                  <DetailRow label="Shipped" value={dateLabel(selected.shippedAt)} />
+                  <DetailRow label="Description" value={selected.description || "—"} />
+                </dl>
+                <Button className="mt-4 w-full" onClick={() => setPrintPallet(selected)}>
+                  Print barcode label
+                </Button>
+              </>
             )}
           </CardBody>
         </Card>
       </div>
+
+      {printPallet ? (
+        <PalletLabelPreview pallet={printPallet} onClose={() => setPrintPallet(null)} />
+      ) : null}
     </AppShell>
   );
 }
