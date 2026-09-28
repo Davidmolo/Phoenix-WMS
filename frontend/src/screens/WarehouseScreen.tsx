@@ -1,14 +1,13 @@
 "use client";
 
-import { AppShell } from "@/components/AppShell";
+import { Warehouse as WarehouseIcon } from "lucide-react";
 import {
   Alert,
   Card,
   CardBody,
   CardTitle,
   PageHeader,
-  Spinner,
-  CenteredState,
+  SkeletonPage,
 } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { cn } from "@/lib/cn";
@@ -33,11 +32,7 @@ export default function WarehousePage() {
 
   if (loading) {
     return (
-      <AppShell>
-        <CenteredState>
-          <Spinner />
-        </CenteredState>
-      </AppShell>
+        <SkeletonPage variant="table" />
     );
   }
 
@@ -45,9 +40,10 @@ export default function WarehousePage() {
   const locations = data?.locations ?? [];
 
   return (
-    <AppShell>
+    <>
       <PageHeader
         title="Warehouse setup"
+        icon={<WarehouseIcon className="h-5 w-5" />}
         description={
           warehouse
             ? `${warehouse.name} · ${warehouse.sqft?.toLocaleString() ?? "—"} SF · ${warehouse.address || ""}`
@@ -56,7 +52,7 @@ export default function WarehousePage() {
       />
       <Alert>{error}</Alert>
 
-      <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(140px,1fr))]">
         <Stat label="Total slots" value={data?.summary.total} />
         <Stat label="Occupied slots" value={data?.summary.occupied} />
         <Stat label="Open slots" value={data?.summary.available} />
@@ -69,7 +65,7 @@ export default function WarehousePage() {
         <CardBody>
           <CardTitle>Floor map</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">Blue = occupied · Gray = open</p>
-          <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-8">
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-8">
             {locations.map((loc) => {
               const occupied = Boolean(loc.palletId);
               return (
@@ -90,7 +86,7 @@ export default function WarehousePage() {
           </div>
         </CardBody>
       </Card>
-    </AppShell>
+    </>
   );
 }
 

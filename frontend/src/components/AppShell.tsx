@@ -1,121 +1,287 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
-import { Button, CenteredState, Spinner } from "@/components/ui";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  LayoutDashboard,
+  ArrowLeftRight,
+  Truck,
+  CalendarClock,
+  Users,
+  Receipt,
+  Package,
+  ScanBarcode,
+  Warehouse,
+  Inbox,
+  FileText,
+  LogOut,
+  Menu,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { SkeletonShell } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth";
+import { useAppNav } from "@/lib/appNav";
 
-const STAFF_NAV = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/operations", label: "Receive / Ship" },
-  { href: "/shipments", label: "Shipments" },
-  { href: "/expected", label: "Expected" },
-  { href: "/customers", label: "Customers" },
-  { href: "/fee-schedule", label: "Fee Schedule" },
-  { href: "/inventory", label: "Inventory" },
-  { href: "/lpns", label: "LPNs" },
-  { href: "/warehouse", label: "Warehouse" },
-  { href: "/requests", label: "Requests" },
-  { href: "/billing", label: "Billing" },
-] as const;
+type NavItem = { href: string; label: string; icon: LucideIcon };
 
-const PORTAL_NAV = [
-  { href: "/dashboard", label: "Overview" },
-  { href: "/inventory", label: "My pallets" },
-  { href: "/requests", label: "Requests" },
-] as const;
+const STAFF_NAV: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/operations", label: "Receive / Ship", icon: ArrowLeftRight },
+  { href: "/shipments", label: "Shipments", icon: Truck },
+  { href: "/expected", label: "Expected", icon: CalendarClock },
+  { href: "/customers", label: "Customers", icon: Users },
+  { href: "/fee-schedule", label: "Fee Schedule", icon: Receipt },
+  { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/lpns", label: "LPNs", icon: ScanBarcode },
+  { href: "/warehouse", label: "Warehouse", icon: Warehouse },
+  { href: "/requests", label: "Requests", icon: Inbox },
+  { href: "/billing", label: "Billing", icon: FileText },
+];
+
+const PORTAL_NAV: NavItem[] = [
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/inventory", label: "My pallets", icon: Package },
+  { href: "/requests", label: "Requests", icon: Inbox },
+];
+
+function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split" {
+  if (pathname.startsWith("/operations") || pathname.startsWith("/lpns") || pathname.startsWith("/expected")) {
+    return "form";
+  }
+  if (pathname.startsWith("/requests")) return "split";
+  if (
+    pathname.startsWith("/shipments") ||
+    pathname.startsWith("/customers") ||
+    pathname.startsWith("/inventory") ||
+    pathname.startsWith("/billing") ||
+    pathname.startsWith("/fee-schedule") ||
+    pathname.startsWith("/warehouse")
+  ) {
+    return "table";
+  }
+  return "dashboard";
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, loading, logout, token } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
+  const { path, navigate } = useAppNav();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && (!user || !token)) router.replace("/");
   }, [loading, user, token, router]);
 
-  if (loading || !user) {
-    return (
-      <CenteredState>
-        <Spinner className="h-6 w-6" />
-      </CenteredState>
-    );
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [mobileOpen]);
+
+  if (loading && !user) {
+    return <SkeletonShell variant={shellVariant(path)} />;
+  }
+
+  if (!user || !token) {
+    return <SkeletonShell variant={shellVariant(path)} />;
   }
 
   const nav = user.role === "customer" ? PORTAL_NAV : STAFF_NAV;
 
+  function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+    return (
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3 sm:px-3" aria-label="Main">
+        {nav.map((item) => {
+          const active =
+            path === item.href ||
+            (item.href !== "/dashboard" && path.startsWith(`${item.href}/`));
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.href}
+              type="button"
+              onClick={() => {
+                onNavigate?.();
+                navigate(item.href);
+              }}
+              className={cn(
+                "sidebar-link flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-semibold transition-all",
+                active && "sidebar-link-active"
+              )}
+            >
+              <Icon
+                className={cn("sidebar-icon h-[18px] w-[18px] shrink-0", active && "sidebar-accent")}
+                strokeWidth={2.25}
+              />
+              <span className="truncate">{item.label}</span>
+              {active ? (
+                <span
+                  className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: "var(--accent)" }}
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen flex-col bg-bg">
-      <header className="sticky top-0 z-20 border-b border-border bg-surface/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1320px] items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-5">
-          {/* Logo already includes wordmark — no duplicate brand text */}
-          <Link
-            href="/dashboard"
-            className="flex shrink-0 items-center rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    <div className="flex min-h-screen bg-bg">
+      <aside
+        className="sidebar-shell sticky top-0 hidden h-dvh w-[var(--sidebar-width)] shrink-0 flex-col lg:flex"
+        style={{ background: "var(--sidebar)" }}
+      >
+        <div className="border-b border-[rgba(255,255,255,0.14)]">
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="flex min-w-0 items-center gap-2.5 px-3 py-4 text-left sm:gap-3 sm:px-4 sm:py-5"
             aria-label="Phoenix Cross Dock home"
           >
             <Image
               src="/logo.png"
-              alt="Phoenix Cross Dock"
-              width={72}
-              height={72}
+              alt=""
+              width={44}
+              height={44}
               priority
-              className="h-11 w-11 object-contain sm:h-12 sm:w-12"
+              className="h-10 w-10 object-contain sm:h-11 sm:w-11"
             />
-          </Link>
-
-          <nav
-            className="-mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1 py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            aria-label="Main"
-          >
-            {nav.map((item) => {
-              const active =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "shrink-0 rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors sm:px-3 sm:text-[13px]",
-                    active
-                      ? "bg-accent-bg text-accent-dark"
-                      : "text-muted hover:bg-surface-2 hover:text-text"
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="flex shrink-0 items-center gap-2.5 border-l border-border pl-3">
-            <div className="hidden text-right sm:block">
-              <div className="text-[13px] leading-tight font-semibold text-text">{user.name}</div>
-              <div className="text-[11px] leading-tight text-muted capitalize">{user.role}</div>
+            <div className="min-w-0 leading-tight">
+              <div className="font-display text-[13px] font-semibold tracking-[0.05em] uppercase sm:text-[14px]">
+                <span>Phoenix </span>
+                <span className="sidebar-accent">Cross Dock</span>
+              </div>
+              <div className="sidebar-muted text-[10px] font-semibold tracking-[0.1em] uppercase">WMS</div>
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                logout();
-                router.replace("/");
-              }}
-            >
-              Sign out
-            </Button>
-          </div>
+          </button>
         </div>
-      </header>
+        <NavLinks />
+        <div className="mt-auto border-t border-[rgba(255,255,255,0.14)] p-3 sm:p-4">
+          <div className="mb-3 px-1">
+            <div className="truncate text-[13px] font-semibold">{user.name}</div>
+            <div className="sidebar-muted text-[11px] capitalize">{user.role}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              logout();
+              router.replace("/");
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-colors"
+            style={{
+              border: "1px solid rgba(255,255,255,0.22)",
+              background: "rgba(255,255,255,0.1)",
+            }}
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
+        </div>
+      </aside>
 
-      <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-5 sm:py-7">{children}</main>
+      {mobileOpen ? (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-navy-deep/55 backdrop-blur-sm"
+            aria-label="Close menu"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside
+            className="sidebar-shell absolute top-0 left-0 flex h-dvh w-[min(300px,88vw)] flex-col shadow-[var(--shadow-card)]"
+            style={{ background: "var(--sidebar)" }}
+          >
+            <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.14)] pr-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileOpen(false);
+                  navigate("/dashboard");
+                }}
+                className="flex min-w-0 items-center gap-2.5 px-3 py-4 text-left"
+              >
+                <Image src="/logo.png" alt="" width={44} height={44} className="h-10 w-10 object-contain" />
+                <div className="min-w-0 leading-tight">
+                  <div className="font-display text-[13px] font-semibold tracking-[0.05em] uppercase">
+                    <span>Phoenix </span>
+                    <span className="sidebar-accent">Cross Dock</span>
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="mr-2 rounded-lg p-2 hover:bg-[rgba(255,255,255,0.1)]"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <NavLinks onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </div>
+      ) : null}
 
-      <footer className="border-t border-border bg-surface px-4 py-3 text-center text-xs text-muted">
-        Phoenix Cross Dock WMS · Suite 5 · 3550 W Clarendon Ave
-      </footer>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-white/95 px-3 py-2.5 backdrop-blur-md sm:gap-3 sm:px-4 sm:py-3 lg:hidden">
+          <button
+            type="button"
+            className="rounded-xl border border-border bg-surface-2 p-2 text-navy"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="font-display truncate text-sm font-semibold tracking-wide text-navy uppercase">
+              Phoenix <span className="text-accent">WMS</span>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              logout();
+              router.replace("/");
+            }}
+          >
+            Sign out
+          </Button>
+        </header>
+
+        <main className="mx-auto w-full max-w-[1180px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-6 lg:py-8">
+          {children}
+        </main>
+
+        <footer className="border-t border-border px-3 py-3 text-center text-[11px] text-muted sm:px-4 sm:py-4 sm:text-xs">
+          Phoenix Cross Dock · Suite 5 ·{" "}
+          <a
+            href="https://phoenixcrossdocks.com"
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-navy hover:text-[var(--accent-text)]"
+          >
+            phoenixcrossdocks.com
+          </a>
+        </footer>
+      </div>
     </div>
   );
 }

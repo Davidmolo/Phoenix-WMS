@@ -1,6 +1,6 @@
 "use client";
 
-import { AppShell } from "@/components/AppShell";
+import { Truck } from "lucide-react";
 import { Alert, Badge, DataTable, PageHeader, statusTone, type Column } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
@@ -48,19 +48,20 @@ export default function ShipmentsPage() {
   ];
 
   return (
-    <AppShell>
-      <PageHeader
-        title="Shipments"
-        description="Completed and in-progress inbound/outbound movements"
-      />
-      <Alert>{error}</Alert>
-      <DataTable
-        columns={columns}
-        rows={data?.shipments ?? []}
-        rowKey={(s) => s._id}
-        loading={loading}
-        emptyTitle="No shipments yet"
-      />
-    </AppShell>
+    <>
+        <PageHeader
+          title="Shipments"
+          icon={<Truck className="h-5 w-5" />}
+          description="Completed and in-progress inbound/outbound movements"
+        />
+        <Alert>{error}</Alert>
+        <DataTable
+          columns={columns}
+          rows={data?.shipments ?? []}
+          rowKey={(s) => s._id}
+          loading={loading}
+          emptyTitle="No shipments yet"
+        />
+    </>
   );
 }

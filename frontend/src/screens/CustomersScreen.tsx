@@ -1,13 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { AppShell } from "@/components/AppShell";
+import { Users } from "lucide-react";
 import { Alert, Badge, DataTable, PageHeader, type Column } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useAppNav } from "@/lib/appNav";
 import { money } from "@/lib/format";
 import type { Customer } from "@/types";
 
 export default function CustomersPage() {
+  const { navigate } = useAppNav();
   const { data, error, loading } = useApiQuery<{ customers: Customer[] }>("/customers");
 
   const columns: Column<Customer>[] = [
@@ -15,9 +16,13 @@ export default function CustomersPage() {
       key: "name",
       header: "Name",
       render: (c) => (
-        <Link href={`/customers/${c._id}`} className="font-semibold text-accent-dark hover:underline">
+        <button
+          type="button"
+          onClick={() => navigate(`/customers/${c._id}`)}
+          className="font-semibold text-accent-dark hover:underline"
+        >
           {c.name}
-        </Link>
+        </button>
       ),
     },
     {
@@ -51,9 +56,10 @@ export default function CustomersPage() {
   ];
 
   return (
-    <AppShell>
+    <>
       <PageHeader
         title="Customers"
+        icon={<Users className="h-5 w-5" />}
         description="Contract and rate profiles — open a customer for pallets, charges, and requests"
       />
       <Alert>{error}</Alert>
@@ -64,6 +70,6 @@ export default function CustomersPage() {
         loading={loading}
         emptyTitle="No customers yet"
       />
-    </AppShell>
+    </>
   );
 }

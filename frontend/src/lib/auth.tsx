@@ -40,9 +40,22 @@ function mapMeUser(raw: {
   };
 }
 
+function readStoredAuth(): { token: string; user: AuthUser } | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { token?: string; user?: AuthUser };
+    if (!parsed?.token || !parsed?.user?.id) return null;
+    return { token: parsed.token, user: parsed.user };
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // Only true when we have no cached session to show yet
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
@@ -53,30 +66,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const stored = readStoredAuth();
+
+    // Paint the app immediately from cache — don't wait on /auth/me
+    if (stored) {
+      setToken(stored.token);
+      setUser(stored.user);
+      setLoading(false);
+    } else {
+      setLoading(false);
+      return;
+    }
+
     (async () => {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as { token: string; user: AuthUser };
-        // Validate session against DB (catches stale JWT after reseed)
         const me = await api<{ user: Parameters<typeof mapMeUser>[0] }>("/auth/me", {
-          token: parsed.token,
+          token: stored.token,
         });
         if (cancelled) return;
         const fresh = mapMeUser(me.user);
-        setToken(parsed.token);
+        setToken(stored.token);
         setUser(fresh);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: parsed.token, user: fresh }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: stored.token, user: fresh }));
       } catch {
+        if (cancelled) return;
         localStorage.removeItem(STORAGE_KEY);
-        if (!cancelled) {
-          setToken(null);
-          setUser(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        setToken(null);
+        setUser(null);
       }
     })();
+
     return () => {
       cancelled = true;
     };

@@ -1,18 +1,23 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import {
+  ArrowLeftRight,
+  PackagePlus,
+  Truck,
+  Ruler,
+} from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardTitle,
+  CheckboxField,
   DataTable,
+  Field,
+  FormGrid,
+  FormSection,
   Input,
-  Label,
   PageHeader,
   Select,
   statusTone,
@@ -20,7 +25,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
 import { sqftFromInches } from "@/lib/palletSpace";
 import type { Customer, DashboardKpis, Location, Pallet, Shipment, Warehouse } from "@/types";
@@ -30,9 +35,9 @@ export default function OperationsPage() {
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
   const { data: dashData, reload: reloadDash } = useApiQuery<{ kpis: DashboardKpis }>("/dashboard");
-  const { data: shipData, reload: reloadShipments } = useApiQuery<{ shipments: Shipment[] }>(
-    "/shipments"
-  );
+  const { data: shipData, reload: reloadShipments, loading: shipsLoading } = useApiQuery<{
+    shipments: Shipment[];
+  }>("/shipments");
   const { data: palletData, reload: reloadPallets } = useApiQuery<{ pallets: Pallet[] }>("/pallets");
 
   const warehouse = whData?.warehouses?.[0];
@@ -62,8 +67,7 @@ export default function OperationsPage() {
   const sqftEach = useMemo(() => sqftFromInches(dimLength, dimWidth), [dimLength, dimWidth]);
   const neededSqft = sqftEach * palletCount;
   const availableSqft = kpis?.availableSqft;
-  const spaceTight =
-    availableSqft != null && neededSqft > availableSqft;
+  const spaceTight = availableSqft != null && neededSqft > availableSqft;
 
   useEffect(() => {
     if (sba && !customerId) setCustomerId(sba._id);
@@ -110,6 +114,7 @@ export default function OperationsPage() {
       setDescription("");
       setRef("");
       if (result.pallets[0]) setLabelPallet(result.pallets[0]);
+      invalidateApiCache();
       await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Receive failed");
@@ -138,6 +143,7 @@ export default function OperationsPage() {
       });
       setMessage(`Shipped ${selectedShipIds.length} pallet(s) — ${result.shipment._id.slice(-6)}`);
       setSelectedShipIds([]);
+      invalidateApiCache();
       await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ship failed");
@@ -175,43 +181,45 @@ export default function OperationsPage() {
   ];
 
   return (
-    <AppShell>
-      <PageHeader
-        title="Receive / Ship"
-        description="Inbound posts contract handling. Capture PO/Job + pallet footprint for space tracking and labels."
-      />
-      <Alert>{error}</Alert>
-      {message ? <Alert tone="info">{message}</Alert> : null}
-      {spaceTight ? (
-        <Alert>
-          This receipt needs ~{neededSqft} SF but only {availableSqft} SF is available in the
-          warehouse. You can still receive, but capacity is tight.
-        </Alert>
-      ) : null}
+    <>
+        <PageHeader
+          title="Receive / Ship"
+          icon={<ArrowLeftRight className="h-5 w-5" />}
+          description="Inbound posts contract handling. Capture PO/Job + pallet footprint for space tracking and labels."
+        />
+        <Alert>{error}</Alert>
+        {message ? <Alert tone="info">{message}</Alert> : null}
+        {spaceTight ? (
+          <Alert>
+            This receipt needs ~{neededSqft} SF but only {availableSqft} SF is available in the
+            warehouse. You can still receive, but capacity is tight.
+          </Alert>
+        ) : null}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MiniStat
-          label="Capacity"
-          value={kpis?.capacitySqft != null ? `${kpis.capacitySqft.toLocaleString()} SF` : "…"}
-        />
-        <MiniStat
-          label="Occupied"
-          value={kpis?.occupiedSqft != null ? `${kpis.occupiedSqft.toLocaleString()} SF` : "…"}
-        />
-        <MiniStat
-          label="Available"
-          value={kpis?.availableSqft != null ? `${kpis.availableSqft.toLocaleString()} SF` : "…"}
-        />
-        <MiniStat label="Open slots" value={locData?.locations?.length ?? "…"} />
-      </div>
+      <div className="mb-5 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+          <MiniStat
+            label="Capacity"
+            value={kpis?.capacitySqft != null ? `${kpis.capacitySqft.toLocaleString()} SF` : "…"}
+          />
+          <MiniStat
+            label="Occupied"
+            value={kpis?.occupiedSqft != null ? `${kpis.occupiedSqft.toLocaleString()} SF` : "…"}
+          />
+          <MiniStat
+            label="Available"
+            value={kpis?.availableSqft != null ? `${kpis.availableSqft.toLocaleString()} SF` : "…"}
+          />
+          <MiniStat label="Open slots" value={locData?.locations?.length ?? "…"} />
+        </div>
 
-      <div className="mb-6 grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardBody className="p-5">
-            <CardTitle>Receive inbound</CardTitle>
-            <form onSubmit={onReceive} className="mt-4 space-y-4">
-              <div>
-                <Label>Customer</Label>
+        <div className="mb-6 grid gap-4 sm:gap-5 lg:grid-cols-2">
+          <FormSection
+            title="Receive inbound"
+            description="Scan-ready labels print after receive."
+            icon={<PackagePlus className="h-4 w-4" />}
+          >
+            <form onSubmit={onReceive} className="space-y-4">
+              <Field label="Customer" required>
                 <Select
                   value={customerId}
                   onChange={(e) => setCustomerId(e.target.value)}
@@ -223,19 +231,21 @@ export default function OperationsPage() {
                     </option>
                   ))}
                 </Select>
-              </div>
-              <div>
-                <Label>PO / Job name</Label>
+              </Field>
+              <Field
+                label="PO / Job name"
+                required
+                hint="One reference used on labels and billing."
+              >
                 <Input
                   value={poOrJob}
                   onChange={(e) => setPoOrJob(e.target.value)}
                   placeholder="One reference — PO or job name"
                   required
                 />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <Label>Pallet count</Label>
+              </Field>
+              <FormGrid>
+                <Field label="Pallet count">
                   <Input
                     type="number"
                     min={1}
@@ -243,83 +253,77 @@ export default function OperationsPage() {
                     value={palletCount}
                     onChange={(e) => setPalletCount(Number(e.target.value))}
                   />
-                </div>
-                <div>
-                  <Label>Carrier</Label>
+                </Field>
+                <Field label="Carrier">
                   <Input
                     value={carrier}
                     onChange={(e) => setCarrier(e.target.value)}
                     placeholder="Optional"
                   />
+                </Field>
+              </FormGrid>
+              <div className="rounded-[var(--radius)] border border-border bg-surface-2/50 p-3.5">
+                <div className="mb-3 flex items-center gap-2 text-[11px] font-bold tracking-[0.06em] text-navy uppercase">
+                  <Ruler className="h-3.5 w-3.5 text-accent" />
+                  Pallet footprint
                 </div>
+                <FormGrid cols={3}>
+                  <Field label="Length (in)">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={dimLength}
+                      onChange={(e) => setDimLength(Number(e.target.value))}
+                    />
+                  </Field>
+                  <Field label="Width (in)">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={dimWidth}
+                      onChange={(e) => setDimWidth(Number(e.target.value))}
+                    />
+                  </Field>
+                  <Field label="Sq ft / pallet" hint={`Load total ~${neededSqft} SF`}>
+                    <Input value={sqftEach} readOnly />
+                  </Field>
+                </FormGrid>
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div>
-                  <Label>Length (in)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={dimLength}
-                    onChange={(e) => setDimLength(Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <Label>Width (in)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={dimWidth}
-                    onChange={(e) => setDimWidth(Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <Label>Sq ft / pallet</Label>
-                  <Input value={sqftEach} readOnly className="bg-surface-2" />
-                </div>
-              </div>
-              <p className="m-0 text-xs text-muted">
-                Standard 48″×48″ = 16 SF. This load uses ~{neededSqft} SF.
-              </p>
-              <div>
-                <Label>Reference / BOL</Label>
-                <Input value={ref} onChange={(e) => setRef(e.target.value)} />
-              </div>
-              <div>
-                <Label>Description</Label>
-                <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-              </div>
-              <label className="flex items-start gap-2.5 text-sm leading-snug text-muted">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-border"
-                  checked={billAsFtl}
-                  onChange={(e) => setBillAsFtl(e.target.checked)}
-                />
+              <FormGrid>
+                <Field label="Reference / BOL">
+                  <Input value={ref} onChange={(e) => setRef(e.target.value)} />
+                </Field>
+                <Field label="Description">
+                  <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+                </Field>
+              </FormGrid>
+              <CheckboxField checked={billAsFtl} onChange={setBillAsFtl}>
                 Bill as FTL ($520) instead of per-pallet handling
-              </label>
-              <Button type="submit" loading={busy}>
+              </CheckboxField>
+              <Button type="submit" loading={busy} icon={<PackagePlus className="h-4 w-4" />}>
                 Receive pallets
               </Button>
             </form>
-          </CardBody>
-        </Card>
+          </FormSection>
 
-        <Card>
-          <CardBody className="p-5">
-            <CardTitle>Ship outbound</CardTitle>
-            <form onSubmit={onShip} className="mt-4 space-y-4">
-              <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border bg-surface-2/50 p-2">
+          <FormSection
+            title="Ship outbound"
+            description="Select staged or stored pallets to load out."
+            icon={<Truck className="h-4 w-4" />}
+          >
+            <form onSubmit={onShip} className="space-y-4">
+              <div className="max-h-64 space-y-1 overflow-y-auto rounded-[var(--radius)] border border-border bg-surface-2/50 p-2">
                 {activePallets.length === 0 ? (
-                  <p className="m-0 p-2 text-sm text-muted">No active pallets to ship.</p>
+                  <p className="m-0 p-3 text-sm text-muted">No active pallets to ship.</p>
                 ) : (
                   activePallets.map((p) => (
                     <label
                       key={p._id}
-                      className="flex flex-wrap items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-surface"
+                      className="flex flex-wrap items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm transition-colors hover:bg-surface"
                     >
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded border-border"
+                        className="h-4 w-4 rounded border-border accent-[var(--accent)]"
                         checked={selectedShipIds.includes(p._id)}
                         onChange={(e) => {
                           setSelectedShipIds((ids) =>
@@ -327,7 +331,7 @@ export default function OperationsPage() {
                           );
                         }}
                       />
-                      <span className="font-semibold">{p.externalId}</span>
+                      <span className="font-semibold text-navy">{p.externalId}</span>
                       <Badge tone={statusTone(p.status)}>{p.status}</Badge>
                       <span className="text-xs text-muted">
                         {p.jobName || p.poNumber || "—"}
@@ -337,34 +341,42 @@ export default function OperationsPage() {
                   ))
                 )}
               </div>
-              <Button type="submit" loading={busy} disabled={selectedShipIds.length === 0}>
+              <Button
+                type="submit"
+                loading={busy}
+                disabled={selectedShipIds.length === 0}
+                icon={<Truck className="h-4 w-4" />}
+              >
                 Ship selected ({selectedShipIds.length})
               </Button>
             </form>
-          </CardBody>
-        </Card>
-      </div>
+          </FormSection>
+        </div>
 
-      <PageHeader title="Recent shipments" className="mb-4" />
-      <DataTable
-        columns={shipColumns}
-        rows={shipData?.shipments ?? []}
-        rowKey={(s) => s._id}
-        emptyTitle="No shipments yet"
-        emptyDescription="Receive your first inbound load above."
-      />
+        <PageHeader title="Recent shipments" className="mb-4" />
+        <DataTable
+          columns={shipColumns}
+          rows={shipData?.shipments ?? []}
+          rowKey={(s) => s._id}
+          loading={shipsLoading}
+          emptyTitle="No shipments yet"
+          emptyDescription="Receive your first inbound load above."
+        />
 
-      {labelPallet ? (
-        <PalletLabelPreview pallet={labelPallet} onClose={() => setLabelPallet(null)} />
-      ) : null}
-    </AppShell>
+        {labelPallet ? (
+          <PalletLabelPreview pallet={labelPallet} onClose={() => setLabelPallet(null)} />
+        ) : null}
+    </>
   );
 }
 
 function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-[var(--radius)] border border-border bg-surface px-3 py-2.5 shadow-[var(--shadow)]">
-      <div className="text-[10px] font-semibold tracking-wide text-muted uppercase">{label}</div>
+    <div
+      className="rounded-[var(--radius)] border border-border px-3 py-2.5 shadow-[var(--shadow)]"
+      style={{ background: "var(--blend-kpi)" }}
+    >
+      <div className="text-[10px] font-bold tracking-[0.06em] text-muted uppercase">{label}</div>
       <div className="mt-1 text-[15px] font-bold tabular-nums text-navy">{value}</div>
     </div>
   );

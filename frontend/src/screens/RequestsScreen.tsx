@@ -1,17 +1,16 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import { Inbox } from "lucide-react";
 import {
   Alert,
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardTitle,
   DataTable,
+  Field,
+  FormGrid,
+  FormSection,
   Input,
-  Label,
   PageHeader,
   Select,
   statusTone,
@@ -19,7 +18,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
 import type { WhRequest } from "@/types";
 
@@ -61,6 +60,7 @@ export default function RequestsPage() {
       setMsg("Request submitted");
       setPoOrJob("");
       setNotes("");
+      invalidateApiCache("/requests");
       await reload();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Failed to submit");
@@ -90,6 +90,7 @@ export default function RequestsPage() {
       } else {
         setMsg(`Request ${result.request.status}`);
       }
+      invalidateApiCache();
       await reload();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Update failed");
@@ -165,75 +166,74 @@ export default function RequestsPage() {
   }
 
   return (
-    <AppShell>
-      <PageHeader
-        title="Requests"
-        description={
-          isPortal
-            ? "Submit inbound/outbound requests — agreement §10 portal target"
-            : "Inbound / outbound portal requests — approve or cancel pending items"
-        }
-      />
-      <Alert>{error || err}</Alert>
-      {msg ? <Alert tone="info">{msg}</Alert> : null}
+    <>
+        <PageHeader
+          title="Requests"
+          icon={<Inbox className="h-5 w-5" />}
+          description={
+            isPortal
+              ? "Submit inbound/outbound requests — agreement §10 portal target"
+              : "Inbound / outbound portal requests — approve or cancel pending items"
+          }
+        />
+        <Alert>{error || err}</Alert>
+        {msg ? <Alert tone="info">{msg}</Alert> : null}
 
-      {isPortal ? (
-        <Card className="mb-6">
-          <CardBody className="p-5">
-            <CardTitle>New request</CardTitle>
-            <form onSubmit={onCreate} className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Type</Label>
-                <Select
-                  value={type}
-                  onChange={(e) => setType(e.target.value as "Inbound" | "Outbound")}
-                >
-                  <option value="Inbound">Inbound</option>
-                  <option value="Outbound">Outbound</option>
-                </Select>
-              </div>
-              <div>
-                <Label>Pallet qty</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>PO / Job name</Label>
+        {isPortal ? (
+          <FormSection
+            title="New request"
+            description="Portal requests route to the dock for approval."
+            icon={<Inbox className="h-4 w-4" />}
+            className="mb-6"
+          >
+            <form onSubmit={onCreate} className="space-y-4">
+              <FormGrid>
+                <Field label="Type">
+                  <Select
+                    value={type}
+                    onChange={(e) => setType(e.target.value as "Inbound" | "Outbound")}
+                  >
+                    <option value="Inbound">Inbound</option>
+                    <option value="Outbound">Outbound</option>
+                  </Select>
+                </Field>
+                <Field label="Pallet qty">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={qty}
+                    onChange={(e) => setQty(Number(e.target.value))}
+                  />
+                </Field>
+              </FormGrid>
+              <Field label="PO / Job name" required>
                 <Input
                   value={poOrJob}
                   onChange={(e) => setPoOrJob(e.target.value)}
                   placeholder="One reference — PO or job name"
                   required
                 />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Notes</Label>
+              </Field>
+              <Field label="Notes">
                 <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
-              <div className="sm:col-span-2">
-                <Button type="submit" loading={busy}>
-                  Submit request
-                </Button>
-              </div>
+              </Field>
+              <Button type="submit" loading={busy}>
+                Submit request
+              </Button>
             </form>
-          </CardBody>
-        </Card>
-      ) : null}
+          </FormSection>
+        ) : null}
 
-      <DataTable
-        columns={columns}
-        rows={data?.requests ?? []}
-        rowKey={(r) => r._id}
-        loading={loading}
-        emptyTitle="No requests yet"
-        emptyDescription={
-          isPortal ? "Submit your first inbound or outbound request above." : undefined
-        }
-      />
-    </AppShell>
+        <DataTable
+          columns={columns}
+          rows={data?.requests ?? []}
+          rowKey={(r) => r._id}
+          loading={loading}
+          emptyTitle="No requests yet"
+          emptyDescription={
+            isPortal ? "Submit your first inbound or outbound request above." : undefined
+          }
+        />
+    </>
   );
 }

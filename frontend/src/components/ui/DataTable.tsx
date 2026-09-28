@@ -3,7 +3,7 @@
 import { cn } from "@/lib/cn";
 import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
-import { CenteredState, Spinner } from "./Spinner";
+import { SkeletonTable } from "./Skeleton";
 
 export type Column<T> = {
   key: string;
@@ -35,9 +35,11 @@ export function DataTable<T>({
 }: Props<T>) {
   if (loading) {
     return (
-      <CenteredState>
-        <Spinner />
-      </CenteredState>
+      <SkeletonTable
+        cols={columns.length}
+        rows={6}
+        headers={columns.map((c) => c.header)}
+      />
     );
   }
 
@@ -50,12 +52,12 @@ export function DataTable<T>({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13.5px]">
           <thead>
-            <tr className="bg-[var(--surface-2)] text-left">
+            <tr className="bg-[linear-gradient(90deg,#eef2f6,#f7f3eb)] text-left">
               {columns.map((col) => (
                 <th
                   key={col.key}
                   className={cn(
-                    "px-3 py-2.5 text-xs font-semibold tracking-wide text-muted uppercase",
+                    "px-3.5 py-3 text-[11px] font-bold tracking-[0.06em] text-navy uppercase",
                     col.className
                   )}
                 >
@@ -73,13 +75,16 @@ export function DataTable<T>({
                   key={key}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   className={cn(
-                    "border-t border-border",
-                    onRowClick && "cursor-pointer hover:bg-surface-2/70",
+                    "border-t border-border transition-colors",
+                    onRowClick && "cursor-pointer hover:bg-accent-bg/30",
                     selected && "bg-accent-bg/40"
                   )}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className={cn("px-3 py-3 align-middle text-text", col.className)}>
+                    <td
+                      key={col.key}
+                      className={cn("px-3.5 py-3 align-middle text-text", col.className)}
+                    >
                       {col.render(row)}
                     </td>
                   ))}

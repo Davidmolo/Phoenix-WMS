@@ -1,17 +1,16 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import { ScanBarcode } from "lucide-react";
 import {
   Alert,
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardTitle,
   DataTable,
+  Field,
+  FormGrid,
+  FormSection,
   Input,
-  Label,
   PageHeader,
   Select,
   statusTone,
@@ -19,7 +18,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import type { Customer, Lpn, Pallet, Warehouse } from "@/types";
 
 type LpnRow = Lpn & {
@@ -79,6 +78,7 @@ export default function LpnsPage() {
       );
       setSelected([]);
       setDescription("");
+      invalidateApiCache();
       await Promise.all([reload(), reloadPallets()]);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Failed to create LPN");
@@ -103,6 +103,7 @@ export default function LpnsPage() {
         }),
       });
       setMsg(`Shipped all pallets on ${lpn.code}`);
+      invalidateApiCache();
       await Promise.all([reload(), reloadPallets()]);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Ship failed");
@@ -162,25 +163,24 @@ export default function LpnsPage() {
   ];
 
   return (
-    <AppShell>
-      <PageHeader
-        title="LPNs"
-        description="License plates — group many pallets under one code for staging, then scan once to load the truck"
-      />
-      <Alert>{error || err}</Alert>
-      {msg ? <Alert tone="info">{msg}</Alert> : null}
+    <>
+        <PageHeader
+          title="LPNs"
+          icon={<ScanBarcode className="h-5 w-5" />}
+          description="License plates — group many pallets under one code for staging, then scan once to load the truck"
+        />
+        <Alert>{error || err}</Alert>
+        {msg ? <Alert tone="info">{msg}</Alert> : null}
 
-      <Card className="mb-6">
-        <CardBody className="p-5">
-          <CardTitle>Build staging LPN</CardTitle>
-          <p className="mt-1 mb-3 text-xs text-muted">
-            Example: pallets from different inbound loads going out on one trailer — one plate, one
-            scan.
-          </p>
+        <FormSection
+          title="Build staging LPN"
+          description="Example: pallets from different inbound loads going out on one trailer — one plate, one scan."
+          icon={<ScanBarcode className="h-4 w-4" />}
+          className="mb-6"
+        >
           <form onSubmit={onCreateGroup} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Customer</Label>
+            <FormGrid>
+              <Field label="Customer">
                 <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
                   {customers.map((c) => (
                     <option key={c._id} value={c._id}>
@@ -188,28 +188,27 @@ export default function LpnsPage() {
                     </option>
                   ))}
                 </Select>
-              </div>
-              <div>
-                <Label>Notes</Label>
+              </Field>
+              <Field label="Notes">
                 <Input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Optional — e.g. Outbound trailer staging"
                 />
-              </div>
-            </div>
-            <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-surface-2/50 p-2">
+              </Field>
+            </FormGrid>
+            <div className="max-h-48 space-y-1 overflow-y-auto rounded-[var(--radius)] border border-border bg-surface-2/50 p-2">
               {stageable.length === 0 ? (
                 <p className="m-0 p-2 text-sm text-muted">No active pallets for this customer.</p>
               ) : (
                 stageable.map((p) => (
                   <label
                     key={p._id}
-                    className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface"
+                    className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-surface"
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4"
+                      className="h-4 w-4 accent-[var(--accent)]"
                       checked={selected.includes(p._id)}
                       onChange={(e) =>
                         setSelected((ids) =>
@@ -217,11 +216,9 @@ export default function LpnsPage() {
                         )
                       }
                     />
-                    <span className="font-semibold">{p.externalId}</span>
+                    <span className="font-semibold text-navy">{p.externalId}</span>
                     <Badge tone={statusTone(p.status)}>{p.status}</Badge>
-                    <span className="text-xs text-muted">
-                      {p.jobName || p.poNumber || "—"}
-                    </span>
+                    <span className="text-xs text-muted">{p.jobName || p.poNumber || "—"}</span>
                   </label>
                 ))
               )}
@@ -230,17 +227,16 @@ export default function LpnsPage() {
               Create staging LPN ({selected.length} pallets)
             </Button>
           </form>
-        </CardBody>
-      </Card>
+        </FormSection>
 
-      <DataTable
-        columns={columns}
-        rows={data?.lpns ?? []}
-        rowKey={(l) => l._id}
-        loading={loading}
-        emptyTitle="No LPNs yet"
-        emptyDescription="Receive pallets or build a staging plate above."
-      />
-    </AppShell>
+        <DataTable
+          columns={columns}
+          rows={data?.lpns ?? []}
+          rowKey={(l) => l._id}
+          loading={loading}
+          emptyTitle="No LPNs yet"
+          emptyDescription="Receive pallets or build a staging plate above."
+        />
+    </>
   );
 }

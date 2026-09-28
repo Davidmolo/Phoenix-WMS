@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import { FileText } from "lucide-react";
 import {
   Alert,
   Badge,
@@ -12,7 +12,7 @@ import {
   type Column,
 } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel, money } from "@/lib/format";
 import type { Customer, Invoice } from "@/types";
@@ -79,6 +79,7 @@ export default function BillingPage() {
       setMsg(
         `Created ${result.invoice.number} for ${money(result.invoice.total)} (${result.chargesAttached} handling lines)`
       );
+      invalidateApiCache();
       await reload();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Invoice failed");
@@ -88,33 +89,34 @@ export default function BillingPage() {
   }
 
   return (
-    <AppShell>
-      <PageHeader
-        title="Billing"
-        description="Invoices · SBA Net 30 · ACH"
-        actions={
-          user?.role !== "customer" ? (
-            <Button onClick={generateSbaInvoice} loading={busy}>
-              Generate SBA monthly invoice
-            </Button>
-          ) : undefined
-        }
-      />
-      {user?.role !== "customer" ? (
-        <Alert tone="info">
-          Generates $7,500 base rent plus any unbilled handling/FTL charges in the current month.
-        </Alert>
-      ) : null}
-      <Alert>{error || err}</Alert>
-      {msg ? <Alert tone="info">{msg}</Alert> : null}
-      <DataTable
-        columns={columns}
-        rows={data?.invoices ?? []}
-        rowKey={(inv) => inv._id}
-        loading={loading}
-        emptyTitle="No invoices yet"
-        emptyDescription="Generate the SBA monthly invoice after receiving pallets."
-      />
-    </AppShell>
+    <>
+        <PageHeader
+          title="Billing"
+          icon={<FileText className="h-5 w-5" />}
+          description="Invoices · SBA Net 30 · ACH"
+          actions={
+            user?.role !== "customer" ? (
+              <Button onClick={generateSbaInvoice} loading={busy}>
+                Generate SBA monthly invoice
+              </Button>
+            ) : undefined
+          }
+        />
+        {user?.role !== "customer" ? (
+          <Alert tone="info">
+            Generates $7,500 base rent plus any unbilled handling/FTL charges in the current month.
+          </Alert>
+        ) : null}
+        <Alert>{error || err}</Alert>
+        {msg ? <Alert tone="info">{msg}</Alert> : null}
+        <DataTable
+          columns={columns}
+          rows={data?.invoices ?? []}
+          rowKey={(inv) => inv._id}
+          loading={loading}
+          emptyTitle="No invoices yet"
+          emptyDescription="Generate the SBA monthly invoice after receiving pallets."
+        />
+    </>
   );
 }
