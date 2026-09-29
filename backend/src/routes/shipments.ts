@@ -70,6 +70,83 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
   }
 });
 
+/** Build a walk-order pick list for outbound pallets (sorted by floor location). */
+router.post("/pick-list", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { warehouseId, customerId, palletIds = [] } = req.body as {
+      warehouseId?: string;
+      customerId?: string;
+      palletIds?: string[];
+    };
+
+    if (!Array.isArray(palletIds) || palletIds.length === 0) {
+      res.status(400).json({ error: "palletIds are required" });
+      return;
+    }
+
+    const filter: Record<string, unknown> = {
+      _id: { $in: palletIds },
+      companyId,
+      status: { $in: ["received", "stored", "staged"] },
+    };
+    if (warehouseId) filter.warehouseId = warehouseId;
+    if (customerId) filter.customerId = customerId;
+
+    const pallets = await Pallet.find(filter)
+      .populate("locationId", "code aisle row col type")
+      .populate("customerId", "name");
+
+    if (pallets.length === 0) {
+      res.status(400).json({ error: "No shippable pallets found for pick list" });
+      return;
+    }
+
+    type LocPop = { code?: string; aisle?: string; row?: number; col?: number; type?: string } | null;
+    const lines = pallets
+      .map((p, idx) => {
+        const loc = p.locationId as unknown as LocPop;
+        const customer = p.customerId as unknown as { name?: string } | null;
+        return {
+          seq: 0,
+          palletId: String(p._id),
+          externalId: p.externalId,
+          status: p.status,
+          description: p.description || "",
+          jobName: p.jobName || "",
+          poNumber: p.poNumber || "",
+          sqft: p.sqft ?? null,
+          customerName: customer?.name || "",
+          locationCode: loc?.code || "UNASSIGNED",
+          aisle: loc?.aisle || "",
+          row: loc?.row ?? 999,
+          col: loc?.col ?? 999,
+          locationType: loc?.type || "",
+          _idx: idx,
+        };
+      })
+      .sort((a, b) => {
+        if (a.row !== b.row) return a.row - b.row;
+        if (a.col !== b.col) return a.col - b.col;
+        return a.locationCode.localeCompare(b.locationCode);
+      })
+      .map((line, i) => {
+        const { _idx, ...rest } = line;
+        return { ...rest, seq: i + 1 };
+      });
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      warehouseId: warehouseId || null,
+      customerId: customerId || null,
+      palletCount: lines.length,
+      lines,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/:id", async (req, res, next) => {
   try {
     const shipment = await Shipment.findOne({

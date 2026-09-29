@@ -49,7 +49,7 @@ export default function FeeSchedulePage() {
           icon={<Receipt className="h-5 w-5" />}
           description={
             data?.companyName
-              ? `${data.companyName} published rates — ad hoc / overflow (not SBA contract)`
+              ? `${data.companyName} published rates — ad hoc / overflow (non-contract)`
               : "Company published rate card"
           }
         />
@@ -62,8 +62,8 @@ export default function FeeSchedulePage() {
         ) : null}
 
         <Alert tone="info">
-          SBA Communications bills from the signed contract ($7,500/mo · $20/pallet · $520 FTL).
-          Overflow outside dedicated 2,500 SF uses this Phoenix schedule.
+          Contract customers bill from their signed agreement (base rent, handling, FTL). Overflow
+          outside dedicated contract square footage uses this company fee schedule.
           {data?.source ? (
             <>
               {" "}

@@ -73,6 +73,8 @@ async function seed() {
   });
 
   // Proforma: Suite 5, 5,700 SF @ Thomas Industrial Plaza
+  const mapRows = 5;
+  const mapCols = 8;
   const warehouse = await Warehouse.create({
     companyId: company._id,
     name: "Clarendon — Suite 5",
@@ -80,13 +82,14 @@ async function seed() {
     address: "3550 West Clarendon Avenue, Suite 5, Phoenix, AZ 85019",
     sqft: 5700,
     storageMode: "mixed",
+    mapLayout: { rows: mapRows, cols: mapCols },
   });
 
   // Floor grid (racking not installed yet — proforma §1 racking = 0)
   const locationDocs = [];
   let n = 0;
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 8; col++) {
+  for (let row = 0; row < mapRows; row++) {
+    for (let col = 0; col < mapCols; col++) {
       n += 1;
       locationDocs.push({
         companyId: company._id,

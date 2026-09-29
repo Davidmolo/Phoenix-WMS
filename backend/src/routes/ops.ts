@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { Types } from "mongoose";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Company } from "../models/Company";
@@ -111,7 +111,10 @@ router.get("/invoices", async (req, res, next) => {
   try {
     const filter: Record<string, unknown> = { companyId: req.auth!.companyId };
     if (req.auth!.role === "customer") filter.customerId = req.auth!.customerId;
-    const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).limit(100);
+    const invoices = await Invoice.find(filter)
+      .populate("customerId", "name billingMethod")
+      .sort({ createdAt: -1 })
+      .limit(100);
     res.json({ invoices });
   } catch (err) {
     next(err);
@@ -130,9 +133,14 @@ router.get("/accessorials", requireRole("admin", "staff"), async (req, res, next
   }
 });
 
-router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), async (req, res, next) => {
+/** Generate a monthly invoice for any customer (contract base rent + unbilled charges). */
+async function generateCustomerMonthInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     const { customerId, periodStart, periodEnd } = req.body;
+    if (!customerId) {
+      res.status(400).json({ error: "customerId is required" });
+      return;
+    }
     const customer = await Customer.findOne({
       _id: customerId,
       companyId: req.auth!.companyId,
@@ -144,6 +152,11 @@ router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), async
 
     const start = new Date(periodStart);
     const end = new Date(periodEnd);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      res.status(400).json({ error: "periodStart and periodEnd are required" });
+      return;
+    }
+
     const lines: Array<{
       description: string;
       qty: number;
@@ -156,7 +169,7 @@ router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), async
 
     if (customer.billingMethod === "contract" && customer.contractFee > 0) {
       lines.push({
-        description: `Base rent — ${customer.contractSqft} SF @ contract rate`,
+        description: `Base rent — ${customer.name} · ${customer.contractSqft} SF @ contract rate`,
         qty: 1,
         unitAmount: customer.contractFee,
         amount: customer.contractFee,
@@ -183,6 +196,11 @@ router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), async
       });
     }
 
+    if (lines.length === 0) {
+      res.status(400).json({ error: "No billable lines for this customer in the selected period" });
+      return;
+    }
+
     const subtotal = lines.reduce((s, l) => s + l.amount, 0);
     const count = await Invoice.countDocuments({ companyId: req.auth!.companyId });
     const number = `INV-${String(count + 1).padStart(5, "0")}`;
@@ -200,7 +218,7 @@ router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), async
       total: subtotal,
       dueDate,
       status: "draft",
-      notes: "Net 30 per Warehouse Space & Handling Services Agreement",
+      notes: "Net 30",
     });
 
     await Accessorial.updateMany(
@@ -208,11 +226,16 @@ router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), async
       { $set: { invoiceId: invoice._id } }
     );
 
-    res.status(201).json({ invoice, chargesAttached: charges.length });
+    const populated = await Invoice.findById(invoice._id).populate("customerId", "name billingMethod");
+    res.status(201).json({ invoice: populated, chargesAttached: charges.length });
   } catch (err) {
     next(err);
   }
-});
+}
+
+router.post("/invoices/generate-month", requireRole("admin", "staff"), generateCustomerMonthInvoice);
+/** @deprecated Use /invoices/generate-month — kept for existing clients/scripts */
+router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), generateCustomerMonthInvoice);
 
 router.get("/stats/overview", requireRole("admin", "staff"), async (req, res, next) => {
   try {

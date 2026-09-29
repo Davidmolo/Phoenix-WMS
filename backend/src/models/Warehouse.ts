@@ -8,6 +8,11 @@ const warehouseSchema = new Schema(
     address: { type: String, default: "" },
     sqft: { type: Number, default: null },
     storageMode: { type: String, enum: ["floor", "rack", "mixed"], default: "mixed" },
+    /** Editable floor-map grid — scale rows/cols as the building grows. */
+    mapLayout: {
+      rows: { type: Number, default: 5, min: 1, max: 40 },
+      cols: { type: Number, default: 8, min: 1, max: 40 },
+    },
     active: { type: Boolean, default: true },
   },
   { timestamps: true }

@@ -52,10 +52,16 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
     const occupiedSqft = Math.round((occupiedAgg[0]?.occupiedSqft ?? 0) * 100) / 100;
     const availableSqft = Math.max(0, Math.round((capacitySqft - occupiedSqft) * 100) / 100);
 
+    const mapLayout = {
+      rows: Number(warehouse?.mapLayout?.rows) || Math.max(1, ...locations.map((l) => l.row + 1), 5),
+      cols: Number(warehouse?.mapLayout?.cols) || Math.max(1, ...locations.map((l) => l.col + 1), 8),
+    };
+
     res.json({
       warehouses,
       warehouseId: warehouseId || null,
       locations,
+      mapLayout,
       summary: {
         total: locations.length,
         occupied,
@@ -64,6 +70,125 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
         occupiedSqft,
         availableSqft,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Save a customizable floor-map layout.
+ * Body: { warehouseId, rows, cols, placements?: [{ locationId, row, col }] }
+ * Expanding the grid creates empty slots; shrinking refuses if occupied slots fall outside.
+ */
+router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const {
+      warehouseId,
+      rows,
+      cols,
+      placements = [],
+    } = req.body as {
+      warehouseId?: string;
+      rows?: number;
+      cols?: number;
+      placements?: Array<{ locationId: string; row: number; col: number }>;
+    };
+
+    if (!warehouseId) {
+      res.status(400).json({ error: "warehouseId is required" });
+      return;
+    }
+
+    const warehouse = await Warehouse.findOne({ _id: warehouseId, companyId });
+    if (!warehouse) {
+      res.status(404).json({ error: "Warehouse not found" });
+      return;
+    }
+
+    const nextRows = Math.min(40, Math.max(1, Number(rows) || warehouse.mapLayout?.rows || 5));
+    const nextCols = Math.min(40, Math.max(1, Number(cols) || warehouse.mapLayout?.cols || 8));
+
+    const locations = await Location.find({ companyId, warehouseId });
+    const byId = new Map(locations.map((l) => [String(l._id), l]));
+
+    for (const p of placements) {
+      const loc = byId.get(String(p.locationId));
+      if (!loc) continue;
+      const r = Number(p.row);
+      const c = Number(p.col);
+      if (!Number.isFinite(r) || !Number.isFinite(c) || r < 0 || c < 0 || r >= nextRows || c >= nextCols) {
+        res.status(400).json({
+          error: `Placement for ${loc.code} is outside the ${nextRows}×${nextCols} grid`,
+        });
+        return;
+      }
+      loc.row = r;
+      loc.col = c;
+      await loc.save();
+    }
+
+    const refreshed = await Location.find({ companyId, warehouseId });
+    const outsideOccupied = refreshed.filter(
+      (l) => l.palletId && (l.row >= nextRows || l.col >= nextCols)
+    );
+    if (outsideOccupied.length > 0) {
+      res.status(400).json({
+        error: `Cannot shrink map: ${outsideOccupied.length} occupied slot(s) sit outside the new grid`,
+      });
+      return;
+    }
+
+    // Drop empty slots that fall outside the new bounds
+    await Location.deleteMany({
+      companyId,
+      warehouseId,
+      palletId: null,
+      $or: [{ row: { $gte: nextRows } }, { col: { $gte: nextCols } }],
+    });
+
+    const remaining = await Location.find({ companyId, warehouseId });
+    const occupiedCells = new Set(remaining.map((l) => `${l.row}:${l.col}`));
+    let maxCode = remaining.reduce((m, l) => {
+      const n = Number(String(l.code).replace(/\D/g, ""));
+      return Number.isFinite(n) ? Math.max(m, n) : m;
+    }, 0);
+
+    const toCreate = [];
+    for (let row = 0; row < nextRows; row++) {
+      for (let col = 0; col < nextCols; col++) {
+        const key = `${row}:${col}`;
+        if (occupiedCells.has(key)) continue;
+        // Only auto-fill empty cells that have no location yet
+        const hasAny = remaining.some((l) => l.row === row && l.col === col);
+        if (hasAny) continue;
+        maxCode += 1;
+        toCreate.push({
+          companyId,
+          warehouseId,
+          code: `W-${maxCode}`,
+          aisle: "W",
+          type: "inside",
+          level: 1,
+          spot: 1,
+          floorOnly: true,
+          row,
+          col,
+          palletId: null,
+        });
+      }
+    }
+    if (toCreate.length) await Location.insertMany(toCreate);
+
+    warehouse.mapLayout = { rows: nextRows, cols: nextCols };
+    await warehouse.save();
+
+    const locationsOut = await Location.find({ companyId, warehouseId }).sort({ row: 1, col: 1 });
+    res.json({
+      warehouse,
+      mapLayout: { rows: nextRows, cols: nextCols },
+      locations: locationsOut,
     });
   } catch (err) {
     next(err);

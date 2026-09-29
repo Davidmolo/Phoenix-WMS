@@ -1,15 +1,21 @@
 "use client";
 
-import { Users } from "lucide-react";
-import { Alert, Badge, DataTable, PageHeader, type Column } from "@/components/ui";
+import { FileText, Users } from "lucide-react";
+import { Alert, Badge, Button, DataTable, PageHeader, type Column } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useAppNav } from "@/lib/appNav";
+import { setBillingCustomerId } from "@/lib/billingNav";
 import { money } from "@/lib/format";
 import type { Customer } from "@/types";
 
 export default function CustomersPage() {
   const { navigate } = useAppNav();
   const { data, error, loading } = useApiQuery<{ customers: Customer[] }>("/customers");
+
+  function goGenerateInvoice(customerId: string) {
+    setBillingCustomerId(customerId);
+    navigate("/billing");
+  }
 
   const columns: Column<Customer>[] = [
     {
@@ -53,6 +59,24 @@ export default function CustomersPage() {
       header: "Email",
       render: (c) => c.email || "—",
     },
+    {
+      key: "invoice",
+      header: "Invoice",
+      render: (c) => (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          icon={<FileText className="h-3.5 w-3.5" />}
+          onClick={(e) => {
+            e.stopPropagation();
+            goGenerateInvoice(c._id);
+          }}
+        >
+          Generate
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -60,7 +84,7 @@ export default function CustomersPage() {
       <PageHeader
         title="Customers"
         icon={<Users className="h-5 w-5" />}
-        description="Contract and rate profiles — open a customer for pallets, charges, and requests"
+        description="Open a customer for detail, or generate their monthly invoice from this list"
       />
       <Alert>{error}</Alert>
       <DataTable

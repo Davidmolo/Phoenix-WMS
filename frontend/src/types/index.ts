@@ -63,7 +63,16 @@ export type Invoice = {
   total: number;
   periodStart: string;
   periodEnd: string;
+  customerId?: string | { _id: string; name?: string; billingMethod?: string };
   lines?: Array<{ description: string; amount: number; type: string }>;
+};
+
+export type Warehouse = {
+  _id: string;
+  name: string;
+  address?: string;
+  sqft?: number | null;
+  mapLayout?: { rows: number; cols: number };
 };
 
 export type DashboardKpis = {
@@ -76,13 +85,6 @@ export type DashboardKpis = {
   capacitySqft?: number;
   occupiedSqft?: number;
   availableSqft?: number;
-};
-
-export type Warehouse = {
-  _id: string;
-  name: string;
-  address?: string;
-  sqft?: number | null;
 };
 
 export type Location = {

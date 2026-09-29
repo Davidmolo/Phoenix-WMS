@@ -3,6 +3,7 @@
 import {
   Alert,
   Badge,
+  Button,
   Card,
   CardBody,
   CardTitle,
@@ -13,8 +14,10 @@ import {
   statusTone,
   type Column,
 } from "@/components/ui";
+import { FileText } from "lucide-react";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useAppNav } from "@/lib/appNav";
+import { setBillingCustomerId } from "@/lib/billingNav";
 import { dateLabel, money } from "@/lib/format";
 import type { Customer, Invoice, Pallet, WhRequest } from "@/types";
 
@@ -41,6 +44,12 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
   );
 
   const c = data?.customer;
+
+  function goGenerateInvoice() {
+    if (!customerId) return;
+    setBillingCustomerId(customerId);
+    navigate("/billing");
+  }
 
   const palletCols: Column<Pallet>[] = [
     {
@@ -82,7 +91,24 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
           title={loading ? "Customer…" : c?.name || "Customer"}
           description={c ? `${c.contact || "—"} · ${c.email || "—"}` : "Loading account detail"}
           actions={
-            <button type="button" onClick={() => navigate("/customers")} className="text-sm font-semibold text-accent-dark hover:underline">← All customers</button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                icon={<FileText className="h-3.5 w-3.5" />}
+                onClick={goGenerateInvoice}
+                disabled={!c}
+              >
+                Generate invoice
+              </Button>
+              <button
+                type="button"
+                onClick={() => navigate("/customers")}
+                className="text-sm font-semibold text-accent-dark hover:underline"
+              >
+                ← All customers
+              </button>
+            </div>
           }
         />
         <Alert>{error}</Alert>
@@ -126,7 +152,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                   </div>
                   <div>
                     <span className="font-semibold text-text">No dwell in dedicated SF: </span>
-                    {c.contractNoDwellInside ? "Yes (per SBA agreement)" : "—"}
+                    {c.contractNoDwellInside ? "Yes (per contract)" : "—"}
                   </div>
                   <div>
                     <span className="font-semibold text-text">Customer since: </span>

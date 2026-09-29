@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -24,33 +25,42 @@ function normalizePath(path: string) {
 }
 
 /**
- * In-app navigation that updates React state + the URL bar immediately.
- * Does NOT call next/navigation router.push — that was causing 1–2s RSC delays.
+ * Client-side path state for instant screen switching.
+ * URL bar is synced in an effect — never inside a setState updater
+ * (pushState notifies Next's Router; doing that during render throws).
  */
 export function AppNavProvider({
   children,
-  initialPath,
+  initialPath = "/dashboard",
 }: {
   children: ReactNode;
+  /** SSR-safe starting path from usePathname — do not read window here. */
   initialPath?: string;
 }) {
-  const [path, setPath] = useState(() =>
-    normalizePath(initialPath || (typeof window !== "undefined" ? window.location.pathname : "/dashboard"))
-  );
+  const [path, setPath] = useState(() => normalizePath(initialPath));
+  const skipPush = useRef(true); // skip push on mount (URL already correct)
 
   const navigate = useCallback((href: string) => {
     const next = normalizePath(href);
-    setPath((current) => {
-      if (current === next) return current;
-      if (typeof window !== "undefined") {
-        window.history.pushState({ appNav: true }, "", next);
-      }
-      return next;
-    });
+    skipPush.current = false;
+    setPath((current) => (current === next ? current : next));
   }, []);
 
+  // Sync the address bar after React commits — safe for Next's Router
   useEffect(() => {
-    const onPop = () => setPath(normalizePath(window.location.pathname));
+    if (skipPush.current) {
+      skipPush.current = false;
+      return;
+    }
+    if (normalizePath(window.location.pathname) === path) return;
+    window.history.pushState({ appNav: true }, "", path);
+  }, [path]);
+
+  useEffect(() => {
+    const onPop = () => {
+      skipPush.current = true; // location already matches; don't push again
+      setPath(normalizePath(window.location.pathname));
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);

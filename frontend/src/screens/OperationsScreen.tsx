@@ -6,8 +6,10 @@ import {
   PackagePlus,
   Truck,
   Ruler,
+  ClipboardList,
 } from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
+import { PickListModal, type PickListPayload } from "@/components/PickListModal";
 import {
   Alert,
   Badge,
@@ -26,7 +28,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
-import { dateLabel } from "@/lib/format";
+import { dateLabel, money } from "@/lib/format";
 import { sqftFromInches } from "@/lib/palletSpace";
 import type { Customer, DashboardKpis, Location, Pallet, Shipment, Warehouse } from "@/types";
 
@@ -42,7 +44,6 @@ export default function OperationsPage() {
 
   const warehouse = whData?.warehouses?.[0];
   const customers = custData?.customers ?? [];
-  const sba = customers.find((c) => c.billingMethod === "contract") || customers[0];
   const kpis = dashData?.kpis;
 
   const { data: locData, reload: reloadLocs } = useApiQuery<{ locations: Location[] }>(
@@ -63,6 +64,13 @@ export default function OperationsPage() {
   const [error, setError] = useState("");
   const [selectedShipIds, setSelectedShipIds] = useState<string[]>([]);
   const [labelPallet, setLabelPallet] = useState<Pallet | null>(null);
+  const [pickList, setPickList] = useState<PickListPayload | null>(null);
+
+  const selectedCustomer = useMemo(
+    () => customers.find((c) => c._id === customerId),
+    [customers, customerId]
+  );
+  const ftlRate = selectedCustomer?.contractFtlRate;
 
   const sqftEach = useMemo(() => sqftFromInches(dimLength, dimWidth), [dimLength, dimWidth]);
   const neededSqft = sqftEach * palletCount;
@@ -70,8 +78,8 @@ export default function OperationsPage() {
   const spaceTight = availableSqft != null && neededSqft > availableSqft;
 
   useEffect(() => {
-    if (sba && !customerId) setCustomerId(sba._id);
-  }, [sba, customerId]);
+    if (!customerId && customers[0]) setCustomerId(customers[0]._id);
+  }, [customers, customerId]);
 
   const activePallets = useMemo(
     () =>
@@ -79,6 +87,11 @@ export default function OperationsPage() {
         ["received", "stored", "staged"].includes(p.status)
       ),
     [palletData]
+  );
+
+  const shipableSelected = useMemo(
+    () => activePallets.filter((p) => selectedShipIds.includes(p._id)),
+    [activePallets, selectedShipIds]
   );
 
   async function onReceive(e: FormEvent) {
@@ -147,6 +160,28 @@ export default function OperationsPage() {
       await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ship failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onGeneratePickList() {
+    if (!token || selectedShipIds.length === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<PickListPayload>("/shipments/pick-list", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          warehouseId: warehouse?._id,
+          customerId: customerId || undefined,
+          palletIds: selectedShipIds,
+        }),
+      });
+      setPickList(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pick list failed");
     } finally {
       setBusy(false);
     }
@@ -298,7 +333,8 @@ export default function OperationsPage() {
                 </Field>
               </FormGrid>
               <CheckboxField checked={billAsFtl} onChange={setBillAsFtl}>
-                Bill as FTL ($520) instead of per-pallet handling
+                Bill as FTL
+                {ftlRate != null ? ` (${money(ftlRate)})` : ""} instead of per-pallet handling
               </CheckboxField>
               <Button type="submit" loading={busy} icon={<PackagePlus className="h-4 w-4" />}>
                 Receive pallets
@@ -308,7 +344,7 @@ export default function OperationsPage() {
 
           <FormSection
             title="Ship outbound"
-            description="Select staged or stored pallets to load out."
+            description="Select pallets, generate a pick list, then ship."
             icon={<Truck className="h-4 w-4" />}
           >
             <form onSubmit={onShip} className="space-y-4">
@@ -334,6 +370,10 @@ export default function OperationsPage() {
                       <span className="font-semibold text-navy">{p.externalId}</span>
                       <Badge tone={statusTone(p.status)}>{p.status}</Badge>
                       <span className="text-xs text-muted">
+                        {typeof p.locationId === "object" && p.locationId?.code
+                          ? p.locationId.code
+                          : "No slot"}
+                        {" · "}
                         {p.jobName || p.poNumber || "—"}
                         {p.sqft != null ? ` · ${p.sqft} SF` : ""}
                       </span>
@@ -341,14 +381,26 @@ export default function OperationsPage() {
                   ))
                 )}
               </div>
-              <Button
-                type="submit"
-                loading={busy}
-                disabled={selectedShipIds.length === 0}
-                icon={<Truck className="h-4 w-4" />}
-              >
-                Ship selected ({selectedShipIds.length})
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  loading={busy}
+                  disabled={shipableSelected.length === 0}
+                  icon={<ClipboardList className="h-4 w-4" />}
+                  onClick={onGeneratePickList}
+                >
+                  Pick list ({selectedShipIds.length})
+                </Button>
+                <Button
+                  type="submit"
+                  loading={busy}
+                  disabled={selectedShipIds.length === 0}
+                  icon={<Truck className="h-4 w-4" />}
+                >
+                  Ship selected ({selectedShipIds.length})
+                </Button>
+              </div>
             </form>
           </FormSection>
         </div>
@@ -365,6 +417,9 @@ export default function OperationsPage() {
 
         {labelPallet ? (
           <PalletLabelPreview pallet={labelPallet} onClose={() => setLabelPallet(null)} />
+        ) : null}
+        {pickList ? (
+          <PickListModal list={pickList} onClose={() => setPickList(null)} />
         ) : null}
     </>
   );
