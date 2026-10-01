@@ -125,3 +125,20 @@ export type Shipment = {
   jobName?: string;
   poNumber?: string;
 };
+
+export type Booking = {
+  _id: string;
+  serviceType: string;
+  startsAt: string;
+  endsAt: string;
+  durationMinutes: number;
+  status: string;
+  source: string;
+  companyName?: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  customerId?: string | null;
+  requestId?: string | null;
+};

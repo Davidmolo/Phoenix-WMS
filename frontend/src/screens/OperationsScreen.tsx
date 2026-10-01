@@ -428,7 +428,7 @@ export default function OperationsPage() {
 function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
     <div
-      className="rounded-[var(--radius)] border border-border px-3 py-2.5 shadow-[var(--shadow)]"
+      className="rounded-[var(--radius)] border border-border px-3 py-2.5 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]"
       style={{ background: "var(--blend-kpi)" }}
     >
       <div className="text-[10px] font-bold tracking-[0.06em] text-muted uppercase">{label}</div>

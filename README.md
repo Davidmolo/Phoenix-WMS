@@ -34,7 +34,7 @@ Platform rebuild of the browser-only prototype into a production stack.
 3. Staff app first; **customer portal** included as basic (agreement §10 target).
 4. Rebuild feature parity with prototype screens; polish secondary to working persistence + billing.
 5. QuickBooks deferred to Tue Sep 29 / early Oct if credentials not ready.
-6. Base rent included on monthly SBA invoice generation endpoint.
+6. Official invoices come from QuickBooks; WMS shows the register and print/export reports.
 
 ## Quick start
 
@@ -93,4 +93,5 @@ Portal (`sba@sbasite.com`): submit inbound/outbound requests + My pallets.
 - `GET /api/shipments` · `POST /api/shipments/receive|ship|expected`
 - `GET /api/company/fee-schedule`
 - `GET /api/dashboard` · `GET /api/warehouses` · `GET /api/locations` · `GET/POST /api/lpns`
-- `GET /api/invoices` · `POST /api/invoices/generate-sba-month`
+- `GET /api/invoices` (register; QuickBooks sync later) · print/export reports from UI
+- `GET /api/customers/:id/billing-report`

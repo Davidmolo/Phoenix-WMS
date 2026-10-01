@@ -1,14 +1,21 @@
 import { cn } from "@/lib/cn";
 import type { HTMLAttributes, ReactNode } from "react";
 
-export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+type CardProps = HTMLAttributes<HTMLDivElement> & {
+  /** Hover lift (Paddock-style). Default true. Set false for dense tables / maps. */
+  lift?: boolean;
+};
+
+export function Card({ className, lift = true, style, ...props }: CardProps) {
   return (
     <div
       className={cn(
         "rounded-[var(--radius-lg)] border border-border shadow-[var(--shadow)]",
+        lift &&
+          "transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]",
         className
       )}
-      style={{ background: "var(--blend-card)" }}
+      style={{ background: "var(--blend-card)", ...style }}
       {...props}
     />
   );

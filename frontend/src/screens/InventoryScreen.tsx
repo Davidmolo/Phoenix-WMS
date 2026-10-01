@@ -10,6 +10,7 @@ import {
   Card,
   CardBody,
   CardTitle,
+  ChipGroup,
   DataTable,
   PageHeader,
   statusTone,
@@ -88,24 +89,20 @@ export default function InventoryPage() {
         />
         <Alert>{error}</Alert>
 
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize ${
-                filter === f
-                  ? "bg-accent-bg text-accent-dark"
-                  : "bg-surface text-muted border border-border hover:bg-surface-2"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="mb-4">
+          <ChipGroup
+            label="Status"
+            size="sm"
+            options={FILTERS.map((f) => ({
+              id: f,
+              label: f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1),
+            }))}
+            value={filter}
+            onChange={setFilter}
+          />
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
           <DataTable
             columns={columns}
             rows={rows}

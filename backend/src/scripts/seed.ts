@@ -18,8 +18,11 @@ import { Shipment } from "../models/Shipment";
 import { Request as WhRequest } from "../models/Request";
 import { Accessorial } from "../models/Accessorial";
 import { Invoice } from "../models/Invoice";
+import { Booking } from "../models/Booking";
 
 import { DEFAULT_FEE_SCHEDULE } from "../constants/feeSchedule";
+import { BOOKING_DEFAULTS } from "../constants/booking";
+import { phoenixLocalDate, todayPhoenixKey, parseDateKey, toDateKey } from "../services/bookingAvailability";
 
 /** From proforma §8 + marketing “Publish / lock rate sheet”. */
 const PHX_FEE_SCHEDULE = { ...DEFAULT_FEE_SCHEDULE };
@@ -50,6 +53,7 @@ async function seed() {
   await connectDb();
 
   await Promise.all([
+    Booking.deleteMany({}),
     Invoice.deleteMany({}),
     Accessorial.deleteMany({}),
     WhRequest.deleteMany({}),
@@ -295,6 +299,137 @@ async function seed() {
     await Lpn.updateMany({ palletId: p._id }, { $set: { status: "shipped" } });
   }
 
+  // Demo invoice register row (matches docs/reference/index_33.html Billing → Draft invoice pattern).
+  // Official production invoices will sync from QuickBooks; seed keeps a realistic draft for UI/demo.
+  const now = new Date();
+  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const dueDate = new Date(periodEnd);
+  dueDate.setDate(dueDate.getDate() + 30);
+
+  const periodCharges = await Accessorial.find({
+    companyId: company._id,
+    customerId: sba._id,
+    invoiceId: null,
+    date: { $gte: periodStart, $lte: periodEnd },
+  });
+
+  const invoiceLines: Array<{
+    description: string;
+    qty: number;
+    unitAmount: number;
+    amount: number;
+    type: string;
+    palletId?: unknown;
+    shipmentId?: unknown;
+  }> = [
+    {
+      description: `Base rent — ${sba.name} · ${sba.contractSqft} SF @ contract rate`,
+      qty: 1,
+      unitAmount: sba.contractFee,
+      amount: sba.contractFee,
+      type: "base_rent",
+    },
+  ];
+  for (const c of periodCharges) {
+    invoiceLines.push({
+      description: c.description,
+      qty: 1,
+      unitAmount: c.amount,
+      amount: c.amount,
+      type: c.type || "handling",
+      palletId: c.palletId || undefined,
+      shipmentId: c.shipmentId || undefined,
+    });
+  }
+  const subtotal = invoiceLines.reduce((s, l) => s + l.amount, 0);
+  const seedInvoice = await Invoice.create({
+    companyId: company._id,
+    customerId: sba._id,
+    number: "INV-00001",
+    periodStart,
+    periodEnd,
+    lines: invoiceLines,
+    subtotal,
+    total: subtotal,
+    dueDate,
+    status: "draft",
+    notes: "Seed draft from client HTML prototype billing pattern · Net 30 · QuickBooks sync later",
+  });
+  if (periodCharges.length) {
+    await Accessorial.updateMany(
+      { _id: { $in: periodCharges.map((c) => c._id) } },
+      { $set: { invoiceId: seedInvoice._id } }
+    );
+  }
+
+  // Prototype dock bookings (Calendly-style) — web + phone sources
+  const duration = BOOKING_DEFAULTS.defaultDurationMinutes;
+  const todayKey = todayPhoenixKey();
+  const { y, m, d } = parseDateKey(todayKey);
+  const tomorrowKey = toDateKey(phoenixLocalDate(y, m, d + 1, 12, 0));
+  const { y: ty, m: tm, d: td } = parseDateKey(tomorrowKey);
+
+  const seedBookingSpecs = [
+    {
+      serviceType: "crossdock" as const,
+      startsAt: phoenixLocalDate(y, m, d, 9, 0),
+      source: "phone" as const,
+      companyName: "Summit Freight Lines",
+      contactName: "Jordan Reyes",
+      phone: "(555) 555-0100",
+      email: "jordan@summitfreight.example",
+    },
+    {
+      serviceType: "crossdock" as const,
+      startsAt: phoenixLocalDate(y, m, d, 11, 30),
+      source: "web" as const,
+      companyName: "Desert Parcel Co",
+      contactName: "Alex Chen",
+      phone: "(602) 555-0142",
+      email: "alex@desertparcel.example",
+    },
+    {
+      serviceType: "trailer_rework" as const,
+      startsAt: phoenixLocalDate(y, m, d, 14, 0),
+      source: "phone" as const,
+      companyName: "SBA Network Services",
+      contactName: "Site ops desk",
+      phone: "(480) 555-0199",
+      email: "sba@sbasite.com",
+      customerId: sba._id,
+    },
+    {
+      serviceType: "drop_and_store" as const,
+      startsAt: phoenixLocalDate(ty, tm, td, 10, 0),
+      source: "web" as const,
+      companyName: "Valley Retail Inbound",
+      contactName: "Morgan Lee",
+      phone: "(623) 555-0177",
+      email: "morgan@valleyretail.example",
+    },
+  ];
+
+  for (const spec of seedBookingSpecs) {
+    const endsAt = new Date(spec.startsAt.getTime() + duration * 60_000);
+    await Booking.create({
+      companyId: company._id,
+      warehouseId: warehouse._id,
+      customerId: spec.customerId || null,
+      serviceType: spec.serviceType,
+      startsAt: spec.startsAt,
+      endsAt,
+      durationMinutes: duration,
+      status: "confirmed",
+      source: spec.source,
+      companyName: spec.companyName,
+      contactName: spec.contactName,
+      phone: spec.phone,
+      email: spec.email,
+      notes: "Seed booking for calendar prototype",
+    });
+  }
+
   const activeOnFloor = BRIDGE_PALLET_COUNT - toShip.length;
   const unbilled = await Accessorial.countDocuments({ invoiceId: null });
 
@@ -303,7 +438,7 @@ async function seed() {
     sources: [
       "SBA_Warehouse_Handling_Agreement_PDCsigned.pdf",
       "CT_Warehouse_Lease_Proforma_14.xlsx (§3 bridge = 24 pallets; Suite 5 / 5700 SF; SBA 2500@$3=$7500)",
-      "Marketing project plan1.xlsx (team + $25 / $20 rate sheet)",
+      "docs/reference/index_33.html (Billing draft invoice / generate pattern)",
     ],
     company: company.legalName,
     warehouse: { name: warehouse.name, sqft: warehouse.sqft },
@@ -326,6 +461,12 @@ async function seed() {
       unbilledHandlingLines: unbilled,
       inboundShipment: inbound.bolNumber,
       outboundShipment: outbound.bolNumber,
+      seedInvoice: {
+        number: seedInvoice.number,
+        total: seedInvoice.total,
+        status: seedInvoice.status,
+        lines: invoiceLines.length,
+      },
     },
     logins: [
       "david@phoenixcrossdock.com / ChangeMe123!  (Owner — David Molo)",

@@ -302,7 +302,7 @@ export function SkeletonShell({
           <Skeleton className="ml-auto h-8 w-16 rounded-lg" />
         </header>
 
-        <main className="mx-auto w-full max-w-[1180px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-6 lg:py-8">
+        <main className="mx-auto w-full max-w-[1680px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-7 xl:px-10">
           <SkeletonPage variant={variant} />
         </main>
       </div>

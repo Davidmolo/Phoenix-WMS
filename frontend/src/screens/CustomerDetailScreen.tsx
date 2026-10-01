@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Alert,
   Badge,
@@ -14,10 +15,10 @@ import {
   statusTone,
   type Column,
 } from "@/components/ui";
-import { FileText } from "lucide-react";
+import { Printer } from "lucide-react";
+import { BillingReportModal } from "@/components/BillingReportModal";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useAppNav } from "@/lib/appNav";
-import { setBillingCustomerId } from "@/lib/billingNav";
 import { dateLabel, money } from "@/lib/format";
 import type { Customer, Invoice, Pallet, WhRequest } from "@/types";
 
@@ -42,14 +43,14 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
   const { data, error, loading } = useApiQuery<DetailResponse>(
     customerId ? `/customers/${customerId}` : null
   );
+  // Same register as Billing — not the embedded (possibly stale) customer payload
+  const { data: invData, loading: invLoading } = useApiQuery<{ invoices: Invoice[] }>(
+    customerId ? `/invoices?customerId=${customerId}` : null
+  );
+  const [showReport, setShowReport] = useState(false);
 
   const c = data?.customer;
-
-  function goGenerateInvoice() {
-    if (!customerId) return;
-    setBillingCustomerId(customerId);
-    navigate("/billing");
-  }
+  const invoices = invData?.invoices ?? [];
 
   const palletCols: Column<Pallet>[] = [
     {
@@ -95,11 +96,12 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
               <Button
                 type="button"
                 size="sm"
-                icon={<FileText className="h-3.5 w-3.5" />}
-                onClick={goGenerateInvoice}
+                variant="secondary"
+                icon={<Printer className="h-3.5 w-3.5" />}
+                onClick={() => setShowReport(true)}
                 disabled={!c}
               >
-                Generate invoice
+                Print / export
               </Button>
               <button
                 type="button"
@@ -191,8 +193,48 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                 emptyTitle="No requests"
               />
             </div>
+
+            <div className="mb-5">
+              <PageHeader title="Invoices" description="Same register as Billing for this customer" />
+              <DataTable
+                columns={[
+                  {
+                    key: "number",
+                    header: "Number",
+                    render: (inv: Invoice) => <span className="font-semibold">{inv.number}</span>,
+                  },
+                  {
+                    key: "period",
+                    header: "Period",
+                    render: (inv: Invoice) =>
+                      `${dateLabel(inv.periodStart)} – ${dateLabel(inv.periodEnd)}`,
+                  },
+                  {
+                    key: "status",
+                    header: "Status",
+                    render: (inv: Invoice) => (
+                      <Badge tone={statusTone(inv.status)}>{inv.status}</Badge>
+                    ),
+                  },
+                  {
+                    key: "total",
+                    header: "Total",
+                    render: (inv: Invoice) => money(inv.total),
+                  },
+                ]}
+                rows={invoices}
+                rowKey={(inv) => inv._id}
+                loading={invLoading}
+                emptyTitle="No invoices for this customer"
+                emptyDescription="Invoices appear here after QuickBooks sync (same list as Billing)."
+              />
+            </div>
           </>
         ) : null}
+
+      {showReport && c ? (
+        <BillingReportModal customer={c} onClose={() => setShowReport(false)} />
+      ) : null}
     </>
   );
 }

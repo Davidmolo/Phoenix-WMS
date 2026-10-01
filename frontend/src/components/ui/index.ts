@@ -2,6 +2,7 @@ export { Alert } from "./Alert";
 export { Badge, statusTone } from "./Badge";
 export { Button } from "./Button";
 export { Card, CardBody, CardTitle } from "./Card";
+export { ChipGroup } from "./ChipGroup";
 export { DataTable, type Column } from "./DataTable";
 export { EmptyState } from "./EmptyState";
 export { Field, FormGrid, FormSection, CheckboxField } from "./Field";

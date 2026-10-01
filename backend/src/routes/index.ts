@@ -8,6 +8,8 @@ import locationRoutes from "./locations";
 import lpnRoutes from "./lpns";
 import shipmentRoutes from "./shipments";
 import opsRoutes from "./ops";
+import bookingRoutes from "./bookings";
+import publicBookingRoutes from "./publicBookings";
 
 const router = Router();
 
@@ -23,6 +25,8 @@ router.use("/requests", requestRoutes);
 router.use("/locations", locationRoutes);
 router.use("/lpns", lpnRoutes);
 router.use("/shipments", shipmentRoutes);
+router.use("/bookings", bookingRoutes);
+router.use("/public/bookings", publicBookingRoutes);
 router.use("/", opsRoutes);
 
 export default router;

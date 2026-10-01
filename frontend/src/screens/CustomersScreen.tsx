@@ -1,21 +1,18 @@
 "use client";
 
-import { FileText, Users } from "lucide-react";
+import { useState } from "react";
+import { Printer, Users } from "lucide-react";
+import { BillingReportModal } from "@/components/BillingReportModal";
 import { Alert, Badge, Button, DataTable, PageHeader, type Column } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useAppNav } from "@/lib/appNav";
-import { setBillingCustomerId } from "@/lib/billingNav";
 import { money } from "@/lib/format";
 import type { Customer } from "@/types";
 
 export default function CustomersPage() {
   const { navigate } = useAppNav();
   const { data, error, loading } = useApiQuery<{ customers: Customer[] }>("/customers");
-
-  function goGenerateInvoice(customerId: string) {
-    setBillingCustomerId(customerId);
-    navigate("/billing");
-  }
+  const [reportCustomer, setReportCustomer] = useState<Customer | null>(null);
 
   const columns: Column<Customer>[] = [
     {
@@ -60,20 +57,20 @@ export default function CustomersPage() {
       render: (c) => c.email || "—",
     },
     {
-      key: "invoice",
-      header: "Invoice",
+      key: "report",
+      header: "Report",
       render: (c) => (
         <Button
           type="button"
           size="sm"
           variant="secondary"
-          icon={<FileText className="h-3.5 w-3.5" />}
+          icon={<Printer className="h-3.5 w-3.5" />}
           onClick={(e) => {
             e.stopPropagation();
-            goGenerateInvoice(c._id);
+            setReportCustomer(c);
           }}
         >
-          Generate
+          Print / export
         </Button>
       ),
     },
@@ -84,7 +81,7 @@ export default function CustomersPage() {
       <PageHeader
         title="Customers"
         icon={<Users className="h-5 w-5" />}
-        description="Open a customer for detail, or generate their monthly invoice from this list"
+        description="Open a customer for detail, or print/export their billing activity report"
       />
       <Alert>{error}</Alert>
       <DataTable
@@ -94,6 +91,12 @@ export default function CustomersPage() {
         loading={loading}
         emptyTitle="No customers yet"
       />
+      {reportCustomer ? (
+        <BillingReportModal
+          customer={reportCustomer}
+          onClose={() => setReportCustomer(null)}
+        />
+      ) : null}
     </>
   );
 }

@@ -48,11 +48,11 @@ export function DataTable<T>({
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" lift={false}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13.5px]">
           <thead>
-            <tr className="bg-[linear-gradient(90deg,#eef2f6,#f7f3eb)] text-left">
+            <tr className="bg-[linear-gradient(90deg,#eef2f6_0%,#f7f3eb_55%,#eef2f6_100%)] text-left">
               {columns.map((col) => (
                 <th
                   key={col.key}

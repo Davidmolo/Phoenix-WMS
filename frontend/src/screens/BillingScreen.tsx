@@ -1,28 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { FileText } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FileText, Printer } from "lucide-react";
+import { BillingReportModal } from "@/components/BillingReportModal";
+import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
 import {
   Alert,
   Badge,
   Button,
+  Card,
+  CardBody,
   DataTable,
   Field,
   FormGrid,
+  Input,
   PageHeader,
   Select,
   statusTone,
   type Column,
 } from "@/components/ui";
-import { api } from "@/lib/api";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
-import { takeBillingCustomerId } from "@/lib/billingNav";
-import { useScreenActive } from "@/lib/screenActive";
 import { dateLabel, money } from "@/lib/format";
 import type { Customer, Invoice } from "@/types";
 
 type InvoiceRow = Invoice & {
+  quickbooksId?: string | null;
   customerId?: string | { _id: string; name?: string; billingMethod?: string };
 };
 
@@ -34,39 +37,54 @@ function customerName(inv: InvoiceRow) {
 }
 
 export default function BillingPage() {
-  const { token, user } = useAuth();
-  const screenActive = useScreenActive();
-  const { data, error, loading, reload } = useApiQuery<{ invoices: InvoiceRow[] }>("/invoices");
+  const { user } = useAuth();
+  const isStaff = user?.role !== "customer";
+  // Empty = show all invoices (same source as Customer → Invoices)
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [showRegisterPrint, setShowRegisterPrint] = useState(false);
+  const [showCustomerReport, setShowCustomerReport] = useState(false);
+
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers", {
-    enabled: user?.role !== "customer",
+    enabled: isStaff,
   });
   const customers = custData?.customers ?? [];
-  const [customerId, setCustomerId] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
+  const selectedCustomer = customers.find((c) => c._id === customerId);
 
-  // Prefer a customer handed off from Customers → Generate
-  useEffect(() => {
-    if (!screenActive) return;
-    const pending = takeBillingCustomerId();
-    if (pending) setCustomerId(pending);
-  }, [screenActive]);
+  const query = useMemo(() => {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("fromDate", fromDate);
+    if (toDate) params.set("toDate", toDate);
+    if (isStaff && customerId) params.set("customerId", customerId);
+    const qs = params.toString();
+    return qs ? `/invoices?${qs}` : "/invoices";
+  }, [fromDate, toDate, customerId, isStaff]);
 
-  useEffect(() => {
-    if (!customerId && customers[0]) setCustomerId(customers[0]._id);
-  }, [customers, customerId]);
+  const { data, error, loading, reload } = useApiQuery<{ invoices: InvoiceRow[] }>(query);
+  const invoices = data?.invoices ?? [];
 
-  const selected = useMemo(
-    () => customers.find((c) => c._id === customerId),
-    [customers, customerId]
-  );
+  const filterLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (fromDate || toDate) parts.push(`${fromDate || "…"} → ${toDate || "…"}`);
+    else parts.push("All dates");
+    if (selectedCustomer) parts.push(selectedCustomer.name);
+    else if (isStaff) parts.push("All customers");
+    return parts.join(" · ");
+  }, [fromDate, toDate, selectedCustomer, isStaff]);
 
   const columns: Column<InvoiceRow>[] = [
     {
       key: "number",
       header: "Number",
-      render: (inv) => <span className="font-semibold">{inv.number}</span>,
+      render: (inv) => (
+        <span className="font-semibold">
+          {inv.number}
+          {inv.quickbooksId ? (
+            <span className="mt-0.5 block text-[10px] font-normal text-muted">QB synced</span>
+          ) : null}
+        </span>
+      ),
     },
     {
       key: "customer",
@@ -90,37 +108,13 @@ export default function BillingPage() {
     },
   ];
 
-  async function generateInvoice() {
-    if (!token || !customerId) return;
-    setBusy(true);
-    setErr("");
-    setMsg("");
-    try {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      const result = await api<{ invoice: InvoiceRow; chargesAttached: number }>(
-        "/invoices/generate-month",
-        {
-          method: "POST",
-          token,
-          body: JSON.stringify({
-            customerId,
-            periodStart: start.toISOString(),
-            periodEnd: end.toISOString(),
-          }),
-        }
-      );
-      setMsg(
-        `Created ${result.invoice.number} for ${customerName(result.invoice)} · ${money(result.invoice.total)} (${result.chargesAttached} handling lines)`
-      );
-      invalidateApiCache();
-      await reload();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Invoice failed");
-    } finally {
-      setBusy(false);
-    }
+  function clearFilters() {
+    setFromDate("");
+    setToDate("");
+    setCustomerId("");
+    invalidateApiCache("/invoices");
+    invalidateApiCache("/customers");
+    void reload();
   }
 
   return (
@@ -128,60 +122,109 @@ export default function BillingPage() {
       <PageHeader
         title="Billing"
         icon={<FileText className="h-5 w-5" />}
-        description="All invoices · pick a customer to generate · QuickBooks send when credentials are connected"
-      />
-
-      {user?.role !== "customer" ? (
-        <div className="mb-5 rounded-[var(--radius-lg)] border border-border bg-white p-4 shadow-[var(--shadow)]">
-          <FormGrid cols={2}>
-            <Field
-              label="Customer"
-              required
-              hint="From Customers you can jump here with a customer already selected. Includes contract rent (if any) plus unbilled charges this month."
-            >
-              <Select
-                value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-                required
+        description="Same invoice register as Customer detail · optional date range and customer filters"
+        actions={
+          isStaff ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Printer className="h-3.5 w-3.5" />}
+                onClick={() => setShowRegisterPrint(true)}
               >
-                <option value="" disabled>
-                  Select customer…
-                </option>
-                {customers.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.name}
-                    {c.billingMethod === "contract" && c.contractFee
-                      ? ` · contract ${money(c.contractFee)}/mo`
-                      : ""}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div className="flex items-end">
-              <Button onClick={generateInvoice} loading={busy} disabled={!customerId}>
-                Generate monthly invoice
-                {selected ? ` — ${selected.name}` : ""}
+                Print / export list
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Printer className="h-3.5 w-3.5" />}
+                disabled={!selectedCustomer}
+                onClick={() => setShowCustomerReport(true)}
+              >
+                Customer report
               </Button>
             </div>
+          ) : undefined
+        }
+      />
+
+      <Card className="mb-5">
+        <CardBody>
+          <FormGrid cols={isStaff ? 3 : 2}>
+            <Field label="From" htmlFor="billing-from" hint="Leave blank to include all dates.">
+              <Input
+                id="billing-from"
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+            </Field>
+            <Field label="To" htmlFor="billing-to" hint="Leave blank to include all dates.">
+              <Input
+                id="billing-to"
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+            </Field>
+            {isStaff ? (
+              <Field label="Customer" htmlFor="billing-customer" hint="Optional filter.">
+                <Select
+                  id="billing-customer"
+                  value={customerId}
+                  onChange={(e) => setCustomerId(e.target.value)}
+                >
+                  <option value="">All customers</option>
+                  {customers.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
           </FormGrid>
-        </div>
-      ) : null}
+          {(fromDate || toDate || customerId) && (
+            <div className="mt-3">
+              <Button type="button" size="sm" variant="ghost" onClick={clearFilters}>
+                Clear filters (show all)
+              </Button>
+            </div>
+          )}
+        </CardBody>
+      </Card>
 
       <Alert tone="info">
-        This page is the invoice register for every customer. Sending/email/PDF will go through
-        QuickBooks once Cesar connects credentials.
+        Billing and Customer → Invoices both read <strong>/invoices</strong>. If a row appears on
+        one screen but not the other, clear filters here or refresh — stale cache can linger after
+        data changes.
       </Alert>
 
-      <Alert>{error || err}</Alert>
-      {msg ? <Alert tone="info">{msg}</Alert> : null}
+      <Alert>{error}</Alert>
       <DataTable
         columns={columns}
-        rows={data?.invoices ?? []}
+        rows={invoices}
         rowKey={(inv) => inv._id}
         loading={loading}
-        emptyTitle="No invoices yet"
-        emptyDescription="Select a customer and generate their monthly invoice."
+        emptyTitle="No invoices"
+        emptyDescription="There are no invoices in the register yet (QuickBooks sync will fill this)."
       />
+
+      {showRegisterPrint ? (
+        <InvoiceRegisterPrintModal
+          invoices={invoices}
+          filterLabel={filterLabel}
+          onClose={() => setShowRegisterPrint(false)}
+        />
+      ) : null}
+      {showCustomerReport && selectedCustomer ? (
+        <BillingReportModal
+          customer={selectedCustomer}
+          onClose={() => setShowCustomerReport(false)}
+        />
+      ) : null}
     </>
   );
 }
