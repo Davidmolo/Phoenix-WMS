@@ -22,6 +22,7 @@ import {
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel, money } from "@/lib/format";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Customer, Invoice } from "@/types";
 
 type InvoiceRow = Invoice & {
@@ -43,25 +44,30 @@ export default function BillingPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [page, setPage] = useState(1);
   const [showRegisterPrint, setShowRegisterPrint] = useState(false);
   const [showCustomerReport, setShowCustomerReport] = useState(false);
 
-  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers", {
+  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all", {
     enabled: isStaff,
   });
   const customers = custData?.customers ?? [];
   const selectedCustomer = customers.find((c) => c._id === customerId);
 
   const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (fromDate) params.set("fromDate", fromDate);
-    if (toDate) params.set("toDate", toDate);
-    if (isStaff && customerId) params.set("customerId", customerId);
-    const qs = params.toString();
-    return qs ? `/invoices?${qs}` : "/invoices";
-  }, [fromDate, toDate, customerId, isStaff]);
+    return listQuery("/invoices", {
+      page,
+      params: {
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        customerId: isStaff && customerId ? customerId : undefined,
+      },
+    });
+  }, [fromDate, toDate, customerId, isStaff, page]);
 
-  const { data, error, loading, reload } = useApiQuery<{ invoices: InvoiceRow[] }>(query);
+  const { data, error, loading, reload } = useApiQuery<
+    { invoices: InvoiceRow[] } & PaginationMeta
+  >(query);
   const invoices = data?.invoices ?? [];
 
   const filterLabel = useMemo(() => {
@@ -112,6 +118,7 @@ export default function BillingPage() {
     setFromDate("");
     setToDate("");
     setCustomerId("");
+    setPage(1);
     invalidateApiCache("/invoices");
     invalidateApiCache("/customers");
     void reload();
@@ -158,7 +165,10 @@ export default function BillingPage() {
                 id="billing-from"
                 type="date"
                 value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  setPage(1);
+                }}
               />
             </Field>
             <Field label="To" htmlFor="billing-to" hint="Leave blank to include all dates.">
@@ -166,7 +176,10 @@ export default function BillingPage() {
                 id="billing-to"
                 type="date"
                 value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
+                onChange={(e) => {
+                  setToDate(e.target.value);
+                  setPage(1);
+                }}
               />
             </Field>
             {isStaff ? (
@@ -174,7 +187,10 @@ export default function BillingPage() {
                 <Select
                   id="billing-customer"
                   value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerId(e.target.value);
+                    setPage(1);
+                  }}
                 >
                   <option value="">All customers</option>
                   {customers.map((c) => (
@@ -210,6 +226,8 @@ export default function BillingPage() {
         loading={loading}
         emptyTitle="No invoices"
         emptyDescription="There are no invoices in the register yet (QuickBooks sync will fill this)."
+        pagination={paginationFrom(data)}
+        onPageChange={setPage}
       />
 
       {showRegisterPrint ? (

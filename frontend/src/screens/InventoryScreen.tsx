@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Package } from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
@@ -19,6 +19,7 @@ import {
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel } from "@/lib/format";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Pallet, PalletLocation } from "@/types";
 
 const FILTERS = ["all", "stored", "staged", "received", "shipped"] as const;
@@ -29,18 +30,32 @@ function locationCode(p: Pallet): string {
   return (loc as PalletLocation).code || "—";
 }
 
+type PalletsResponse = { pallets: Pallet[] } & PaginationMeta;
+
 export default function InventoryPage() {
   const { user } = useAuth();
-  const { data, error, loading } = useApiQuery<{ pallets: Pallet[] }>("/pallets");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [printPallet, setPrintPallet] = useState<Pallet | null>(null);
 
-  const rows = useMemo(() => {
-    const list = data?.pallets ?? [];
-    if (filter === "all") return list;
-    return list.filter((p) => p.status === filter);
-  }, [data, filter]);
+  useEffect(() => {
+    setPage(1);
+    setSelectedId(null);
+  }, [filter]);
+
+  const path = useMemo(
+    () =>
+      listQuery("/pallets", {
+        page,
+        params: { status: filter === "all" ? undefined : filter },
+      }),
+    [page, filter]
+  );
+
+  const { data, error, loading } = useApiQuery<PalletsResponse>(path);
+  const rows = data?.pallets ?? [];
+  const pagination = paginationFrom(data);
 
   const selected = useMemo(
     () => rows.find((p) => p._id === selectedId) ?? null,
@@ -112,6 +127,8 @@ export default function InventoryPage() {
             emptyDescription="Receive inbound freight to populate inventory."
             onRowClick={(p) => setSelectedId(p._id)}
             selectedKey={selectedId}
+            pagination={pagination}
+            onPageChange={setPage}
           />
 
           <Card className="h-fit lg:sticky lg:top-20">

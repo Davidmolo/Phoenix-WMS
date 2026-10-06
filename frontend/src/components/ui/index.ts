@@ -10,6 +10,7 @@ export { Input } from "./Input";
 export { KpiCard, KpiGrid } from "./KpiCard";
 export { Label } from "./Label";
 export { PageHeader } from "./PageHeader";
+export { Pagination } from "./Pagination";
 export { Select } from "./Select";
 export {
   Skeleton,

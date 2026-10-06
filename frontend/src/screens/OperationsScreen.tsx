@@ -29,18 +29,23 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel, money } from "@/lib/format";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import { sqftFromInches } from "@/lib/palletSpace";
 import type { Customer, DashboardKpis, Location, Pallet, Shipment, Warehouse } from "@/types";
 
 export default function OperationsPage() {
   const { token } = useAuth();
-  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers");
+  const [shipPage, setShipPage] = useState(1);
+  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
   const { data: dashData, reload: reloadDash } = useApiQuery<{ kpis: DashboardKpis }>("/dashboard");
-  const { data: shipData, reload: reloadShipments, loading: shipsLoading } = useApiQuery<{
-    shipments: Shipment[];
-  }>("/shipments");
-  const { data: palletData, reload: reloadPallets } = useApiQuery<{ pallets: Pallet[] }>("/pallets");
+  const shipPath = useMemo(() => listQuery("/shipments", { page: shipPage }), [shipPage]);
+  const { data: shipData, reload: reloadShipments, loading: shipsLoading } = useApiQuery<
+    { shipments: Shipment[] } & PaginationMeta
+  >(shipPath);
+  const { data: palletData, reload: reloadPallets } = useApiQuery<{ pallets: Pallet[] }>(
+    listQuery("/pallets", { limit: 200 })
+  );
 
   const warehouse = whData?.warehouses?.[0];
   const customers = custData?.customers ?? [];
@@ -413,6 +418,8 @@ export default function OperationsPage() {
           loading={shipsLoading}
           emptyTitle="No shipments yet"
           emptyDescription="Receive your first inbound load above."
+          pagination={paginationFrom(shipData)}
+          onPageChange={setShipPage}
         />
 
         {labelPallet ? (

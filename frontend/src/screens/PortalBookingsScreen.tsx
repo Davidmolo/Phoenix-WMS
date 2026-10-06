@@ -26,6 +26,9 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { listQuery } from "@/lib/pagination";
+import { BookingDisclaimer } from "@/components/BookingDisclaimer";
 import type { Booking, Customer } from "@/types";
 
 type CalendarResponse = {
@@ -74,13 +77,15 @@ function labelForField(key: keyof ProfileFields) {
 
 function StepHeading({ n, title }: { n: number; title: string }) {
   return (
-    <div className="mb-4 flex items-center gap-3 border-b border-border pb-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-[var(--navy-deep)] shadow-[var(--shadow-button)] sm:h-8 sm:w-8 sm:text-sm">
+    <div className="mb-5 flex items-center gap-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-[12px] font-bold text-white sm:h-9 sm:w-9 sm:text-[13px]">
         {n}
       </span>
-      <h2 className="font-display m-0 text-xs font-semibold tracking-[0.08em] text-accent uppercase sm:text-sm">
-        {title}
-      </h2>
+      <div className="min-w-0 flex-1 border-b border-border pb-2.5">
+        <h2 className="font-display m-0 text-[12px] font-semibold tracking-[0.1em] text-navy uppercase sm:text-[13px]">
+          {title}
+        </h2>
+      </div>
     </div>
   );
 }
@@ -151,21 +156,27 @@ export default function PortalBookingsScreen() {
   const slotsPath = selectedDate
     ? `/bookings/slots?date=${encodeURIComponent(selectedDate)}&serviceType=${encodeURIComponent(serviceType)}`
     : null;
-  const { data: slotsData, reload: reloadSlots } = useApiQuery<SlotsResponse>(slotsPath);
+  const { data: slotsData, reload: reloadSlots, loading: slotsLoading } = useApiQuery<SlotsResponse>(slotsPath);
 
-  const { data: mineData, reload: reloadMine } = useApiQuery<{ bookings: Booking[] }>("/bookings");
+  const { data: mineData, reload: reloadMine } = useApiQuery<{ bookings: Booking[] }>(
+    listQuery("/bookings", { limit: 50 })
+  );
 
-  const slots = slotsData?.slots ?? [];
-  const nextAvailable = slotsData?.nextAvailable;
+  // Keep previous slots on screen while a new day loads (avoids full flash/re-render)
+  const [slots, setSlots] = useState<DaySlot[]>([]);
+  const nextAvailable = slotsData?.nextAvailable ?? null;
   const openSlots = useMemo(() => slots.filter((s) => s.status === "available").length, [slots]);
 
   useEffect(() => {
-    setSelectedSlot(null);
-  }, [selectedDate, serviceType]);
-
-  useEffect(() => {
-    if (!selectedSlot && nextAvailable) setSelectedSlot(nextAvailable);
-  }, [nextAvailable, selectedSlot]);
+    if (!slotsData?.slots) return;
+    setSlots(slotsData.slots);
+    setSelectedSlot((prev) => {
+      const stillOpen = prev
+        ? slotsData.slots.find((s) => s.startIso === prev.startIso && s.status === "available")
+        : null;
+      return stillOpen ?? slotsData.nextAvailable ?? null;
+    });
+  }, [slotsData]);
 
   const myBookings = useMemo(() => {
     return (mineData?.bookings ?? [])
@@ -244,7 +255,7 @@ export default function PortalBookingsScreen() {
       <PageHeader
         title="Book a bay"
         icon={<CalendarDays className="h-5 w-5" />}
-        description="Same booking flow as the website — 15-min starts, ~50 min visits, 2 doors. Your account info comes from Profile."
+        description="Same booking flow as the website — 45-min slots, 8 AM–6 PM. Your account info comes from Profile."
       />
 
       {msg ? (
@@ -279,7 +290,7 @@ export default function PortalBookingsScreen() {
       {profileComplete ? (
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_320px]">
           <form onSubmit={onSubmit} className="space-y-4 sm:space-y-5">
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={1} title="Who's booking" />
               <p className="mt-0 mb-4 text-sm text-muted">
                 Booking as <strong className="text-navy">{account.companyName}</strong>
@@ -289,7 +300,7 @@ export default function PortalBookingsScreen() {
               <ChipGroup label="You are the" options={[...ROLE_OPTIONS]} value={role} onChange={setRole} />
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] sm:p-6">
               <StepHeading n={2} title="The appointment" />
               <ChipGroup
                 label="Service needed *"
@@ -303,12 +314,13 @@ export default function PortalBookingsScreen() {
                   Requested date & time *
                 </div>
                 <p className="mb-3 mt-0 text-xs text-muted sm:mb-4">
-                  15-min starts · each visit holds ~50 minutes · 2 doors · {openSlots} open on
-                  selected day
+                  45-min slots · {openSlots} open on selected day
+                  {slotsLoading ? " · updating…" : ""}
                 </p>
+                <BookingDisclaimer className="mb-3 sm:mb-4" />
 
-                <div className="grid gap-4 xl:grid-cols-[minmax(320px,380px)_minmax(0,1fr)] xl:items-start">
-                  <div className="mx-auto w-full max-w-sm xl:mx-0 xl:max-w-none">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+                  <div className="mx-auto w-full max-w-[340px] shrink-0 lg:mx-0 lg:w-[340px]">
                     <BookingMonthCalendar
                       year={cursor.year}
                       month={cursor.month}
@@ -323,13 +335,16 @@ export default function PortalBookingsScreen() {
                       onChangeMonth={(year, month) => setCursor({ year, month })}
                     />
                   </div>
-                  <div className="min-w-0 space-y-3">
-                    <div className="font-semibold text-navy">
-                      {selectedDate ? dateLabel(selectedDate + "T12:00:00") : "Pick a date"}
-                    </div>
+                  <div
+                    className={cn(
+                      "min-w-0 flex-1 self-start transition-opacity duration-150",
+                      slotsLoading && "opacity-60"
+                    )}
+                  >
                     <BookingSlotGrid
                       slots={slots}
                       mode="book"
+                      slotMinutes={45}
                       selectedStartIso={selectedSlot?.startIso ?? null}
                       nextAvailableIso={nextAvailable?.startIso}
                       onSelect={(slot) => {
@@ -337,8 +352,18 @@ export default function PortalBookingsScreen() {
                       }}
                     />
                     {selectedSlot ? (
-                      <div className="rounded-xl border border-accent/40 bg-accent-bg px-3 py-2.5 text-sm font-semibold text-[var(--accent-text)]">
-                        Selected: {selectedDate} · {selectedSlot.label}
+                      <div className="mt-3 flex items-center gap-3 rounded-xl border border-navy/10 bg-navy px-3.5 py-3 text-sm text-white">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-[11px] font-bold text-[var(--navy-deep)]">
+                          ✓
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-bold tracking-[0.08em] text-white/65 uppercase">
+                            Selected slot
+                          </div>
+                          <div className="font-semibold">
+                            {selectedDate} · {selectedSlot.label}
+                          </div>
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -346,7 +371,7 @@ export default function PortalBookingsScreen() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={3} title="The freight" />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Trailer type">
@@ -388,7 +413,7 @@ export default function PortalBookingsScreen() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={4} title="Anything else" />
               <Field label="Special handling or notes">
                 <textarea
@@ -428,30 +453,31 @@ export default function PortalBookingsScreen() {
             </section>
           </form>
 
-          <aside className="hidden space-y-4 lg:sticky lg:top-20 lg:block lg:self-start">
-            <div className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
-              <h3 className="font-display m-0 text-sm font-semibold tracking-wide text-navy uppercase">
+          <aside className="hidden space-y-3 lg:sticky lg:top-20 lg:block lg:self-start">
+            <div className="rounded-2xl border border-border bg-white p-5 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+              <h3 className="font-display m-0 text-[12px] font-semibold tracking-[0.1em] text-navy uppercase">
                 What happens next
               </h3>
-              <ol className="mt-3 mb-0 list-decimal space-y-2 pl-4 text-sm leading-relaxed text-muted">
+              <ol className="mt-3.5 mb-0 list-decimal space-y-2.5 pl-4 text-[13.5px] leading-relaxed text-muted">
                 <li>You book your time slot and get a confirmed bay with gate instructions.</li>
                 <li>Driver checks in and backs into the assigned bay.</li>
                 <li>Freight is scanned in and out; BOL / POD logged.</li>
               </ol>
             </div>
-            <div className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
-              <h3 className="font-display m-0 text-sm font-semibold tracking-wide text-navy uppercase">
+            <div className="rounded-2xl border border-border bg-white p-5 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+              <h3 className="font-display m-0 text-[12px] font-semibold tracking-[0.1em] text-navy uppercase">
                 We can&apos;t take
               </h3>
-              <ul className="mt-3 mb-0 list-disc space-y-1.5 pl-4 text-sm text-muted">
+              <ul className="mt-3.5 mb-0 list-disc space-y-1.5 pl-4 text-[13.5px] text-muted">
                 <li>Temperature-controlled / reefer</li>
                 <li>Hazmat or regulated materials</li>
               </ul>
             </div>
-            <div className="rounded-2xl border border-border bg-[var(--surface-2)] p-4 text-sm text-muted">
-              <strong className="text-navy">Hours</strong>
-              <div className="mt-1">8:00 AM – 8:00 PM daily</div>
-              <div className="mt-3 font-semibold text-navy">3550 W Clarendon Ave #5</div>
+            <div className="rounded-2xl border border-border bg-navy p-5 text-[13.5px] text-white/80 transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+              <div className="text-[10px] font-bold tracking-[0.1em] text-accent uppercase">Hours</div>
+              <div className="mt-1 font-semibold text-white">8:00 AM – 6:00 PM daily</div>
+              <div className="mt-4 text-[10px] font-bold tracking-[0.1em] text-accent uppercase">Location</div>
+              <div className="mt-1 font-semibold text-white">3550 W Clarendon Ave #5</div>
               <div>Phoenix, AZ 85019</div>
             </div>
           </aside>
@@ -465,7 +491,7 @@ export default function PortalBookingsScreen() {
         <div className="mt-3 space-y-3 text-sm text-muted">
           <p className="m-0">
             Book your slot (confirmed) → driver checks in → scans + BOL/POD. We don&apos;t take
-            reefer or hazmat. Hours 8 AM–8 PM · Clarendon #5.
+            reefer or hazmat. Hours 8 AM–6 PM · Clarendon #5.
           </p>
         </div>
       </details>

@@ -147,6 +147,8 @@ export default function LoginPage() {
             Customer: <code className="text-navy">sba@sbasite.com</code>
             <br />
             Password: <code className="text-navy">ChangeMe123!</code>
+            <br />
+            New customers receive a portal invite from staff — there is no public sign-up.
           </p>
         </div>
 

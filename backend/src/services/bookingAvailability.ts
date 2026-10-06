@@ -97,25 +97,28 @@ export function durationForService(serviceType: string): number {
   return getServiceType(serviceType)?.durationMinutes ?? BOOKING_DEFAULTS.defaultDurationMinutes;
 }
 
-export function capacityForService(serviceType: string): number {
-  if (serviceType === "all") return BOOKING_DEFAULTS.sharedDockCapacity;
-  return getServiceType(serviceType)?.capacity ?? BOOKING_DEFAULTS.sharedDockCapacity;
+export function dockUnitsForService(serviceType: string): number {
+  if (serviceType === "all") return 1;
+  return getServiceType(serviceType)?.dockUnits ?? 1;
 }
 
-/** Last start time that still finishes by workday end. */
+export function capacityForService(_serviceType?: string): number {
+  return BOOKING_DEFAULTS.totalDocks;
+}
+
+/** Consecutive starts from open until a visit still finishes by close. */
 export function generateSlotStarts(dateKey: string, durationMinutes: number): Date[] {
   const { y, m, d } = parseDateKey(dateKey);
   const { workdayStartHour, workdayEndHour, slotIntervalMinutes } = BOOKING_DEFAULTS;
   const dayEnd = phoenixLocalDate(y, m, d, workdayEndHour, 0);
   const starts: Date[] = [];
+  let cursor = phoenixLocalDate(y, m, d, workdayStartHour, 0);
 
-  for (let hour = workdayStartHour; hour < workdayEndHour; hour++) {
-    for (let minute = 0; minute < 60; minute += slotIntervalMinutes) {
-      const start = phoenixLocalDate(y, m, d, hour, minute);
-      const end = new Date(start.getTime() + durationMinutes * 60_000);
-      if (end > dayEnd) continue;
-      starts.push(start);
-    }
+  while (true) {
+    const end = new Date(cursor.getTime() + durationMinutes * 60_000);
+    if (end > dayEnd) break;
+    starts.push(cursor);
+    cursor = new Date(cursor.getTime() + slotIntervalMinutes * 60_000);
   }
   return starts;
 }
@@ -216,12 +219,11 @@ export async function loadDayBookings(
 
 /**
  * Build the day grid for a service filter.
- * - booked: a matching booking starts here (or fake demand)
- * - held: later chip still inside a visit window when both doors are taken
- * - blocked: would exceed 2-door capacity
+ * - booked: a matching booking starts here (or fake demand) → show as Reserved
+ * - held/blocked: overlapping when dock capacity is full
  * - past / available
  *
- * Two doors: a 10:00 start can leave 10:30 open for the other door.
+ * Two doors: cross-dock uses both; other services use one.
  */
 export function buildDaySlots(
   dateKey: string,
@@ -233,8 +235,8 @@ export function buildDaySlots(
 ): DaySlot[] {
   const showAllServices = serviceType === "all";
   const duration = durationForService(serviceType);
-  const capacity = capacityForService(serviceType);
-  const sharedCap = BOOKING_DEFAULTS.sharedDockCapacity;
+  const capacity = BOOKING_DEFAULTS.totalDocks;
+  const needed = dockUnitsForService(serviceType);
   const starts = generateSlotStarts(dateKey, duration);
   const privacyOpts = privacy?.enabled
     ? { privacy: true, viewerCustomerId: privacy.viewerCustomerId }
@@ -275,7 +277,11 @@ export function buildDaySlots(
             rangesOverlap(start, end, b.startsAt, b.endsAt))
       );
 
-    const doorsInUse = Math.max(overlappingService.length, overlappingAny.length);
+    const doorsInUse = overlappingAny.reduce(
+      (sum, b) => sum + dockUnitsForService(b.serviceType),
+      0
+    );
+    const remaining = Math.max(0, capacity - doorsInUse);
     const fakeBusy = startingHere.length === 0 && isFakeDemandBusy(dateKey, start);
 
     const slotBookings = startingHere.map((b) => toSlotBooking(b, privacyOpts));
@@ -292,7 +298,7 @@ export function buildDaySlots(
     } else if (fakeBusy && !privacy?.enabled) {
       slotBookings.push({
         id: "",
-        companyName: "Dock hold",
+        companyName: "Reserved",
         contactName: "",
         source: "admin",
         serviceType: showAllServices ? "crossdock" : serviceType,
@@ -304,12 +310,10 @@ export function buildDaySlots(
 
     if (startingHere.length > 0 || fakeBusy) {
       status = "booked";
-    } else if (doorsInUse >= sharedCap || occupiedByOtherSource) {
+    } else if (occupiedByOtherSource || remaining < needed) {
       status = insideVisitHold.length > 0 ? "held" : "blocked";
     } else if (end <= now) {
       status = "past";
-    } else if (overlappingService.length >= capacity) {
-      status = "blocked";
     }
 
     const shifted = new Date(start.getTime() - 7 * 60 * 60 * 1000);
@@ -404,7 +408,7 @@ export function assertSlotOpen(
   if (slot.status === "past") return { ok: false, error: "That time has already passed" };
   if (slot.status === "booked") return { ok: false, error: "That slot is already booked" };
   if (slot.status === "held") {
-    return { ok: false, error: "That time is held by another appointment (~50 min)" };
+    return { ok: false, error: "That time is reserved by another appointment" };
   }
   if (slot.status === "blocked") {
     return { ok: false, error: "That start would overlap another appointment" };

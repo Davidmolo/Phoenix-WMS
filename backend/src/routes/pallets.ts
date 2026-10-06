@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Pallet } from "../models/Pallet";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 
@@ -17,11 +18,19 @@ router.get("/", async (req, res, next) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.warehouseId) filter.warehouseId = req.query.warehouseId;
 
-    const pallets = await Pallet.find(filter)
-      .populate("locationId", "code aisle type")
-      .sort({ updatedAt: -1 })
-      .limit(500);
-    res.json({ pallets });
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, pallets] = await Promise.all([
+      Pallet.countDocuments(filter),
+      Pallet.find(filter)
+        .populate("locationId", "code aisle type")
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+    res.json({ pallets, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }

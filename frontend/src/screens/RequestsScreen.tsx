@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Inbox } from "lucide-react";
 import {
   Alert,
@@ -20,11 +20,16 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { WhRequest } from "@/types";
+
+type RequestsResponse = { requests: WhRequest[] } & PaginationMeta;
 
 export default function RequestsPage() {
   const { token, user } = useAuth();
-  const { data, error, loading, reload } = useApiQuery<{ requests: WhRequest[] }>("/requests");
+  const [page, setPage] = useState(1);
+  const path = useMemo(() => listQuery("/requests", { page }), [page]);
+  const { data, error, loading, reload } = useApiQuery<RequestsResponse>(path);
   const isPortal = user?.role === "customer";
 
   const [type, setType] = useState<"Inbound" | "Outbound">("Inbound");
@@ -60,6 +65,7 @@ export default function RequestsPage() {
       setMsg("Request submitted");
       setPoOrJob("");
       setNotes("");
+      setPage(1);
       invalidateApiCache("/requests");
       await reload();
     } catch (ex) {
@@ -85,10 +91,10 @@ export default function RequestsPage() {
       });
       if (status === "approved" && result.expectedShipment) {
         setMsg(
-          `Approved — expected ${result.expectedShipment.direction} created. Open Expected to receive when the truck arrives.`
+          `Approved — expected ${result.expectedShipment.direction} created. Open Expected to receive.`
         );
       } else {
-        setMsg(`Request ${result.request.status}`);
+        setMsg(`Request ${status}`);
       }
       invalidateApiCache();
       await reload();
@@ -233,6 +239,8 @@ export default function RequestsPage() {
           emptyDescription={
             isPortal ? "Submit your first inbound or outbound request above." : undefined
           }
+          pagination={paginationFrom(data)}
+          onPageChange={setPage}
         />
     </>
   );

@@ -33,12 +33,12 @@ export function SkeletonCard({ className }: { className?: string }) {
       )}
       style={{ background: "var(--blend-kpi)" }}
     >
-      <div className="h-1 bg-[linear-gradient(90deg,var(--accent),var(--navy-soft))]" />
-      <div className="relative p-4">
-        <Skeleton className="absolute top-4 right-4 h-9 w-9 rounded-xl" />
-        <Skeleton className="h-2.5 w-20" />
-        <Skeleton className="mt-2.5 h-8 w-16" />
-        <Skeleton className="mt-2 h-2.5 w-28" />
+      <div className="h-1.5 bg-[linear-gradient(90deg,var(--accent),var(--navy-soft))]" />
+      <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+        <Skeleton className="absolute top-5 right-5 h-11 w-11 rounded-2xl sm:h-12 sm:w-12" />
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="mt-3 h-10 w-20" />
+        <Skeleton className="mt-2.5 h-3 w-32" />
       </div>
     </div>
   );
@@ -205,13 +205,11 @@ export function SkeletonPage({
   return (
     <div className="space-y-6">
       <SkeletonHeader />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />

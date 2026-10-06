@@ -1,42 +1,43 @@
 /**
- * Dock booking defaults — aligned with David (Oct 1, 2026):
- * 15-min start grid, ~50 min visit, 2 doors, temporary fake demand.
+ * Dock booking — Cesar / Darya (Oct 2, 2026):
+ * 45-min slots, 8 AM–6 PM, same duration for every service,
+ * ±15 min arrival buffer (disclaimer), two physical doors.
+ * Cross-dock occupies both doors; trailer rework and drop & store occupy one.
  */
 
 export const BOOKING_SERVICE_TYPES = [
   {
     id: "crossdock",
     label: "Crossdock",
-    durationMinutes: 50,
-    capacity: 2,
+    durationMinutes: 45,
+    /** Doors this job occupies at once (inbound + outbound trucks). */
+    dockUnits: 2,
   },
   {
     id: "trailer_rework",
     label: "Trailer Rework",
-    durationMinutes: 50,
-    capacity: 2,
+    durationMinutes: 45,
+    dockUnits: 1,
   },
   {
     id: "drop_and_store",
     label: "Drop and Store",
-    durationMinutes: 50,
-    capacity: 2,
+    durationMinutes: 45,
+    dockUnits: 1,
   },
 ] as const;
 
 export type BookingServiceTypeId = (typeof BOOKING_SERVICE_TYPES)[number]["id"];
 
 export const BOOKING_DEFAULTS = {
-  /** Local warehouse day window */
   workdayStartHour: 8,
-  workdayEndHour: 20,
-  /** Grid of start times offered on the calendar */
-  slotIntervalMinutes: 15,
-  /** Visit length (~45–60 min per David) */
-  defaultDurationMinutes: 50,
+  workdayEndHour: 18,
+  slotIntervalMinutes: 45,
+  defaultDurationMinutes: 45,
+  bufferMinutes: 15,
   timezone: "America/Phoenix",
-  /** Two dock doors — overlapping starts OK until both are busy */
-  sharedDockCapacity: 2,
+  /** Physical doors on the dock */
+  totalDocks: 2,
 } as const;
 
 /**
@@ -46,9 +47,7 @@ export const BOOKING_DEFAULTS = {
  */
 export const FAKE_DEMAND = {
   enabled: true,
-  /** Inclusive end date (Phoenix) — after this, no synthetic busy slots */
   untilDateKey: "2026-11-30",
-  /** Target fraction of day starts marked busy (roughly 30–50%) */
   busyFraction: 0.4,
 } as const;
 

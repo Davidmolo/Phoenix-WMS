@@ -126,6 +126,7 @@ async function seed() {
     contractHandlingPerPallet: 20,
     contractFtlRate: 520,
     contractNoDwellInside: true,
+    portalActivated: true,
     since: new Date("2026-10-01"),
   });
 

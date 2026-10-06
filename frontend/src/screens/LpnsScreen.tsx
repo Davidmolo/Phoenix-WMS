@@ -20,22 +20,34 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import type { Customer, Lpn, Pallet, Warehouse } from "@/types";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 
 type LpnRow = Lpn & {
   kind?: string;
   palletIds?: Array<string | { _id: string; externalId?: string; status?: string }>;
 };
 
+type LpnsResponse = { lpns: LpnRow[] } & PaginationMeta;
+
 export default function LpnsPage() {
   const { token } = useAuth();
-  const { data, error, loading, reload } = useApiQuery<{ lpns: LpnRow[] }>("/lpns");
-  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers");
+  const [page, setPage] = useState(1);
+  const lpnsPath = useMemo(() => listQuery("/lpns", { page }), [page]);
+  const { data, error, loading, reload } = useApiQuery<LpnsResponse>(lpnsPath);
+  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
-  const { data: palletData, reload: reloadPallets } = useApiQuery<{ pallets: Pallet[] }>("/pallets");
-
+  const [customerId, setCustomerId] = useState("");
+  const palletPath = useMemo(
+    () =>
+      listQuery("/pallets", {
+        limit: 200,
+        params: { customerId: customerId || undefined },
+      }),
+    [customerId]
+  );
+  const { data: palletData, reload: reloadPallets } = useApiQuery<{ pallets: Pallet[] }>(palletPath);
   const warehouse = whData?.warehouses?.[0];
   const customers = custData?.customers ?? [];
-  const [customerId, setCustomerId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -236,6 +248,8 @@ export default function LpnsPage() {
           loading={loading}
           emptyTitle="No LPNs yet"
           emptyDescription="Receive pallets or build a staging plate above."
+          pagination={paginationFrom(data)}
+          onPageChange={setPage}
         />
     </>
   );

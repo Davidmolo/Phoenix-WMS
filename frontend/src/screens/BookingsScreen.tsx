@@ -30,6 +30,8 @@ import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { listQuery } from "@/lib/pagination";
+import { BookingDisclaimer } from "@/components/BookingDisclaimer";
 import type { Booking } from "@/types";
 
 type CalendarResponse = {
@@ -105,11 +107,18 @@ export default function BookingsScreen() {
       : null;
   const { data: slotsData, reload: reloadSlots } = useApiQuery<SlotsResponse>(slotsPath);
 
-  const listPath = selectedDate ? `/bookings?date=${encodeURIComponent(selectedDate)}` : null;
+  const listPath = selectedDate
+    ? listQuery("/bookings", {
+        limit: 100,
+        params: { date: selectedDate },
+      })
+    : null;
   const { data: listData, reload: reloadList } = useApiQuery<{ bookings: Booking[] }>(listPath);
 
-  const upcomingPath = `/bookings`;
-  const { data: upcomingData, reload: reloadUpcoming } = useApiQuery<{ bookings: Booking[] }>(upcomingPath);
+  const upcomingPath = listQuery("/bookings", { limit: 50 });
+  const { data: upcomingData, reload: reloadUpcoming } = useApiQuery<{ bookings: Booking[] }>(
+    upcomingPath
+  );
 
   const slots = slotsData?.slots ?? [];
   const dayBookings = useMemo(() => {
@@ -229,8 +238,8 @@ export default function BookingsScreen() {
     }
   }
 
-  const duration = cal?.defaults?.defaultDurationMinutes ?? 50;
-  const interval = cal?.defaults?.slotIntervalMinutes ?? 30;
+  const duration = cal?.defaults?.defaultDurationMinutes ?? 45;
+  const interval = cal?.defaults?.slotIntervalMinutes ?? 45;
   const bookedStarts = slots.filter((s) => s.status === "booked").length;
 
   return (
@@ -238,7 +247,7 @@ export default function BookingsScreen() {
       <PageHeader
         title="Dock schedule"
         icon={<CalendarDays className="h-5 w-5" />}
-        description={`Website bookings auto-tag as Website. Phone calls: click an open slot → Log phone booking (saved with source Phone). Filter Source → Phone to audit call-ins. ${interval}-min grid · ~${duration}-min holds · 8 AM–8 PM.`}
+        description={`Website bookings auto-tag as Website. Phone calls: click an open slot → Log phone booking (saved with source Phone). Filter Source → Phone to audit call-ins. ${interval}-min slots · 8 AM–6 PM.`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
@@ -314,22 +323,24 @@ export default function BookingsScreen() {
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-        <BookingMonthCalendar
-          year={cursor.year}
-          month={cursor.month}
-          today={today}
-          selectedDate={selectedDate}
-          days={cal?.days ?? []}
-          onSelectDate={(date) => {
-            setSelectedDate(date);
-            const parts = monthParts(date);
-            if (parts.year !== cursor.year || parts.month !== cursor.month) setCursor(parts);
-          }}
-          onChangeMonth={(year, month) => setCursor({ year, month })}
-        />
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-5">
+        <div className="mx-auto w-full max-w-[340px] shrink-0 lg:mx-0 lg:w-[360px] xl:w-[380px]">
+          <BookingMonthCalendar
+            year={cursor.year}
+            month={cursor.month}
+            today={today}
+            selectedDate={selectedDate}
+            days={cal?.days ?? []}
+            onSelectDate={(date) => {
+              setSelectedDate(date);
+              const parts = monthParts(date);
+              if (parts.year !== cursor.year || parts.month !== cursor.month) setCursor(parts);
+            }}
+            onChangeMonth={(year, month) => setCursor({ year, month })}
+          />
+        </div>
 
-        <Card>
+        <Card className="min-w-0 flex-1 self-start" lift={false}>
           <CardBody className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
@@ -337,16 +348,17 @@ export default function BookingsScreen() {
                   {selectedDate ? dateLabel(selectedDate + "T12:00:00") : "Pick a date"}
                 </CardTitle>
                 <p className="m-0 mt-1 text-xs text-muted">
-                  <strong>Booked</strong> = visit start · <strong>Held</strong> = rest of ~50 min ·{" "}
-                  <strong>Unavailable</strong> = time taken / would overlap. Source filter updates the grid and
-                  the list.
+                  <strong>Open</strong> = free · <strong>Reserved</strong> = taken · click a reserved
+                  chip to open details. Source filter updates the grid and the list.
                 </p>
+                <BookingDisclaimer className="mt-2" slotMinutes={interval} />
               </div>
               {calLoading ? <span className="text-xs text-muted">Loading…</span> : null}
             </div>
             <BookingSlotGrid
               slots={slots}
               mode="manage"
+              slotMinutes={interval}
               selectedStartIso={
                 phoneLogSlot?.startIso ??
                 (focused
@@ -562,7 +574,8 @@ export default function BookingsScreen() {
                 ) : null}
 
                 <div className="rounded-lg border border-border bg-[var(--surface-2)] px-3 py-2 text-xs text-muted">
-                  Dock window ~50 min from start — the following time chip stays <strong className="text-navy">Held</strong> until this visit ends.
+                  Each slot is <strong className="text-navy">{duration} minutes</strong> (8 AM–6 PM),
+                  with about 15 minutes early or late for traffic.
                 </div>
 
                 {focused.status === "confirmed" ? (

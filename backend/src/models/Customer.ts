@@ -41,6 +41,11 @@ const customerSchema = new Schema(
     transportOutboundFee: { type: Number, default: 0 },
     since: { type: Date, default: Date.now },
     active: { type: Boolean, default: true },
+    /**
+     * True after the customer sets a portal password from their invite email.
+     * Customer listing only shows activated accounts.
+     */
+    portalActivated: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

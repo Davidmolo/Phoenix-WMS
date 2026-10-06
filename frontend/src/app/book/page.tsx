@@ -11,6 +11,8 @@ import {
   type DaySlot,
 } from "@/components/BookingCalendar";
 import { Alert, Button, ChipGroup, Field, Input } from "@/components/ui";
+import { BookingDisclaimer } from "@/components/BookingDisclaimer";
+import { cn } from "@/lib/cn";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
@@ -28,13 +30,15 @@ const ROLE_OPTIONS = ["Carrier", "Shipper", "Broker", "Receiver"] as const;
 
 function StepHeading({ n, title }: { n: number; title: string }) {
   return (
-    <div className="mb-4 flex items-center gap-3 border-b border-border pb-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-[var(--navy-deep)] shadow-[var(--shadow-button)] sm:h-8 sm:w-8 sm:text-sm">
+    <div className="mb-5 flex items-center gap-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-[12px] font-bold text-white sm:h-9 sm:w-9 sm:text-[13px]">
         {n}
       </span>
-      <h2 className="font-display m-0 text-xs font-semibold tracking-[0.08em] text-accent uppercase sm:text-sm">
-        {title}
-      </h2>
+      <div className="min-w-0 flex-1 border-b border-border pb-2.5">
+        <h2 className="font-display m-0 text-[12px] font-semibold tracking-[0.1em] text-navy uppercase sm:text-[13px]">
+          {title}
+        </h2>
+      </div>
     </div>
   );
 }
@@ -74,6 +78,7 @@ export default function PublicBookPage() {
 
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
@@ -81,7 +86,8 @@ export default function PublicBookPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
+      // Only blank the calendar on the first load — month/service changes refresh in place
+      if (!days.length) setLoading(true);
       try {
         const cal = await publicApi<{ today: string; days: CalendarDayDot[] }>(
           `/public/bookings/calendar?year=${cursor.year}&month=${cursor.month}&serviceType=${encodeURIComponent(serviceType)}`
@@ -89,7 +95,10 @@ export default function PublicBookPage() {
         if (cancelled) return;
         setToday(cal.today);
         setDays(cal.days);
-        setSelectedDate((prev) => prev || cal.today);
+        setSelectedDate((prev) => {
+          if (prev && cal.days.some((d) => d.date === prev)) return prev;
+          return cal.today;
+        });
       } catch (ex) {
         if (!cancelled) setErr(ex instanceof Error ? ex.message : "Could not load calendar");
       } finally {
@@ -105,6 +114,7 @@ export default function PublicBookPage() {
     if (!selectedDate) return;
     let cancelled = false;
     (async () => {
+      setSlotsLoading(true);
       try {
         const data = await publicApi<{ slots: DaySlot[]; nextAvailable: DaySlot | null }>(
           `/public/bookings/slots?date=${encodeURIComponent(selectedDate)}&serviceType=${encodeURIComponent(serviceType)}`
@@ -112,9 +122,16 @@ export default function PublicBookPage() {
         if (cancelled) return;
         setSlots(data.slots);
         setNextAvailable(data.nextAvailable);
-        setSelectedSlot(data.nextAvailable);
+        setSelectedSlot((prev) => {
+          if (prev && data.slots.some((s) => s.startIso === prev.startIso && s.status === "available")) {
+            return data.slots.find((s) => s.startIso === prev.startIso) ?? data.nextAvailable;
+          }
+          return data.nextAvailable;
+        });
       } catch (ex) {
         if (!cancelled) setErr(ex instanceof Error ? ex.message : "Could not load slots");
+      } finally {
+        if (!cancelled) setSlotsLoading(false);
       }
     })();
     return () => {
@@ -250,16 +267,16 @@ export default function PublicBookPage() {
         </p>
 
         <div className="mt-2 max-w-2xl sm:mt-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.12em] text-accent uppercase">
-            <span className="inline-block h-4 w-0.5 bg-accent" />
-            Dock appointment request
+          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.14em] text-accent uppercase">
+            <span className="inline-block h-4 w-0.5 rounded-full bg-accent" />
+            Dock appointment
           </div>
-          <h1 className="font-display mt-2 mb-0 text-[1.65rem] font-semibold leading-tight tracking-tight text-navy sm:text-4xl">
+          <h1 className="font-display mt-2.5 mb-0 text-[1.75rem] font-semibold leading-[1.15] tracking-tight text-navy sm:text-[2.35rem]">
             Book a bay.
           </h1>
-          <p className="mt-2 mb-0 text-sm leading-relaxed text-muted sm:text-[15px]">
-            Pick an open slot (8 AM–8 PM · 15-min starts · ~50 min per visit · 2 doors). Your booking
-            is confirmed when you submit.
+          <p className="mt-2.5 mb-0 max-w-xl text-sm leading-relaxed text-muted sm:text-[15px]">
+            Pick an open 45-minute slot between 8 AM and 6 PM. Your booking is confirmed when you
+            submit.
           </p>
         </div>
 
@@ -267,7 +284,7 @@ export default function PublicBookPage() {
         <div className="mt-4 flex divide-x divide-border overflow-hidden rounded-xl border border-border bg-white shadow-[var(--shadow)] lg:hidden">
           <div className="min-w-0 flex-1 px-3 py-2.5 sm:px-4">
             <div className="text-[9px] font-bold tracking-wide text-accent uppercase sm:text-[10px]">Hours</div>
-            <div className="mt-0.5 truncate text-xs font-semibold text-navy sm:text-sm">8 AM – 8 PM</div>
+            <div className="mt-0.5 truncate text-xs font-semibold text-navy sm:text-sm">8 AM – 6 PM</div>
           </div>
           <div className="min-w-0 flex-1 px-3 py-2.5 sm:px-4">
             <div className="text-[9px] font-bold tracking-wide text-accent uppercase sm:text-[10px]">Open</div>
@@ -283,7 +300,7 @@ export default function PublicBookPage() {
           <form id="dock-book-form" onSubmit={onSubmit} className="space-y-4 sm:space-y-6">
             {err ? <Alert tone="danger">{err}</Alert> : null}
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={1} title="Who's booking" />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Company" required>
@@ -304,7 +321,7 @@ export default function PublicBookPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] sm:p-6">
               <StepHeading n={2} title="The appointment" />
               <div className="space-y-4">
                 <ChipGroup
@@ -320,15 +337,16 @@ export default function PublicBookPage() {
                   Requested date & time *
                 </div>
                 <p className="mb-3 mt-0 text-xs text-muted sm:mb-4">
-                  15-min starts · each visit holds ~50 minutes · 2 doors · {openSlots} open on selected
-                  day
+                  45-min slots · {openSlots} open on selected day
+                  {slotsLoading ? " · updating…" : ""}
                 </p>
+                <BookingDisclaimer className="mb-3 sm:mb-4" />
 
-                {loading ? (
+                {loading && !days.length ? (
                   <p className="text-sm text-muted">Loading calendar…</p>
                 ) : (
-                  <div className="grid gap-4 xl:grid-cols-[minmax(320px,380px)_minmax(0,1fr)] xl:items-start">
-                    <div className="mx-auto w-full max-w-sm xl:mx-0 xl:max-w-none">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+                    <div className="mx-auto w-full max-w-[340px] shrink-0 lg:mx-0 lg:w-[340px]">
                       <BookingMonthCalendar
                         year={cursor.year}
                         month={cursor.month}
@@ -339,10 +357,16 @@ export default function PublicBookPage() {
                         onChangeMonth={(year, month) => setCursor({ year, month })}
                       />
                     </div>
-                    <div className="min-w-0">
+                    <div
+                      className={cn(
+                        "min-w-0 flex-1 self-start transition-opacity duration-150",
+                        slotsLoading && "opacity-60"
+                      )}
+                    >
                       <BookingSlotGrid
                         slots={slots}
                         mode="book"
+                        slotMinutes={45}
                         selectedStartIso={selectedSlot?.startIso ?? null}
                         nextAvailableIso={nextAvailable?.startIso}
                         onSelect={(slot) => {
@@ -350,8 +374,18 @@ export default function PublicBookPage() {
                         }}
                       />
                       {selectedSlot ? (
-                        <div className="mt-3 rounded-xl border border-accent/40 bg-accent-bg px-3 py-2.5 text-sm font-semibold text-[var(--accent-text)]">
-                          Selected: {selectedDate} · {selectedSlot.label}
+                        <div className="mt-3 flex items-center gap-3 rounded-xl border border-navy/10 bg-navy px-3.5 py-3 text-sm text-white">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-[11px] font-bold text-[var(--navy-deep)]">
+                            ✓
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-bold tracking-[0.08em] text-white/65 uppercase">
+                              Selected slot
+                            </div>
+                            <div className="font-semibold">
+                              {selectedDate} · {selectedSlot.label}
+                            </div>
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -360,7 +394,7 @@ export default function PublicBookPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={3} title="The freight" />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Trailer type">
@@ -398,7 +432,7 @@ export default function PublicBookPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-3.5 shadow-[var(--shadow)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
+            <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={4} title="Anything else" />
               <Field label="Special handling or notes">
                 <textarea
@@ -441,30 +475,31 @@ export default function PublicBookPage() {
             </section>
           </form>
 
-          <aside className="hidden space-y-4 lg:sticky lg:top-20 lg:block lg:self-start">
-            <div className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
-              <h3 className="font-display m-0 text-sm font-semibold tracking-wide text-navy uppercase">
+          <aside className="hidden space-y-3 lg:sticky lg:top-20 lg:block lg:self-start">
+            <div className="rounded-2xl border border-border bg-white p-5 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+              <h3 className="font-display m-0 text-[12px] font-semibold tracking-[0.1em] text-navy uppercase">
                 What happens next
               </h3>
-              <ol className="mt-3 mb-0 list-decimal space-y-2 pl-4 text-sm leading-relaxed text-muted">
+              <ol className="mt-3.5 mb-0 list-decimal space-y-2.5 pl-4 text-[13.5px] leading-relaxed text-muted">
                 <li>You book your time slot and get a confirmed bay with gate instructions.</li>
                 <li>Driver checks in and backs into the assigned bay.</li>
                 <li>Freight is scanned in and out; BOL / POD logged.</li>
               </ol>
             </div>
-            <div className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
-              <h3 className="font-display m-0 text-sm font-semibold tracking-wide text-navy uppercase">
+            <div className="rounded-2xl border border-border bg-white p-5 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+              <h3 className="font-display m-0 text-[12px] font-semibold tracking-[0.1em] text-navy uppercase">
                 We can&apos;t take
               </h3>
-              <ul className="mt-3 mb-0 list-disc space-y-1.5 pl-4 text-sm text-muted">
+              <ul className="mt-3.5 mb-0 list-disc space-y-1.5 pl-4 text-[13.5px] text-muted">
                 <li>Temperature-controlled / reefer</li>
                 <li>Hazmat or regulated materials</li>
               </ul>
             </div>
-            <div className="rounded-2xl border border-border bg-[var(--surface-2)] p-4 text-sm text-muted">
-              <strong className="text-navy">Hours</strong>
-              <div className="mt-1">8:00 AM – 8:00 PM daily</div>
-              <div className="mt-3 font-semibold text-navy">3550 W Clarendon Ave #5</div>
+            <div className="rounded-2xl border border-border bg-navy p-5 text-[13.5px] text-white/80 transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+              <div className="text-[10px] font-bold tracking-[0.1em] text-accent uppercase">Hours</div>
+              <div className="mt-1 font-semibold text-white">8:00 AM – 6:00 PM daily</div>
+              <div className="mt-4 text-[10px] font-bold tracking-[0.1em] text-accent uppercase">Location</div>
+              <div className="mt-1 font-semibold text-white">3550 W Clarendon Ave #5</div>
               <div>Phoenix, AZ 85019</div>
             </div>
           </aside>
@@ -477,7 +512,7 @@ export default function PublicBookPage() {
           <div className="mt-3 space-y-3 text-sm text-muted">
             <p className="m-0">
               Book your slot (confirmed) → driver checks in → scans + BOL/POD. We don&apos;t take
-              reefer or hazmat. Hours 8 AM–8 PM · Clarendon #5.
+              reefer or hazmat. Hours 8 AM–6 PM · Clarendon #5.
             </p>
           </div>
         </details>
@@ -495,7 +530,7 @@ export default function PublicBookPage() {
                 <span className="block truncate font-semibold text-navy">
                   {selectedDate} · {selectedSlot.label}
                 </span>
-                <span>~50 min dock hold</span>
+                <span>45-min dock slot</span>
               </>
             ) : (
               <span>Select an open time above</span>

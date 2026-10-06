@@ -17,6 +17,7 @@ import {
   todayPhoenixKey,
   toDateKey,
 } from "../services/bookingAvailability";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 
@@ -114,8 +115,15 @@ router.get("/", async (req, res, next) => {
       filter.customerId = req.auth!.customerId;
     }
 
-    const bookings = await Booking.find(filter).sort({ startsAt: 1 }).limit(300);
-    res.json({ bookings });
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, bookings] = await Promise.all([
+      Booking.countDocuments(filter),
+      Booking.find(filter).sort({ startsAt: 1 }).skip(skip).limit(limit),
+    ]);
+    res.json({ bookings, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }

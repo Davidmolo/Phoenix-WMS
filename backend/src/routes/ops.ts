@@ -11,6 +11,7 @@ import { Shipment } from "../models/Shipment";
 import { Lpn } from "../models/Lpn";
 import { Location } from "../models/Location";
 import { Request as WhRequest } from "../models/Request";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 
@@ -149,11 +150,19 @@ router.get("/invoices", async (req, res, next) => {
       }
     }
 
-    const invoices = await Invoice.find(filter)
-      .populate("customerId", "name billingMethod")
-      .sort({ createdAt: -1 })
-      .limit(200);
-    res.json({ invoices });
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, invoices] = await Promise.all([
+      Invoice.countDocuments(filter),
+      Invoice.find(filter)
+        .populate("customerId", "name billingMethod")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+    res.json({ invoices, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }
