@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { printDocument } from "@/lib/print";
 import type { Pallet } from "@/types";
 
 type Props = {
@@ -52,7 +53,7 @@ export function PalletLabelPreview({ pallet, companyName = "Phoenix Cross Dock",
           <button
             type="button"
             className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-navy"
-            onClick={() => window.print()}
+            onClick={() => printDocument()}
           >
             Print label
           </button>

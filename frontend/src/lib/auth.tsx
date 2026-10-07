@@ -93,6 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(STORAGE_KEY);
         setToken(null);
         setUser(null);
+        // Reseed / expired JWT — force a clean login instead of a stuck app skeleton
+        if (typeof window !== "undefined" && window.location.pathname !== "/") {
+          window.location.replace("/");
+        }
       }
     })();
 

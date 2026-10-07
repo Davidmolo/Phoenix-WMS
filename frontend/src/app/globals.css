@@ -41,7 +41,7 @@
   --gradient-hero: linear-gradient(165deg, #ffffff 0%, #f3f5f7 55%, #ebe4d8 100%);
   --gradient-warm: radial-gradient(900px 480px at 0% 0%, rgba(230, 160, 48, 0.16), transparent 55%),
     radial-gradient(700px 420px at 100% 0%, rgba(43, 66, 87, 0.1), transparent 50%);
-  --sidebar-width: 260px;
+  --sidebar-width: 248px;
 }
 
 @media (max-width: 1023px) {
@@ -52,7 +52,7 @@
 
 @media (min-width: 1280px) {
   :root {
-    --sidebar-width: 272px;
+    --sidebar-width: 256px;
   }
 }
 
@@ -90,7 +90,10 @@ body {
 
 body {
   font-family: var(--font-sans);
-  background: var(--bg);
+  background:
+    radial-gradient(900px 480px at 0% 0%, rgba(230, 160, 48, 0.1), transparent 55%),
+    radial-gradient(700px 420px at 100% 0%, rgba(43, 66, 87, 0.08), transparent 50%),
+    var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
@@ -186,31 +189,245 @@ textarea {
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
 }
 
+/* Shared Paddock-style lift for ad-hoc panels outside Card/FormSection */
+.surface-lift {
+  background: var(--blend-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+}
+
+.surface-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
+}
+
 @media (max-width: 640px) {
   .pallet-label-sheet {
     max-width: 100% !important;
   }
 }
 
+.print-sheet .print-brand {
+  display: none;
+}
+
+.print-only {
+  display: none;
+}
+
+/**
+ * Print mode (html/body.printing):
+ * Collapse the ancestor chain with :has() so fixed/centered overlays
+ * do not reserve full-viewport blank pages. Hide everything else.
+ */
 @media print {
-  body * {
-    visibility: hidden !important;
+  @page {
+    margin: 10mm;
+    size: letter portrait;
   }
-  .pallet-label-overlay,
-  .pallet-label-overlay * {
-    visibility: visible !important;
-  }
-  .pallet-label-overlay {
-    position: static !important;
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
     background: #fff !important;
-    inset: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
-  .no-print {
+
+  /* Hide every node that is not on the path to a print surface */
+  html.printing body
+    *:not(:has(.print-overlay, .pallet-label-overlay, .print-sheet, .pallet-label-sheet)):not(
+      .print-overlay
+    ):not(.print-overlay *):not(.pallet-label-overlay):not(.pallet-label-overlay *):not(
+      .print-sheet
+    ):not(.print-sheet *):not(.pallet-label-sheet):not(.pallet-label-sheet *) {
     display: none !important;
   }
-  .pallet-label-sheet {
+
+  /* Flatten ancestors (AppShell, flex centers, 100vh wrappers) */
+  html.printing body,
+  html.printing
+    body
+    *:has(.print-overlay, .pallet-label-overlay, .print-sheet, .pallet-label-sheet) {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    float: none !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    transform: none !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    flex: none !important;
+    gap: 0 !important;
+  }
+
+  html.printing body .no-print,
+  html.printing body .no-print * {
+    display: none !important;
+  }
+
+  html.printing body .print-only {
+    display: block !important;
+  }
+
+  html.printing body .print-overlay,
+  html.printing body .pallet-label-overlay {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  html.printing body .print-sheet,
+  html.printing body .pallet-label-sheet {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    transform: none !important;
+    flex: none !important;
+  }
+
+  html.printing body .print-sheet .print-brand {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px !important;
+    margin: 0 0 10px !important;
+    background: linear-gradient(135deg, #1e2e3e 0%, #2b4257 55%, #243849 100%) !important;
+    color: #fff !important;
+    border-radius: 0;
+  }
+
+  html.printing body .print-sheet .print-brand-title {
+    font-family: var(--font-oswald), var(--font-inter), system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff !important;
+  }
+
+  html.printing body .print-sheet .print-brand-accent {
+    color: #e6a030 !important;
+  }
+
+  html.printing body .print-sheet .print-brand-meta {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.78) !important;
+    text-align: right;
+  }
+
+  html.printing body .print-sheet .print-body {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  html.printing body .print-sheet table,
+  html.printing body .picklist-print-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    font-size: 11px !important;
+    margin: 0 !important;
+  }
+
+  html.printing body .print-sheet th,
+  html.printing body .print-sheet td,
+  html.printing body .picklist-print-table th,
+  html.printing body .picklist-print-table td {
+    padding: 5px 6px !important;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    vertical-align: top;
+    text-align: left;
+  }
+
+  html.printing body .print-sheet th,
+  html.printing body .picklist-print-table th {
+    color: #2b4257 !important;
+    border-bottom: 2px solid #e6a030 !important;
+    font-size: 10px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  html.printing body .print-sheet td,
+  html.printing body .picklist-print-table td {
+    border-bottom: 1px solid #d8e0e8 !important;
+    color: #2b4257 !important;
+  }
+
+  html.printing body .picklist-print-table tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  html.printing body .picklist-sub {
+    font-weight: 400 !important;
+    color: #5d7083 !important;
+    font-size: 10px !important;
+  }
+
+  html.printing body .print-sheet .print-stat {
+    border: 1px solid #d8e0e8 !important;
+    background: linear-gradient(145deg, #ffffff 0%, #f7f3eb 55%, #eef2f6 100%) !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    padding: 6px 8px !important;
+    margin: 0 0 6px !important;
+  }
+
+  html.printing body .pallet-label-sheet {
     box-shadow: none !important;
     border-radius: 0 !important;
-    max-width: none !important;
+    max-width: 100% !important;
+    padding: 8px !important;
   }
 }

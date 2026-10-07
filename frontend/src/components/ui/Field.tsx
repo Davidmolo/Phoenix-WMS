@@ -71,6 +71,7 @@ export function FormSection({
     <div
       className={cn(
         "overflow-hidden rounded-[var(--radius-lg)] border border-border shadow-[var(--shadow)]",
+        "transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]",
         className
       )}
       style={{ background: "var(--blend-card)" }}

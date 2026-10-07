@@ -14,6 +14,9 @@ const userSchema = new Schema(
     },
     customerId: { type: Schema.Types.ObjectId, ref: "Customer", default: null },
     active: { type: Boolean, default: true },
+    inviteTokenHash: { type: String, default: null, index: true },
+    inviteExpiresAt: { type: Date, default: null },
+    inviteSentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

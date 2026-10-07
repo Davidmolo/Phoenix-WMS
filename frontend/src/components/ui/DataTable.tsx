@@ -3,7 +3,9 @@
 import { cn } from "@/lib/cn";
 import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
+import { Pagination } from "./Pagination";
 import { SkeletonTable } from "./Skeleton";
+import type { PaginationMeta } from "@/lib/pagination";
 
 export type Column<T> = {
   key: string;
@@ -21,6 +23,8 @@ type Props<T> = {
   emptyDescription?: string;
   onRowClick?: (row: T) => void;
   selectedKey?: string | null;
+  pagination?: PaginationMeta | null;
+  onPageChange?: (page: number) => void;
 };
 
 export function DataTable<T>({
@@ -32,6 +36,8 @@ export function DataTable<T>({
   emptyDescription,
   onRowClick,
   selectedKey,
+  pagination,
+  onPageChange,
 }: Props<T>) {
   if (loading) {
     return (
@@ -48,11 +54,11 @@ export function DataTable<T>({
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" lift={false}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13.5px]">
           <thead>
-            <tr className="bg-[linear-gradient(90deg,#eef2f6,#f7f3eb)] text-left">
+            <tr className="bg-[linear-gradient(90deg,#eef2f6_0%,#f7f3eb_55%,#eef2f6_100%)] text-left">
               {columns.map((col) => (
                 <th
                   key={col.key}
@@ -94,6 +100,9 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
+      {pagination && onPageChange ? (
+        <Pagination meta={pagination} onPageChange={onPageChange} />
+      ) : null}
     </Card>
   );
 }

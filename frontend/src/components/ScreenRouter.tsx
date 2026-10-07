@@ -15,6 +15,10 @@ import LpnsScreen from "@/screens/LpnsScreen";
 import WarehouseScreen from "@/screens/WarehouseScreen";
 import RequestsScreen from "@/screens/RequestsScreen";
 import BillingScreen from "@/screens/BillingScreen";
+import BookingsScreen from "@/screens/BookingsScreen";
+import PortalBookingsScreen from "@/screens/PortalBookingsScreen";
+import PortalProfileScreen from "@/screens/PortalProfileScreen";
+import { useAuth } from "@/lib/auth";
 
 function screenKey(path: string) {
   if (path.startsWith("/customers/") && path !== "/customers") return "customer-detail";
@@ -42,6 +46,8 @@ function ScreenPane({
  */
 export function ScreenRouter() {
   const { path } = useAppNav();
+  const { user } = useAuth();
+  const isPortal = user?.role === "customer";
   const active = screenKey(path);
   const [mounted, setMounted] = useState<Set<string>>(() => new Set([active]));
   const [detailIds, setDetailIds] = useState<Set<string>>(() => new Set());
@@ -125,6 +131,16 @@ export function ScreenRouter() {
       {mounted.has("requests") ? (
         <ScreenPane active={active === "requests"}>
           <RequestsScreen />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("bookings") ? (
+        <ScreenPane active={active === "bookings"}>
+          {isPortal ? <PortalBookingsScreen /> : <BookingsScreen />}
+        </ScreenPane>
+      ) : null}
+      {mounted.has("profile") && isPortal ? (
+        <ScreenPane active={active === "profile"}>
+          <PortalProfileScreen />
         </ScreenPane>
       ) : null}
       {mounted.has("billing") ? (

@@ -7,9 +7,9 @@ type Size = "sm" | "md";
 
 const variants: Record<Variant, string> = {
   primary:
-    "bg-[linear-gradient(135deg,#E6A030,#DA8E0B)] text-[var(--navy-deep)] border-transparent shadow-[var(--shadow-button)] hover:brightness-[1.03] font-bold",
+    "bg-[linear-gradient(135deg,#E6A030,#DA8E0B)] text-[var(--navy-deep)] border-transparent shadow-[var(--shadow-button)] hover:brightness-[1.03] hover:-translate-y-0.5 font-bold",
   secondary:
-    "bg-white text-navy border-border hover:bg-surface-2 hover:border-border-strong font-semibold",
+    "bg-white text-navy border-border hover:bg-surface-2 hover:border-border-strong hover:-translate-y-0.5 font-semibold",
   ghost:
     "bg-transparent text-muted border-transparent hover:bg-accent-bg hover:text-[var(--accent-text)] font-semibold",
   danger: "bg-danger-bg text-danger border-transparent hover:opacity-90 font-semibold",
@@ -40,7 +40,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 border transition-all disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex items-center justify-center gap-2 border transition-all duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0",
         variants[variant],
         sizes[size],
         className

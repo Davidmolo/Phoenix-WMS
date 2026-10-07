@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Package } from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
@@ -10,6 +10,7 @@ import {
   Card,
   CardBody,
   CardTitle,
+  ChipGroup,
   DataTable,
   PageHeader,
   statusTone,
@@ -18,6 +19,7 @@ import {
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel } from "@/lib/format";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Pallet, PalletLocation } from "@/types";
 
 const FILTERS = ["all", "stored", "staged", "received", "shipped"] as const;
@@ -28,18 +30,32 @@ function locationCode(p: Pallet): string {
   return (loc as PalletLocation).code || "—";
 }
 
+type PalletsResponse = { pallets: Pallet[] } & PaginationMeta;
+
 export default function InventoryPage() {
   const { user } = useAuth();
-  const { data, error, loading } = useApiQuery<{ pallets: Pallet[] }>("/pallets");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [printPallet, setPrintPallet] = useState<Pallet | null>(null);
 
-  const rows = useMemo(() => {
-    const list = data?.pallets ?? [];
-    if (filter === "all") return list;
-    return list.filter((p) => p.status === filter);
-  }, [data, filter]);
+  useEffect(() => {
+    setPage(1);
+    setSelectedId(null);
+  }, [filter]);
+
+  const path = useMemo(
+    () =>
+      listQuery("/pallets", {
+        page,
+        params: { status: filter === "all" ? undefined : filter },
+      }),
+    [page, filter]
+  );
+
+  const { data, error, loading } = useApiQuery<PalletsResponse>(path);
+  const rows = data?.pallets ?? [];
+  const pagination = paginationFrom(data);
 
   const selected = useMemo(
     () => rows.find((p) => p._id === selectedId) ?? null,
@@ -88,24 +104,20 @@ export default function InventoryPage() {
         />
         <Alert>{error}</Alert>
 
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize ${
-                filter === f
-                  ? "bg-accent-bg text-accent-dark"
-                  : "bg-surface text-muted border border-border hover:bg-surface-2"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="mb-4">
+          <ChipGroup
+            label="Status"
+            size="sm"
+            options={FILTERS.map((f) => ({
+              id: f,
+              label: f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1),
+            }))}
+            value={filter}
+            onChange={setFilter}
+          />
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
           <DataTable
             columns={columns}
             rows={rows}
@@ -115,6 +127,8 @@ export default function InventoryPage() {
             emptyDescription="Receive inbound freight to populate inventory."
             onRowClick={(p) => setSelectedId(p._id)}
             selectedKey={selectedId}
+            pagination={pagination}
+            onPageChange={setPage}
           />
 
           <Card className="h-fit lg:sticky lg:top-20">

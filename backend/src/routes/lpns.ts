@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { Lpn } from "../models/Lpn";
 import { Pallet } from "../models/Pallet";
 import { nextLpnCode } from "../services/ids";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 router.use(requireAuth);
@@ -25,12 +26,20 @@ router.get("/", async (req, res, next) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.kind) filter.kind = req.query.kind;
 
-    const lpns = await Lpn.find(filter)
-      .populate("palletIds", "externalId status jobName poNumber sqft")
-      .populate("palletId", "externalId status jobName poNumber sqft")
-      .sort({ createdAt: -1 })
-      .limit(500);
-    res.json({ lpns });
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, lpns] = await Promise.all([
+      Lpn.countDocuments(filter),
+      Lpn.find(filter)
+        .populate("palletIds", "externalId status jobName poNumber sqft")
+        .populate("palletId", "externalId status jobName poNumber sqft")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+    res.json({ lpns, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }

@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   Truck,
   CalendarClock,
+  CalendarDays,
   Users,
   Receipt,
   Package,
@@ -18,6 +19,7 @@ import {
   LogOut,
   Menu,
   X,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -33,6 +35,7 @@ const STAFF_NAV: NavItem[] = [
   { href: "/operations", label: "Receive / Ship", icon: ArrowLeftRight },
   { href: "/shipments", label: "Shipments", icon: Truck },
   { href: "/expected", label: "Expected", icon: CalendarClock },
+  { href: "/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/fee-schedule", label: "Fee Schedule", icon: Receipt },
   { href: "/inventory", label: "Inventory", icon: Package },
@@ -45,7 +48,9 @@ const STAFF_NAV: NavItem[] = [
 const PORTAL_NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/inventory", label: "My pallets", icon: Package },
+  { href: "/bookings", label: "Book dock", icon: CalendarDays },
   { href: "/requests", label: "Requests", icon: Inbox },
+  { href: "/profile", label: "Profile", icon: UserRound },
 ];
 
 function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split" {
@@ -59,7 +64,9 @@ function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split
     pathname.startsWith("/inventory") ||
     pathname.startsWith("/billing") ||
     pathname.startsWith("/fee-schedule") ||
-    pathname.startsWith("/warehouse")
+    pathname.startsWith("/warehouse") ||
+    pathname.startsWith("/bookings") ||
+    pathname.startsWith("/profile")
   ) {
     return "table";
   }
@@ -73,8 +80,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && (!user || !token)) router.replace("/");
-  }, [loading, user, token, router]);
+    if (loading) return;
+    if (user && token) return;
+    // Session missing/expired (e.g. after reseed) — leave the app shell entirely
+    window.location.replace("/");
+  }, [loading, user, token]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -98,7 +108,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   if (!user || !token) {
-    return <SkeletonShell variant={shellVariant(path)} />;
+    return (
+      <div className="grid min-h-screen place-items-center bg-bg px-4 text-center">
+        <div>
+          <p className="m-0 font-display text-sm font-semibold tracking-wide text-navy uppercase">
+            Session ended
+          </p>
+          <p className="mt-2 mb-0 text-sm text-muted">Redirecting to sign in…</p>
+        </div>
+      </div>
+    );
   }
 
   const nav = user.role === "customer" ? PORTAL_NAV : STAFF_NAV;
@@ -120,8 +139,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 navigate(item.href);
               }}
               className={cn(
-                "sidebar-link flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-semibold transition-all",
-                active && "sidebar-link-active"
+                "sidebar-link flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-semibold transition-all duration-200",
+                active && "sidebar-link-active",
+                !active && "hover:translate-x-0.5"
               )}
             >
               <Icon
@@ -149,6 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         style={{ background: "var(--sidebar)" }}
       >
         <div className="border-b border-[rgba(255,255,255,0.14)]">
+          <div className="h-1 bg-[linear-gradient(90deg,var(--accent),transparent_70%)]" />
           <button
             type="button"
             onClick={() => navigate("/dashboard")}
@@ -266,7 +287,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
         </header>
 
-        <main className="mx-auto w-full max-w-[1180px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-6 lg:py-8">
+        <main className="app-canvas mx-auto w-full max-w-[1680px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-7 xl:px-10">
           {children}
         </main>
 

@@ -250,7 +250,7 @@ export default function WarehousePage() {
         </Card>
       ) : null}
 
-      <Card>
+      <Card lift={false}>
         <CardBody>
           <CardTitle>Floor map · {rows}×{cols}</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">

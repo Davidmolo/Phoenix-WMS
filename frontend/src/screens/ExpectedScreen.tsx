@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import {
   Alert,
@@ -20,18 +20,37 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
+import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Customer, Shipment, Warehouse } from "@/types";
+
+type ShipmentsResponse = { shipments: Shipment[] } & PaginationMeta;
 
 export default function ExpectedPage() {
   const { token } = useAuth();
-  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers");
+  const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
-  const { data: inData, reload: reloadIn } = useApiQuery<{ shipments: Shipment[] }>(
-    "/shipments?status=expected&direction=inbound"
+  const [inPage, setInPage] = useState(1);
+  const [outPage, setOutPage] = useState(1);
+
+  const inPath = useMemo(
+    () =>
+      listQuery("/shipments", {
+        page: inPage,
+        params: { status: "expected", direction: "inbound" },
+      }),
+    [inPage]
   );
-  const { data: outData, reload: reloadOut } = useApiQuery<{ shipments: Shipment[] }>(
-    "/shipments?status=expected&direction=outbound"
+  const outPath = useMemo(
+    () =>
+      listQuery("/shipments", {
+        page: outPage,
+        params: { status: "expected", direction: "outbound" },
+      }),
+    [outPage]
   );
+
+  const { data: inData, reload: reloadIn } = useApiQuery<ShipmentsResponse>(inPath);
+  const { data: outData, reload: reloadOut } = useApiQuery<ShipmentsResponse>(outPath);
 
   const warehouse = whData?.warehouses?.[0];
   const customers = custData?.customers ?? [];
@@ -39,6 +58,7 @@ export default function ExpectedPage() {
   const [direction, setDirection] = useState<"inbound" | "outbound">("inbound");
   const [palletCount, setPalletCount] = useState(1);
   const [carrier, setCarrier] = useState("");
+  const [poOrJob, setPoOrJob] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -65,12 +85,16 @@ export default function ExpectedPage() {
           direction,
           palletCount,
           carrier,
+          poOrJob,
           scheduledAt: scheduledAt || undefined,
           notes,
         }),
       });
       setMsg(`Expected ${direction} appointment created`);
       setNotes("");
+      setPoOrJob("");
+      if (direction === "inbound") setInPage(1);
+      else setOutPage(1);
       invalidateApiCache();
       await Promise.all([reloadIn(), reloadOut()]);
     } catch (ex) {
@@ -78,6 +102,13 @@ export default function ExpectedPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function poJobLabel(s: Shipment) {
+    const direct = (s.jobName || s.poNumber || "").trim();
+    if (direct) return direct;
+    const fromNotes = (s.notes || "").match(/PO\/Job:\s*([^·]+)/i);
+    return fromNotes?.[1]?.trim() || "—";
   }
 
   const columns: Column<Shipment>[] = [
@@ -89,7 +120,7 @@ export default function ExpectedPage() {
     {
       key: "ref",
       header: "PO / Job",
-      render: (s) => s.jobName || s.poNumber || "—",
+      render: (s) => poJobLabel(s),
     },
     { key: "carrier", header: "Carrier", render: (s) => s.carrier || "—" },
     { key: "notes", header: "Notes", render: (s) => s.notes || "—" },
@@ -147,6 +178,13 @@ export default function ExpectedPage() {
               <Field label="Carrier">
                 <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} />
               </Field>
+              <Field label="PO / Job">
+                <Input
+                  value={poOrJob}
+                  onChange={(e) => setPoOrJob(e.target.value)}
+                  placeholder="e.g. PO-12345 or site job name"
+                />
+              </Field>
               <Field label="Scheduled date">
                 <Input
                   type="date"
@@ -171,6 +209,8 @@ export default function ExpectedPage() {
             rows={inData?.shipments ?? []}
             rowKey={(s) => s._id}
             emptyTitle="No expected inbound"
+            pagination={paginationFrom(inData)}
+            onPageChange={setInPage}
           />
         </div>
 
@@ -181,6 +221,8 @@ export default function ExpectedPage() {
             rows={outData?.shipments ?? []}
             rowKey={(s) => s._id}
             emptyTitle="No expected outbound"
+            pagination={paginationFrom(outData)}
+            onPageChange={setOutPage}
           />
         </div>
     </>

@@ -7,6 +7,8 @@ import { Customer } from "../models/Customer";
 import { Accessorial } from "../models/Accessorial";
 import { Lpn } from "../models/Lpn";
 import { nextPalletExternalId, nextLpnCode } from "../services/ids";
+import { splitClientReference } from "../services/palletSpace";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 router.use(requireAuth);
@@ -19,8 +21,15 @@ router.get("/", async (req, res, next) => {
     if (req.query.direction) filter.direction = req.query.direction;
     if (req.query.status) filter.status = req.query.status;
 
-    const shipments = await Shipment.find(filter).sort({ createdAt: -1 }).limit(200);
-    res.json({ shipments });
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, shipments] = await Promise.all([
+      Shipment.countDocuments(filter),
+      Shipment.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    ]);
+    res.json({ shipments, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }
@@ -39,6 +48,9 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       scheduledAt,
       notes = "",
       billAsFtl = false,
+      poOrJob = "",
+      poNumber = "",
+      jobName = "",
     } = req.body;
 
     if (!warehouseId || !customerId) {
@@ -50,6 +62,8 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       return;
     }
 
+    const refs = splitClientReference(poOrJob || poNumber || jobName);
+
     const shipment = await Shipment.create({
       companyId: req.auth!.companyId,
       warehouseId,
@@ -60,6 +74,8 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       trailerNumber,
       billAsFtl: Boolean(billAsFtl),
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      jobName: refs.jobName,
+      poNumber: refs.poNumber,
       notes: notes || `Expected ${direction} · ${palletCount} pallet(s)`,
       palletIds: [],
     });

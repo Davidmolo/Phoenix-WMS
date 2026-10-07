@@ -67,16 +67,8 @@ function request(method, path, body, token) {
   );
   console.log("receive", receive.status, receive.json.pallets?.map((p) => p.externalId));
 
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
-  const inv = await request(
-    "POST",
-    "/invoices/generate-sba-month",
-    { customerId: sba._id, periodStart: start, periodEnd: end },
-    token
-  );
-  console.log("invoice", inv.status, inv.json.invoice?.number, inv.json.invoice?.total, "charges", inv.json.chargesAttached);
+  const invoices = await request("GET", "/invoices", null, token);
+  console.log("invoices", invoices.status, (invoices.json.invoices || []).length);
 
   const dash = await request("GET", "/dashboard", null, token);
   console.log("dashboard kpis", dash.json.kpis);

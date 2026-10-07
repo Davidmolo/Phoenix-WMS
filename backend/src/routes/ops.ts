@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router } from "express";
 import { Types } from "mongoose";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Company } from "../models/Company";
@@ -11,6 +11,7 @@ import { Shipment } from "../models/Shipment";
 import { Lpn } from "../models/Lpn";
 import { Location } from "../models/Location";
 import { Request as WhRequest } from "../models/Request";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 
@@ -110,12 +111,58 @@ router.get("/dashboard", async (req, res, next) => {
 router.get("/invoices", async (req, res, next) => {
   try {
     const filter: Record<string, unknown> = { companyId: req.auth!.companyId };
-    if (req.auth!.role === "customer") filter.customerId = req.auth!.customerId;
-    const invoices = await Invoice.find(filter)
-      .populate("customerId", "name billingMethod")
-      .sort({ createdAt: -1 })
-      .limit(100);
-    res.json({ invoices });
+    if (req.auth!.role === "customer") {
+      filter.customerId = req.auth!.customerId;
+    } else if (req.query.customerId) {
+      filter.customerId = req.query.customerId;
+    }
+
+    const parseDay = (raw: string, endOfDay: boolean) => {
+      // Parse YYYY-MM-DD as local calendar day (avoid UTC shift)
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+      if (!m) return null;
+      const y = Number(m[1]);
+      const mo = Number(m[2]) - 1;
+      const d = Number(m[3]);
+      if (endOfDay) return new Date(y, mo, d, 23, 59, 59, 999);
+      return new Date(y, mo, d, 0, 0, 0, 0);
+    };
+
+    const fromRaw =
+      (typeof req.query.fromDate === "string" && req.query.fromDate) ||
+      (typeof req.query.onDate === "string" && req.query.onDate) ||
+      "";
+    const toRaw =
+      (typeof req.query.toDate === "string" && req.query.toDate) ||
+      (typeof req.query.onDate === "string" && req.query.onDate) ||
+      "";
+
+    if (fromRaw || toRaw) {
+      const start = parseDay(fromRaw || toRaw, false);
+      const end = parseDay(toRaw || fromRaw, true);
+      if (start && end) {
+        const rangeStart = start <= end ? start : end;
+        const rangeEnd = start <= end ? end : start;
+        filter.$or = [
+          { periodStart: { $lte: rangeEnd }, periodEnd: { $gte: rangeStart } },
+          { createdAt: { $gte: rangeStart, $lte: rangeEnd } },
+        ];
+      }
+    }
+
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, invoices] = await Promise.all([
+      Invoice.countDocuments(filter),
+      Invoice.find(filter)
+        .populate("customerId", "name billingMethod")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+    res.json({ invoices, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }
@@ -132,110 +179,6 @@ router.get("/accessorials", requireRole("admin", "staff"), async (req, res, next
     next(err);
   }
 });
-
-/** Generate a monthly invoice for any customer (contract base rent + unbilled charges). */
-async function generateCustomerMonthInvoice(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { customerId, periodStart, periodEnd } = req.body;
-    if (!customerId) {
-      res.status(400).json({ error: "customerId is required" });
-      return;
-    }
-    const customer = await Customer.findOne({
-      _id: customerId,
-      companyId: req.auth!.companyId,
-    });
-    if (!customer) {
-      res.status(404).json({ error: "Customer not found" });
-      return;
-    }
-
-    const start = new Date(periodStart);
-    const end = new Date(periodEnd);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      res.status(400).json({ error: "periodStart and periodEnd are required" });
-      return;
-    }
-
-    const lines: Array<{
-      description: string;
-      qty: number;
-      unitAmount: number;
-      amount: number;
-      type: string;
-      palletId?: unknown;
-      shipmentId?: unknown;
-    }> = [];
-
-    if (customer.billingMethod === "contract" && customer.contractFee > 0) {
-      lines.push({
-        description: `Base rent — ${customer.name} · ${customer.contractSqft} SF @ contract rate`,
-        qty: 1,
-        unitAmount: customer.contractFee,
-        amount: customer.contractFee,
-        type: "base_rent",
-      });
-    }
-
-    const charges = await Accessorial.find({
-      companyId: req.auth!.companyId,
-      customerId: customer._id,
-      invoiceId: null,
-      date: { $gte: start, $lte: end },
-    });
-
-    for (const c of charges) {
-      lines.push({
-        description: c.description,
-        qty: 1,
-        unitAmount: c.amount,
-        amount: c.amount,
-        type: c.type,
-        palletId: c.palletId || undefined,
-        shipmentId: c.shipmentId || undefined,
-      });
-    }
-
-    if (lines.length === 0) {
-      res.status(400).json({ error: "No billable lines for this customer in the selected period" });
-      return;
-    }
-
-    const subtotal = lines.reduce((s, l) => s + l.amount, 0);
-    const count = await Invoice.countDocuments({ companyId: req.auth!.companyId });
-    const number = `INV-${String(count + 1).padStart(5, "0")}`;
-    const dueDate = new Date(end);
-    dueDate.setDate(dueDate.getDate() + 30);
-
-    const invoice = await Invoice.create({
-      companyId: req.auth!.companyId,
-      customerId: customer._id,
-      number,
-      periodStart: start,
-      periodEnd: end,
-      lines,
-      subtotal,
-      total: subtotal,
-      dueDate,
-      status: "draft",
-      notes: "Net 30",
-    });
-
-    await Accessorial.updateMany(
-      { _id: { $in: charges.map((c) => c._id) } },
-      { $set: { invoiceId: invoice._id } }
-    );
-
-    const populated = await Invoice.findById(invoice._id).populate("customerId", "name billingMethod");
-    res.status(201).json({ invoice: populated, chargesAttached: charges.length });
-  } catch (err) {
-    next(err);
-  }
-}
-
-router.post("/invoices/generate-month", requireRole("admin", "staff"), generateCustomerMonthInvoice);
-/** @deprecated Use /invoices/generate-month — kept for existing clients/scripts */
-router.post("/invoices/generate-sba-month", requireRole("admin", "staff"), generateCustomerMonthInvoice);
 
 router.get("/stats/overview", requireRole("admin", "staff"), async (req, res, next) => {
   try {

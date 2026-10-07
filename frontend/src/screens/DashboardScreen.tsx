@@ -74,19 +74,19 @@ export default function DashboardPage() {
             label="Active pallets"
             value={kpis?.activePallets}
             loading={loading}
-            icon={<Package className="h-4 w-4" />}
+            icon={<Package className="h-5 w-5" />}
           />
           <KpiCard
             label="Pending requests"
             value={kpis?.pendingRequests}
             loading={loading}
-            icon={<Inbox className="h-4 w-4" />}
+            icon={<Inbox className="h-5 w-5" />}
           />
           <KpiCard
             label="Draft invoices"
             value={kpis?.draftInvoices}
             loading={loading}
-            icon={<FileText className="h-4 w-4" />}
+            icon={<FileText className="h-5 w-5" />}
           />
           {user?.role !== "customer" ? (
             <>
@@ -94,25 +94,25 @@ export default function DashboardPage() {
                 label="Customers"
                 value={kpis?.customers}
                 loading={loading}
-                icon={<Users className="h-4 w-4" />}
+                icon={<Users className="h-5 w-5" />}
               />
               <KpiCard
                 label="Open charges"
                 value={kpis?.openCharges}
                 loading={loading}
-                icon={<FileText className="h-4 w-4" />}
+                icon={<FileText className="h-5 w-5" />}
               />
               <KpiCard
                 label="Open slots"
                 value={kpis?.locationsAvailable}
                 loading={loading}
-                icon={<MapPin className="h-4 w-4" />}
+                icon={<MapPin className="h-5 w-5" />}
               />
               <KpiCard
                 label="Available SF"
                 value={kpis?.availableSqft?.toLocaleString()}
                 loading={loading}
-                icon={<Maximize2 className="h-4 w-4" />}
+                icon={<Maximize2 className="h-5 w-5" />}
                 hint={
                   kpis?.capacitySqft != null
                     ? `${kpis.occupiedSqft?.toLocaleString() ?? 0} / ${kpis.capacitySqft.toLocaleString()} SF used`

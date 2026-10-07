@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { Request as WhRequest } from "../models/Request";
 import { Shipment } from "../models/Shipment";
 import { Warehouse } from "../models/Warehouse";
+import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 
@@ -15,8 +16,15 @@ router.get("/", async (req, res, next) => {
     else if (req.query.customerId) filter.customerId = req.query.customerId;
     if (req.query.status) filter.status = req.query.status;
 
-    const requests = await WhRequest.find(filter).sort({ dateRequested: -1 }).limit(200);
-    res.json({ requests });
+    const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+    const [total, requests] = await Promise.all([
+      WhRequest.countDocuments(filter),
+      WhRequest.find(filter).sort({ dateRequested: -1 }).skip(skip).limit(limit),
+    ]);
+    res.json({ requests, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);
   }
