@@ -148,7 +148,7 @@ function unitHash(input: string): number {
 export function isFakeDemandBusy(
   dateKey: string,
   start: Date,
-  intervalMinutes = BOOKING_DEFAULTS.slotIntervalMinutes
+  intervalMinutes: number = BOOKING_DEFAULTS.slotIntervalMinutes
 ): boolean {
   if (!FAKE_DEMAND.enabled) return false;
   if (dateKey > FAKE_DEMAND.untilDateKey) return false;
