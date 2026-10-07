@@ -239,7 +239,6 @@ export default function BookingsScreen() {
   }
 
   const duration = durationMinutesForService(serviceType === "all" ? "crossdock" : serviceType);
-  const interval = cal?.defaults?.slotIntervalMinutes ?? 45;
   const visitLabel = durationLabelForService(serviceType === "all" ? "crossdock" : serviceType);
   const bookedStarts = slots.filter((s) => s.status === "booked").length;
 

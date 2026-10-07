@@ -106,10 +106,15 @@ export function capacityForService(_serviceType?: string): number {
   return BOOKING_DEFAULTS.totalDocks;
 }
 
-/** Consecutive starts from open until a visit still finishes by close. */
+/**
+ * Consecutive starts from open until a visit still finishes by close.
+ * Step = visit length so Crossdock/Drop show 45-min blocks and Trailer shows
+ * true 1-hour blocks (Cesar / Darya).
+ */
 export function generateSlotStarts(dateKey: string, durationMinutes: number): Date[] {
   const { y, m, d } = parseDateKey(dateKey);
-  const { workdayStartHour, workdayEndHour, slotIntervalMinutes } = BOOKING_DEFAULTS;
+  const { workdayStartHour, workdayEndHour } = BOOKING_DEFAULTS;
+  const stepMinutes = Math.max(15, durationMinutes);
   const dayEnd = phoenixLocalDate(y, m, d, workdayEndHour, 0);
   const starts: Date[] = [];
   let cursor = phoenixLocalDate(y, m, d, workdayStartHour, 0);
@@ -118,7 +123,7 @@ export function generateSlotStarts(dateKey: string, durationMinutes: number): Da
     const end = new Date(cursor.getTime() + durationMinutes * 60_000);
     if (end > dayEnd) break;
     starts.push(cursor);
-    cursor = new Date(cursor.getTime() + slotIntervalMinutes * 60_000);
+    cursor = new Date(cursor.getTime() + stepMinutes * 60_000);
   }
   return starts;
 }
@@ -140,14 +145,19 @@ function unitHash(input: string): number {
  * rotated by date so mornings aren’t wiped out and days look natural.
  * Then thinned to ~busyFraction so we stay in the 30–50% band.
  */
-export function isFakeDemandBusy(dateKey: string, start: Date): boolean {
+export function isFakeDemandBusy(
+  dateKey: string,
+  start: Date,
+  intervalMinutes = BOOKING_DEFAULTS.slotIntervalMinutes
+): boolean {
   if (!FAKE_DEMAND.enabled) return false;
   if (dateKey > FAKE_DEMAND.untilDateKey) return false;
 
+  const step = Math.max(15, intervalMinutes);
   const shifted = new Date(start.getTime() - 7 * 60 * 60 * 1000);
   const minuteOfDay = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
   const slotIndex = Math.floor(
-    (minuteOfDay - BOOKING_DEFAULTS.workdayStartHour * 60) / BOOKING_DEFAULTS.slotIntervalMinutes
+    (minuteOfDay - BOOKING_DEFAULTS.workdayStartHour * 60) / step
   );
   if (slotIndex < 0) return false;
 
@@ -282,7 +292,7 @@ export function buildDaySlots(
       0
     );
     const remaining = Math.max(0, capacity - doorsInUse);
-    const fakeBusy = startingHere.length === 0 && isFakeDemandBusy(dateKey, start);
+    const fakeBusy = startingHere.length === 0 && isFakeDemandBusy(dateKey, start, duration);
 
     const slotBookings = startingHere.map((b) => toSlotBooking(b, privacyOpts));
     if (fakeBusy && privacy?.enabled) {

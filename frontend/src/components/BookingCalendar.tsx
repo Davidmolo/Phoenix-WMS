@@ -201,7 +201,7 @@ function slotStatusLabel(
 }
 
 /**
- * Compact 45-min slot grid — refined Open / Reserved styling.
+ * Service slot grid — visit length is per Cesar/Darya (45 min or 1 hour).
  */
 export function BookingSlotGrid({
   slots,
@@ -225,6 +225,7 @@ export function BookingSlotGrid({
     [slots]
   );
   const openCount = useMemo(() => slots.filter((s) => s.status === "available").length, [slots]);
+  const durationText = slotMinutes >= 60 ? "1 hour slots" : "45 min slots";
 
   if (!slots.length) {
     return <p className="m-0 text-sm text-muted">No slots for this day.</p>;
@@ -241,7 +242,7 @@ export function BookingSlotGrid({
               · <span className="font-semibold text-navy">{reservedCount}</span> reserved
             </>
           ) : null}
-          <span className="text-faint"> · {slotMinutes} min</span>
+          <span className="font-semibold text-navy"> · {durationText}</span>
         </p>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold tracking-[0.06em] text-muted uppercase">
           <span className="inline-flex items-center gap-1.5">
@@ -327,9 +328,9 @@ export function BookingSlotGrid({
 }
 
 export const SERVICE_TYPE_OPTIONS = [
-  { id: "crossdock", label: "Crossdock" },
-  { id: "trailer_rework", label: "Trailer Rework" },
-  { id: "drop_and_store", label: "Drop and Store" },
+  { id: "crossdock", label: "Crossdock · 45 min" },
+  { id: "trailer_rework", label: "Trailer Rework · 1 hour" },
+  { id: "drop_and_store", label: "Drop and Store · 45 min" },
 ] as const;
 
 export const SERVICE_FILTER_OPTIONS = [
