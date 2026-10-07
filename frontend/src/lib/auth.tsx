@@ -106,15 +106,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const data = await api<{ token: string; user: AuthUser }>("/auth/login", {
+    const data = await api<{
+      token: string;
+      user?: AuthUser & { _id?: string };
+    }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    const userPayload = {
-      ...data.user,
-      id: String(data.user.id),
-      companyId: String(data.user.companyId),
-      customerId: data.user.customerId ? String(data.user.customerId) : null,
+    if (!data?.token || !data?.user) {
+      throw new Error("Login failed — invalid response from API. Is /api reachable?");
+    }
+    const raw = data.user;
+    const id = raw.id ?? raw._id;
+    if (!id) throw new Error("Login failed — user id missing from API response");
+    const userPayload: AuthUser = {
+      id: String(id),
+      email: raw.email,
+      name: raw.name,
+      role: raw.role,
+      companyId: String(raw.companyId),
+      customerId: raw.customerId ? String(raw.customerId) : null,
     };
     setToken(data.token);
     setUser(userPayload);

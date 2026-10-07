@@ -33,6 +33,7 @@ module.exports = {
         NODE_ENV: "production",
         PORT: "3030",
         HOSTNAME: "127.0.0.1",
+        API_PROXY_ORIGIN: "http://127.0.0.1:4020",
       },
       max_memory_restart: "512M",
       time: true,
