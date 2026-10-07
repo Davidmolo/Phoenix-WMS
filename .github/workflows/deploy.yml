@@ -1,0 +1,109 @@
+name: Deploy Phoenix WMS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy"
+        required: true
+        default: "master"
+
+concurrency:
+  group: phoenix-wms-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install & build API
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install & build Web
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: /api
+        run: |
+          npm ci
+          npm run build
+
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PHOENIX_WMS_SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.PHOENIX_WMS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync release to server
+        env:
+          HOST: ${{ secrets.PHOENIX_WMS_HOST }}
+          USER: ${{ secrets.PHOENIX_WMS_USER }}
+        run: |
+          RSYNC_SSH="ssh -o StrictHostKeyChecking=yes"
+          # App code + built artifacts only — never overwrite server .env
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'backend/.env' \
+            --exclude 'frontend/.env*' \
+            --exclude 'frontend/.next/cache' \
+            --exclude '*.log' \
+            -e "$RSYNC_SSH" \
+            ./ "${USER}@${HOST}:/var/www/phoenix-wms/"
+
+      - name: Install deps, reload PM2 (phoenix only)
+        env:
+          HOST: ${{ secrets.PHOENIX_WMS_HOST }}
+          USER: ${{ secrets.PHOENIX_WMS_USER }}
+        run: |
+          ssh "${USER}@${HOST}" bash -s <<'REMOTE'
+          set -euo pipefail
+          APP=/var/www/phoenix-wms
+          mkdir -p "$APP/logs"
+
+          cd "$APP/backend"
+          npm ci --omit=dev
+
+          cd "$APP/frontend"
+          npm ci --omit=dev
+
+          # Ensure nginx template is present (not enabled until domain)
+          if [[ -f "$APP/deploy/nginx.phoenix-wms.conf" ]]; then
+            sudo cp "$APP/deploy/nginx.phoenix-wms.conf" /etc/nginx/sites-available/phoenix-wms
+          fi
+
+          cd "$APP"
+          pm2 startOrReload deploy/ecosystem.config.cjs --update-env
+          pm2 save
+
+          sleep 2
+          curl -fsS http://127.0.0.1:4020/api/health
+          echo
+          curl -fsS -o /dev/null -w "web:%{http_code}\n" http://127.0.0.1:3030/ || true
+          pm2 list | grep phoenix || true
+          REMOTE
