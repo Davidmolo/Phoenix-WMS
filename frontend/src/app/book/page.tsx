@@ -11,13 +11,13 @@ import {
   type DaySlot,
 } from "@/components/BookingCalendar";
 import { Alert, Button, ChipGroup, Field, Input } from "@/components/ui";
-import { BookingDisclaimer } from "@/components/BookingDisclaimer";
+import { BookingDisclaimer, durationLabelForService, durationMinutesForService } from "@/components/BookingDisclaimer";
 import { cn } from "@/lib/cn";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api").replace(/\/$/, "");
 
 async function publicApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path.startsWith("/") ? path : `/${path}`}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
   });
@@ -140,6 +140,8 @@ export default function PublicBookPage() {
   }, [selectedDate, serviceType]);
 
   const openSlots = useMemo(() => slots.filter((s) => s.status === "available").length, [slots]);
+  const visitMinutes = durationMinutesForService(serviceType);
+  const visitLabel = durationLabelForService(serviceType);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -275,7 +277,7 @@ export default function PublicBookPage() {
             Book a bay.
           </h1>
           <p className="mt-2.5 mb-0 max-w-xl text-sm leading-relaxed text-muted sm:text-[15px]">
-            Pick an open 45-minute slot between 8 AM and 6 PM. Your booking is confirmed when you
+            Pick an open {visitLabel} slot between 8 AM and 6 PM. Your booking is confirmed when you
             submit.
           </p>
         </div>
@@ -337,7 +339,7 @@ export default function PublicBookPage() {
                   Requested date & time *
                 </div>
                 <p className="mb-3 mt-0 text-xs text-muted sm:mb-4">
-                  45-min slots · {openSlots} open on selected day
+                  {visitLabel} slots · {openSlots} open on selected day
                   {slotsLoading ? " · updating…" : ""}
                 </p>
                 <BookingDisclaimer className="mb-3 sm:mb-4" />
@@ -366,7 +368,7 @@ export default function PublicBookPage() {
                       <BookingSlotGrid
                         slots={slots}
                         mode="book"
-                        slotMinutes={45}
+                        slotMinutes={visitMinutes}
                         selectedStartIso={selectedSlot?.startIso ?? null}
                         nextAvailableIso={nextAvailable?.startIso}
                         onSelect={(slot) => {
@@ -530,7 +532,7 @@ export default function PublicBookPage() {
                 <span className="block truncate font-semibold text-navy">
                   {selectedDate} · {selectedSlot.label}
                 </span>
-                <span>45-min dock slot</span>
+                <span>{visitLabel} dock slot</span>
               </>
             ) : (
               <span>Select an open time above</span>

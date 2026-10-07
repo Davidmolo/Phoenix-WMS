@@ -1,8 +1,8 @@
 /**
- * Dock booking — Cesar / Darya (Oct 2, 2026):
- * 45-min slots, 8 AM–6 PM, same duration for every service,
- * ±15 min arrival buffer (disclaimer), two physical doors.
- * Cross-dock occupies both doors; trailer rework and drop & store occupy one.
+ * Dock booking — Cesar / Darya:
+ * 8 AM–6 PM, ±15 min arrival buffer, two physical doors.
+ * Crossdock + Drop & Store (stock) = 45 min; Trailer Rework = 1 hour.
+ * Crossdock occupies both doors; trailer rework and drop & store occupy one.
  */
 
 export const BOOKING_SERVICE_TYPES = [
@@ -16,7 +16,7 @@ export const BOOKING_SERVICE_TYPES = [
   {
     id: "trailer_rework",
     label: "Trailer Rework",
-    durationMinutes: 45,
+    durationMinutes: 60,
     dockUnits: 1,
   },
   {
@@ -32,6 +32,7 @@ export type BookingServiceTypeId = (typeof BOOKING_SERVICE_TYPES)[number]["id"];
 export const BOOKING_DEFAULTS = {
   workdayStartHour: 8,
   workdayEndHour: 18,
+  /** Start-time grid step (visit length still comes from each service). */
   slotIntervalMinutes: 45,
   defaultDurationMinutes: 45,
   bufferMinutes: 15,

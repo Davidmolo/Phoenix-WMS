@@ -31,7 +31,7 @@ import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { listQuery } from "@/lib/pagination";
-import { BookingDisclaimer } from "@/components/BookingDisclaimer";
+import { BookingDisclaimer, durationLabelForService, durationMinutesForService } from "@/components/BookingDisclaimer";
 import type { Booking } from "@/types";
 
 type CalendarResponse = {
@@ -238,8 +238,9 @@ export default function BookingsScreen() {
     }
   }
 
-  const duration = cal?.defaults?.defaultDurationMinutes ?? 45;
+  const duration = durationMinutesForService(serviceType === "all" ? "crossdock" : serviceType);
   const interval = cal?.defaults?.slotIntervalMinutes ?? 45;
+  const visitLabel = durationLabelForService(serviceType === "all" ? "crossdock" : serviceType);
   const bookedStarts = slots.filter((s) => s.status === "booked").length;
 
   return (
@@ -247,7 +248,7 @@ export default function BookingsScreen() {
       <PageHeader
         title="Dock schedule"
         icon={<CalendarDays className="h-5 w-5" />}
-        description={`Website bookings auto-tag as Website. Phone calls: click an open slot → Log phone booking (saved with source Phone). Filter Source → Phone to audit call-ins. ${interval}-min slots · 8 AM–6 PM.`}
+        description={`Website bookings auto-tag as Website. Phone calls: click an open slot → Log phone booking (saved with source Phone). Filter Source → Phone to audit call-ins. Crossdock & Drop & Store 45 min · Trailer Rework 1 hour · 8 AM–6 PM.`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
@@ -351,14 +352,14 @@ export default function BookingsScreen() {
                   <strong>Open</strong> = free · <strong>Reserved</strong> = taken · click a reserved
                   chip to open details. Source filter updates the grid and the list.
                 </p>
-                <BookingDisclaimer className="mt-2" slotMinutes={interval} />
+                <BookingDisclaimer className="mt-2" />
               </div>
               {calLoading ? <span className="text-xs text-muted">Loading…</span> : null}
             </div>
             <BookingSlotGrid
               slots={slots}
               mode="manage"
-              slotMinutes={interval}
+              slotMinutes={duration}
               selectedStartIso={
                 phoneLogSlot?.startIso ??
                 (focused
@@ -574,8 +575,15 @@ export default function BookingsScreen() {
                 ) : null}
 
                 <div className="rounded-lg border border-border bg-[var(--surface-2)] px-3 py-2 text-xs text-muted">
-                  Each slot is <strong className="text-navy">{duration} minutes</strong> (8 AM–6 PM),
-                  with about 15 minutes early or late for traffic.
+                  Crossdock &amp; Drop &amp; Store: <strong className="text-navy">45 min</strong> ·
+                  Trailer Rework: <strong className="text-navy">1 hour</strong> (8 AM–6 PM), with about
+                  15 minutes early or late for traffic.
+                  {serviceType !== "all" ? (
+                    <>
+                      {" "}
+                      Current filter: <strong className="text-navy">{visitLabel}</strong>.
+                    </>
+                  ) : null}
                 </div>
 
                 {focused.status === "confirmed" ? (

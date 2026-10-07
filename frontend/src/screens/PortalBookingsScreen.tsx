@@ -28,7 +28,7 @@ import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { listQuery } from "@/lib/pagination";
-import { BookingDisclaimer } from "@/components/BookingDisclaimer";
+import { BookingDisclaimer, durationLabelForService, durationMinutesForService } from "@/components/BookingDisclaimer";
 import type { Booking, Customer } from "@/types";
 
 type CalendarResponse = {
@@ -166,6 +166,8 @@ export default function PortalBookingsScreen() {
   const [slots, setSlots] = useState<DaySlot[]>([]);
   const nextAvailable = slotsData?.nextAvailable ?? null;
   const openSlots = useMemo(() => slots.filter((s) => s.status === "available").length, [slots]);
+  const visitMinutes = durationMinutesForService(serviceType);
+  const visitLabel = durationLabelForService(serviceType);
 
   useEffect(() => {
     if (!slotsData?.slots) return;
@@ -255,7 +257,7 @@ export default function PortalBookingsScreen() {
       <PageHeader
         title="Book a bay"
         icon={<CalendarDays className="h-5 w-5" />}
-        description="Same booking flow as the website — 45-min slots, 8 AM–6 PM. Your account info comes from Profile."
+        description={`Same booking flow as the website — Crossdock & Drop & Store 45 min, Trailer Rework 1 hour · 8 AM–6 PM. Your account info comes from Profile.`}
       />
 
       {msg ? (
@@ -314,7 +316,7 @@ export default function PortalBookingsScreen() {
                   Requested date & time *
                 </div>
                 <p className="mb-3 mt-0 text-xs text-muted sm:mb-4">
-                  45-min slots · {openSlots} open on selected day
+                  {visitLabel} slots · {openSlots} open on selected day
                   {slotsLoading ? " · updating…" : ""}
                 </p>
                 <BookingDisclaimer className="mb-3 sm:mb-4" />
@@ -344,7 +346,7 @@ export default function PortalBookingsScreen() {
                     <BookingSlotGrid
                       slots={slots}
                       mode="book"
-                      slotMinutes={45}
+                      slotMinutes={visitMinutes}
                       selectedStartIso={selectedSlot?.startIso ?? null}
                       nextAvailableIso={nextAvailable?.startIso}
                       onSelect={(slot) => {
