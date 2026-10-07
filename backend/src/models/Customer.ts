@@ -46,6 +46,8 @@ const customerSchema = new Schema(
      * Customer listing only shows activated accounts.
      */
     portalActivated: { type: Boolean, default: false, index: true },
+    /** QuickBooks Customer.Id when linked/imported from QBO */
+    quickbooksCustomerId: { type: String, default: null, index: true },
   },
   { timestamps: true }
 );

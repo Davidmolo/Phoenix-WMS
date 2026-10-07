@@ -11,6 +11,7 @@ import opsRoutes from "./ops";
 import bookingRoutes from "./bookings";
 import publicBookingRoutes from "./publicBookings";
 import docsRoutes from "./docs";
+import quickbooksRoutes from "./quickbooks";
 
 const router = Router();
 
@@ -21,6 +22,8 @@ router.get("/health", (_req, res) => {
 /** Public (no auth) — must stay before authenticated catch-alls */
 router.use("/docs", docsRoutes);
 router.use("/public/bookings", publicBookingRoutes);
+/** OAuth callback is public; other QB routes require staff auth inside the router */
+router.use("/quickbooks", quickbooksRoutes);
 
 router.use("/auth", authRoutes);
 router.use("/company", companyRoutes);

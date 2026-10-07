@@ -15,4 +15,12 @@ export const env = {
   smtpUser: process.env.SMTP_USER || "",
   smtpPass: process.env.SMTP_PASS || "",
   mailFrom: process.env.MAIL_FROM || process.env.SMTP_USER || "Phoenix Cross Dock <noreply@phoenixcrossdock.com>",
+  /** QuickBooks Online — Development (sandbox) first; Production later */
+  quickbooksClientId: process.env.QUICKBOOKS_CLIENT_ID || "",
+  quickbooksClientSecret: process.env.QUICKBOOKS_CLIENT_SECRET || "",
+  quickbooksRedirectUri:
+    process.env.QUICKBOOKS_REDIRECT_URI ||
+    `${process.env.APP_URL || "http://localhost:4000"}/api/quickbooks/callback`,
+  /** "sandbox" | "production" */
+  quickbooksEnv: (process.env.QUICKBOOKS_ENV || "sandbox") as "sandbox" | "production",
 };

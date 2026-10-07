@@ -43,12 +43,16 @@ const invoiceSchema = new Schema(
     total: { type: Number, default: 0 },
     dueDate: { type: Date, default: null },
     notes: { type: String, default: "" },
-    quickbooksId: { type: String, default: null },
+    quickbooksId: { type: String, default: null, index: true },
   },
   { timestamps: true }
 );
 
 invoiceSchema.index({ companyId: 1, number: 1 }, { unique: true });
+invoiceSchema.index(
+  { companyId: 1, quickbooksId: 1 },
+  { unique: true, partialFilterExpression: { quickbooksId: { $type: "string" } } }
+);
 
 export type InvoiceDoc = InferSchemaType<typeof invoiceSchema> & { _id: Types.ObjectId };
 export const Invoice = model("Invoice", invoiceSchema);

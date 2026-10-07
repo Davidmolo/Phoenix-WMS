@@ -59,3 +59,16 @@ No auth. CORS reflects the caller origin (works from phoenixcrossdocks.com).
 | POST | `/api/public/bookings` | Create website booking |
 
 `serviceType`: `crossdock` (45m) · `drop_and_store` (45m) · `trailer_rework` (60m)
+
+## QuickBooks (Development / sandbox first)
+
+Server env (never commit secrets):
+
+- `QUICKBOOKS_CLIENT_ID`
+- `QUICKBOOKS_CLIENT_SECRET`
+- `QUICKBOOKS_REDIRECT_URI=https://wms.phoenixcrossdocks.com/api/quickbooks/callback`
+- `QUICKBOOKS_ENV=sandbox`
+
+In Intuit Developer → app → Keys (Development) → Redirect URIs, add the callback URL above.
+
+Staff flow: **Billing → Connect QuickBooks → Sync invoices**.

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { FileText, Printer } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { FileText, Link2, Printer, RefreshCw, Unlink } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
 import {
@@ -20,10 +20,22 @@ import {
   type Column,
 } from "@/components/ui";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { dateLabel, money } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Customer, Invoice } from "@/types";
+
+type QbStatus = {
+  configured: boolean;
+  environment: string;
+  connected: boolean;
+  realmId: string | null;
+  connectedByEmail: string | null;
+  lastSyncAt: string | null;
+  lastSyncSummary: string;
+  redirectUri: string;
+};
 
 type InvoiceRow = Invoice & {
   quickbooksId?: string | null;
@@ -38,7 +50,7 @@ function customerName(inv: InvoiceRow) {
 }
 
 export default function BillingPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const isStaff = user?.role !== "customer";
   // Empty = show all invoices (same source as Customer → Invoices)
   const [fromDate, setFromDate] = useState("");
@@ -47,6 +59,27 @@ export default function BillingPage() {
   const [page, setPage] = useState(1);
   const [showRegisterPrint, setShowRegisterPrint] = useState(false);
   const [showCustomerReport, setShowCustomerReport] = useState(false);
+  const [qbMsg, setQbMsg] = useState("");
+  const [qbErr, setQbErr] = useState("");
+  const [qbBusy, setQbBusy] = useState(false);
+
+  const { data: qbStatus, reload: reloadQb } = useApiQuery<QbStatus>("/quickbooks/status", {
+    enabled: isStaff,
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const qb = params.get("qb");
+    if (!qb) return;
+    if (qb === "connected") {
+      setQbMsg("QuickBooks connected. Click Sync invoices to pull the register.");
+      void reloadQb();
+    } else if (qb === "error") {
+      setQbErr(params.get("message") || "QuickBooks connection failed");
+    }
+    window.history.replaceState({}, "", "/billing");
+  }, [reloadQb]);
 
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all", {
     enabled: isStaff,
@@ -69,6 +102,55 @@ export default function BillingPage() {
     { invoices: InvoiceRow[] } & PaginationMeta
   >(query);
   const invoices = data?.invoices ?? [];
+
+  async function connectQuickBooks() {
+    setQbBusy(true);
+    setQbErr("");
+    setQbMsg("");
+    try {
+      const { url } = await api<{ url: string }>("/quickbooks/connect", { token });
+      window.location.href = url;
+    } catch (ex) {
+      setQbErr(ex instanceof Error ? ex.message : "Could not start QuickBooks connect");
+      setQbBusy(false);
+    }
+  }
+
+  async function syncQuickBooks() {
+    setQbBusy(true);
+    setQbErr("");
+    setQbMsg("");
+    try {
+      const result = await api<{ summary: string }>("/quickbooks/sync", {
+        method: "POST",
+        token,
+      });
+      setQbMsg(result.summary || "Sync complete");
+      invalidateApiCache("/invoices");
+      invalidateApiCache("/customers");
+      void reload();
+      void reloadQb();
+    } catch (ex) {
+      setQbErr(ex instanceof Error ? ex.message : "QuickBooks sync failed");
+    } finally {
+      setQbBusy(false);
+    }
+  }
+
+  async function disconnectQuickBooks() {
+    if (!window.confirm("Disconnect QuickBooks from Phoenix WMS?")) return;
+    setQbBusy(true);
+    setQbErr("");
+    try {
+      await api("/quickbooks/disconnect", { method: "POST", token });
+      setQbMsg("QuickBooks disconnected");
+      void reloadQb();
+    } catch (ex) {
+      setQbErr(ex instanceof Error ? ex.message : "Disconnect failed");
+    } finally {
+      setQbBusy(false);
+    }
+  }
 
   const filterLabel = useMemo(() => {
     const parts: string[] = [];
@@ -133,6 +215,39 @@ export default function BillingPage() {
         actions={
           isStaff ? (
             <div className="flex flex-wrap gap-2">
+              {!qbStatus?.connected ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  icon={<Link2 className="h-3.5 w-3.5" />}
+                  loading={qbBusy}
+                  onClick={() => void connectQuickBooks()}
+                >
+                  Connect QuickBooks
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    icon={<RefreshCw className="h-3.5 w-3.5" />}
+                    loading={qbBusy}
+                    onClick={() => void syncQuickBooks()}
+                  >
+                    Sync invoices
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    icon={<Unlink className="h-3.5 w-3.5" />}
+                    loading={qbBusy}
+                    onClick={() => void disconnectQuickBooks()}
+                  >
+                    Disconnect
+                  </Button>
+                </>
+              )}
               <Button
                 type="button"
                 size="sm"
@@ -156,6 +271,29 @@ export default function BillingPage() {
           ) : undefined
         }
       />
+
+      {isStaff ? (
+        <Alert tone="info" className="mb-4">
+          QuickBooks:{" "}
+          {!qbStatus?.configured
+            ? "Server keys not configured yet."
+            : qbStatus.connected
+              ? `Connected (${qbStatus.environment})${
+                  qbStatus.lastSyncSummary ? ` · ${qbStatus.lastSyncSummary}` : ""
+                }`
+              : `Not connected · Development/sandbox. After you connect, use Sync invoices.`}
+        </Alert>
+      ) : null}
+      {qbMsg ? (
+        <Alert tone="success" className="mb-4">
+          {qbMsg}
+        </Alert>
+      ) : null}
+      {qbErr ? (
+        <Alert tone="danger" className="mb-4">
+          {qbErr}
+        </Alert>
+      ) : null}
 
       <Card className="mb-5">
         <CardBody>
