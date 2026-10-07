@@ -35,13 +35,19 @@ Frontend production API base is `/api` (same origin through nginx).
 Workflow: `.github/workflows/deploy.yml`  
 Triggers: push to `master`, or **Actions → Deploy Phoenix WMS → Run workflow**.
 
-## Domain (later)
+## Domain (live)
 
-1. Edit `/etc/nginx/sites-available/phoenix-wms` — replace `PHOENIX_WMS_DOMAIN`
-2. `sudo ln -sfn /etc/nginx/sites-available/phoenix-wms /etc/nginx/sites-enabled/phoenix-wms`
-3. Update `backend/.env` `CORS_ORIGIN` + `APP_URL` to `https://your-domain`
-4. `sudo certbot --nginx -d your-domain`
-5. `sudo nginx -t && sudo systemctl reload nginx`
-6. Redeploy so invite emails use the public `APP_URL`
+**https://wms.phoenixcrossdocks.com**
 
-Until then, apps listen on localhost only (3030/4020) — nginx not enabled.
+- nginx site: `phoenix-wms` (enabled) · TLS via certbot  
+- `CORS_ORIGIN` / `APP_URL` on server: `https://wms.phoenixcrossdocks.com`  
+- Deploys do **not** overwrite the live nginx vhost once certbot has configured it  
+
+Public booking APIs for Darya (same origin):
+
+| Method | Path |
+|---|---|
+| GET | `/api/public/bookings/config` |
+| GET | `/api/public/bookings/calendar?year=&month=&serviceType=` |
+| GET | `/api/public/bookings/slots?date=YYYY-MM-DD&serviceType=` |
+| POST | `/api/public/bookings` |
