@@ -10,8 +10,8 @@ import { useAuth } from "@/lib/auth";
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("admin@phoenixcrossdock.com");
-  const [password, setPassword] = useState("ChangeMe123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -142,13 +142,8 @@ export default function LoginPage() {
           </form>
 
           <p className="m-0 border-t border-border px-6 py-4 text-xs leading-relaxed text-muted sm:px-8">
-            Staff: <code className="text-navy">admin@phoenixcrossdock.com</code>
-            <br />
-            Customer: <code className="text-navy">sba@sbasite.com</code>
-            <br />
-            Password: <code className="text-navy">ChangeMe123!</code>
-            <br />
-            New customers receive a portal invite from staff — there is no public sign-up.
+            Staff and customer accounts are issued by Phoenix Cross Dock. New customers receive a
+            portal invite by email — there is no public sign-up.
           </p>
         </div>
 
