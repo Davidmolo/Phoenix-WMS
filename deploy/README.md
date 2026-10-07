@@ -43,11 +43,19 @@ Triggers: push to `master`, or **Actions → Deploy Phoenix WMS → Run workflow
 - `CORS_ORIGIN` / `APP_URL` on server: `https://wms.phoenixcrossdocks.com`  
 - Deploys do **not** overwrite the live nginx vhost once certbot has configured it  
 
-Public booking APIs for Darya (same origin):
+## Public booking APIs (Darya / marketing site)
 
-| Method | Path |
-|---|---|
-| GET | `/api/public/bookings/config` |
-| GET | `/api/public/bookings/calendar?year=&month=&serviceType=` |
-| GET | `/api/public/bookings/slots?date=YYYY-MM-DD&serviceType=` |
-| POST | `/api/public/bookings` |
+**Swagger UI:** https://wms.phoenixcrossdocks.com/api/docs  
+**OpenAPI JSON:** https://wms.phoenixcrossdocks.com/api/docs/openapi.json  
+
+No auth. CORS reflects the caller origin (works from phoenixcrossdocks.com).
+
+| Method | Path | Use |
+|---|---|---|
+| GET | `/api/public/bookings` | Index + quick start |
+| GET | `/api/public/bookings/config` | Hours + service types |
+| GET | `/api/public/bookings/calendar?year=&month=&serviceType=` | Month availability |
+| GET | `/api/public/bookings/slots?date=YYYY-MM-DD&serviceType=` | Day grid — `status: available` = free |
+| POST | `/api/public/bookings` | Create website booking |
+
+`serviceType`: `crossdock` (45m) · `drop_and_store` (45m) · `trailer_rework` (60m)

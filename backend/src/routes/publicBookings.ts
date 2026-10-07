@@ -22,6 +22,49 @@ async function resolveCompany() {
   return Company.findOne({ active: true }).sort({ createdAt: 1 });
 }
 
+/**
+ * GET /api/public/bookings — integrator index (no auth).
+ * Bare URL used to 401 because it fell through to authenticated ops routes.
+ */
+router.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "phoenix-wms-public-bookings",
+    docs: "/api/docs",
+    note: "No authentication. For phoenixcrossdocks.com (and related marketing sites).",
+    endpoints: {
+      config: { method: "GET", path: "/api/public/bookings/config" },
+      calendar: {
+        method: "GET",
+        path: "/api/public/bookings/calendar?year=2026&month=10&serviceType=crossdock",
+      },
+      slots: {
+        method: "GET",
+        path: "/api/public/bookings/slots?date=2026-10-08&serviceType=trailer_rework",
+        description: "Use slot.status === 'available' for free times; others are reserved/unavailable.",
+      },
+      create: {
+        method: "POST",
+        path: "/api/public/bookings",
+        body: {
+          serviceType: "crossdock | trailer_rework | drop_and_store",
+          startsAt: "ISO from slots[].startIso",
+          companyName: "string",
+          contactName: "string",
+          phone: "string",
+          email: "string",
+          notes: "optional",
+        },
+      },
+    },
+    serviceTypes: {
+      crossdock: { durationMinutes: 45, dockUnits: 2 },
+      drop_and_store: { durationMinutes: 45, dockUnits: 1 },
+      trailer_rework: { durationMinutes: 60, dockUnits: 1 },
+    },
+  });
+});
+
 router.get("/config", async (_req, res, next) => {
   try {
     const company = await resolveCompany();
@@ -188,6 +231,15 @@ router.post("/", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/** Stop fall-through into authenticated /api routes (avoids false 401s). */
+router.use((_req, res) => {
+  res.status(404).json({
+    error: "Not found",
+    docs: "/api/docs",
+    hint: "Try GET /api/public/bookings or /api/public/bookings/slots",
+  });
 });
 
 export default router;

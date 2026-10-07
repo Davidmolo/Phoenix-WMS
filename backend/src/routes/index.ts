@@ -10,12 +10,17 @@ import shipmentRoutes from "./shipments";
 import opsRoutes from "./ops";
 import bookingRoutes from "./bookings";
 import publicBookingRoutes from "./publicBookings";
+import docsRoutes from "./docs";
 
 const router = Router();
 
 router.get("/health", (_req, res) => {
   res.json({ ok: true, service: "phoenix-wms-api", ts: new Date().toISOString() });
 });
+
+/** Public (no auth) — must stay before authenticated catch-alls */
+router.use("/docs", docsRoutes);
+router.use("/public/bookings", publicBookingRoutes);
 
 router.use("/auth", authRoutes);
 router.use("/company", companyRoutes);
@@ -26,7 +31,6 @@ router.use("/locations", locationRoutes);
 router.use("/lpns", lpnRoutes);
 router.use("/shipments", shipmentRoutes);
 router.use("/bookings", bookingRoutes);
-router.use("/public/bookings", publicBookingRoutes);
 router.use("/", opsRoutes);
 
 export default router;
