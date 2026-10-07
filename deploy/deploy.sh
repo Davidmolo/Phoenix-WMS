@@ -31,8 +31,17 @@ pm2 startOrReload deploy/ecosystem.config.cjs --update-env
 pm2 save
 
 echo "[phoenix-wms] health checks"
-sleep 2
-curl -fsS "http://127.0.0.1:4020/api/health" || (echo "API health failed" && exit 1)
+ok=0
+for _ in $(seq 1 15); do
+  if curl -fsS "http://127.0.0.1:4020/api/health" >/dev/null; then
+    ok=1
+    break
+  fi
+  sleep 2
+done
+[[ "$ok" -eq 1 ]] || (echo "API health failed" && exit 1)
+curl -fsS "http://127.0.0.1:4020/api/health"
+echo
 curl -fsS -o /dev/null -w "web:%{http_code}\n" "http://127.0.0.1:3030/" || true
 
 echo "[phoenix-wms] deploy complete"
