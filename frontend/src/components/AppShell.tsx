@@ -43,7 +43,7 @@ const STAFF_NAV: NavItem[] = [
   { href: "/lpns", label: "LPNs", icon: ScanBarcode },
   { href: "/warehouse", label: "Warehouse", icon: Warehouse },
   { href: "/requests", label: "Requests", icon: Inbox },
-  { href: "/yard-jobs", label: "Yard jobs", icon: Forklift },
+  { href: "/yard-jobs", label: "Crossdock / Rework", icon: Forklift },
   { href: "/billing", label: "Billing", icon: FileText },
 ];
 
