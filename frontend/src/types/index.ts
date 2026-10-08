@@ -14,6 +14,9 @@ export type Customer = {
   contact?: string;
   address?: string;
   since?: string;
+  /** True after they set a portal password from the invite email. */
+  portalActivated?: boolean;
+  quickbooksCustomerId?: string | null;
 };
 
 export type PalletLocation = {

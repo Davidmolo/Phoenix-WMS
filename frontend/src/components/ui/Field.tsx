@@ -19,10 +19,10 @@ export function Field({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn("space-y-1", className)}>
       <label
         htmlFor={htmlFor}
-        className="flex items-baseline gap-1 text-[11px] font-bold tracking-[0.07em] text-navy uppercase"
+        className="flex items-baseline gap-1 text-[10px] font-bold tracking-[0.06em] text-navy uppercase"
       >
         {label}
         {required ? <span className="text-accent">*</span> : null}
@@ -76,27 +76,27 @@ export function FormSection({
       )}
       style={{ background: "var(--blend-card)" }}
     >
-      <div className="flex flex-col gap-3 border-b border-border px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:px-5 sm:py-4">
-        <div className="flex min-w-0 items-start gap-3">
+      <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
+        <div className="flex min-w-0 items-start gap-2">
           {icon ? (
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--blend-soft)] text-accent">
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--blend-soft)] text-accent">
               {icon}
             </div>
           ) : null}
           <div className="min-w-0">
-            <h2 className="font-display m-0 text-[14px] font-semibold tracking-[0.04em] text-navy uppercase sm:text-[15px]">
+            <h2 className="font-display m-0 text-[12px] font-semibold tracking-[0.04em] text-navy uppercase sm:text-[13px]">
               {title}
             </h2>
             {description ? (
-              <p className="mt-1 mb-0 text-[12.5px] leading-relaxed text-muted sm:text-[13px]">
+              <p className="mt-0.5 mb-0 text-[11.5px] leading-snug text-muted sm:text-xs">
                 {description}
               </p>
             ) : null}
           </div>
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+        {actions ? <div className="flex shrink-0 flex-wrap gap-1.5">{actions}</div> : null}
       </div>
-      <div className="px-4 py-4 sm:px-5 sm:py-5">{children}</div>
+      <div className="px-3 py-3 sm:px-4 sm:py-3.5">{children}</div>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Printer, Users } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import {
   Alert,
   Badge,
   Button,
+  ChipGroup,
   DataTable,
   Field,
   FormGrid,
@@ -22,11 +23,14 @@ import { useAppNav } from "@/lib/appNav";
 import { money } from "@/lib/format";
 import type { Customer } from "@/types";
 
+type PortalFilter = "all" | "activated" | "pending";
+
 export default function CustomersPage() {
   const { navigate } = useAppNav();
   const { token } = useAuth();
+  const [portalFilter, setPortalFilter] = useState<PortalFilter>("all");
   const { data, error, loading, reload } = useApiQuery<{ customers: Customer[] }>(
-    "/customers?portal=activated"
+    "/customers?portal=all"
   );
   const [reportCustomer, setReportCustomer] = useState<Customer | null>(null);
   const [name, setName] = useState("");
@@ -37,10 +41,17 @@ export default function CustomersPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
+  const customers = useMemo(() => {
+    const list = data?.customers ?? [];
+    if (portalFilter === "activated") return list.filter((c) => c.portalActivated);
+    if (portalFilter === "pending") return list.filter((c) => !c.portalActivated);
+    return list;
+  }, [data?.customers, portalFilter]);
+
   const columns: Column<Customer>[] = [
     {
       key: "name",
-      header: "Name",
+      header: "Company",
       render: (c) => (
         <button
           type="button"
@@ -50,6 +61,16 @@ export default function CustomersPage() {
           {c.name}
         </button>
       ),
+    },
+    {
+      key: "portal",
+      header: "Portal",
+      render: (c) =>
+        c.portalActivated ? (
+          <Badge tone="success">Active</Badge>
+        ) : (
+          <Badge tone="warning">Invite pending</Badge>
+        ),
     },
     {
       key: "billing",
@@ -80,6 +101,16 @@ export default function CustomersPage() {
       render: (c) => c.email || "—",
     },
     {
+      key: "source",
+      header: "Source",
+      render: (c) =>
+        c.quickbooksCustomerId ? (
+          <span className="text-[11px] text-muted">QuickBooks</span>
+        ) : (
+          <span className="text-[11px] text-muted">WMS</span>
+        ),
+    },
+    {
       key: "report",
       header: "Report",
       render: (c) => (
@@ -93,7 +124,7 @@ export default function CustomersPage() {
             setReportCustomer(c);
           }}
         >
-          Print / export
+          Print
         </Button>
       ),
     },
@@ -113,7 +144,7 @@ export default function CustomersPage() {
       });
       setMsg(
         result.message ||
-          `Invite emailed to ${email}. They appear in this list after setting a password.`
+          `Invite emailed to ${email}. They show as Invite pending until they set a password.`
       );
       setName("");
       setContact("");
@@ -133,17 +164,17 @@ export default function CustomersPage() {
       <PageHeader
         title="Customers"
         icon={<Users className="h-5 w-5" />}
-        description="Invite by email — the customer sets a password, then appears in this list"
+        description="All companies — invite for portal access, or synced from QuickBooks. Click a name for billing rates."
       />
       <Alert>{error || err}</Alert>
       {msg ? <Alert tone="info">{msg}</Alert> : null}
 
       <FormSection
         title="Invite new customer"
-        description="We email a link to set their portal password. No public signup."
-        className="mb-6"
+        description="Email a link to set their portal password. They appear below immediately as Invite pending."
+        className="mb-4"
       >
-        <form onSubmit={onCreate} className="space-y-4">
+        <form onSubmit={onCreate} className="space-y-3">
           <FormGrid>
             <Field label="Company name" required>
               <Input required value={name} onChange={(e) => setName(e.target.value)} />
@@ -169,13 +200,33 @@ export default function CustomersPage() {
         </form>
       </FormSection>
 
+      <div className="mb-3">
+        <ChipGroup
+          label="Show"
+          size="sm"
+          options={[
+            { id: "all", label: `All (${data?.customers?.length ?? 0})` },
+            {
+              id: "activated",
+              label: `Portal active (${(data?.customers ?? []).filter((c) => c.portalActivated).length})`,
+            },
+            {
+              id: "pending",
+              label: `Invite pending (${(data?.customers ?? []).filter((c) => !c.portalActivated).length})`,
+            },
+          ]}
+          value={portalFilter}
+          onChange={(id) => setPortalFilter(id as PortalFilter)}
+        />
+      </div>
+
       <DataTable
         columns={columns}
-        rows={data?.customers ?? []}
+        rows={customers}
         rowKey={(c) => c._id}
         loading={loading}
-        emptyTitle="No activated customers yet"
-        emptyDescription="Invited customers appear here after they set a password from the email link."
+        emptyTitle="No customers yet"
+        emptyDescription="Create & email an invite, or Sync invoices from QuickBooks to pull customers in."
       />
       {reportCustomer ? (
         <BillingReportModal

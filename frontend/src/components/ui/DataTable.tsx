@@ -56,14 +56,14 @@ export function DataTable<T>({
   return (
     <Card className="overflow-hidden" lift={false}>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[13.5px]">
+        <table className="w-full border-collapse text-[12.5px]">
           <thead>
             <tr className="bg-[linear-gradient(90deg,#eef2f6_0%,#f7f3eb_55%,#eef2f6_100%)] text-left">
               {columns.map((col) => (
                 <th
                   key={col.key}
                   className={cn(
-                    "px-3.5 py-3 text-[11px] font-bold tracking-[0.06em] text-navy uppercase",
+                    "px-2.5 py-2 text-[10px] font-bold tracking-[0.05em] text-navy uppercase",
                     col.className
                   )}
                 >
@@ -89,7 +89,7 @@ export function DataTable<T>({
                   {columns.map((col) => (
                     <td
                       key={col.key}
-                      className={cn("px-3.5 py-3 align-middle text-text", col.className)}
+                      className={cn("px-2.5 py-2 align-middle text-text", col.className)}
                     >
                       {col.render(row)}
                     </td>

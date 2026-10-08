@@ -9,7 +9,7 @@ export function Select({ className, children, ...props }: Props) {
     <div className="relative">
       <select
         className={cn(
-          "w-full appearance-none rounded-[var(--radius)] border border-border bg-white py-2.5 pr-10 pl-3 text-sm text-text outline-none transition-all",
+          "w-full appearance-none rounded-[var(--radius)] border border-border bg-white py-1.5 pr-9 pl-2.5 text-[13px] text-text outline-none transition-all",
           "hover:border-border-strong focus:border-accent focus:ring-2 focus:ring-accent-bg",
           "disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted",
           className

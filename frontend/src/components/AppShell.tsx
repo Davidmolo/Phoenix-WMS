@@ -143,13 +143,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 navigate(item.href);
               }}
               className={cn(
-                "sidebar-link flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-semibold transition-all duration-200",
+                "sidebar-link flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] font-semibold transition-all duration-200",
                 active && "sidebar-link-active",
                 !active && "hover:translate-x-0.5"
               )}
             >
               <Icon
-                className={cn("sidebar-icon h-[18px] w-[18px] shrink-0", active && "sidebar-accent")}
+                className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
                 strokeWidth={2.25}
               />
               <span className="truncate">{item.label}</span>
@@ -177,31 +177,31 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => navigate("/dashboard")}
-            className="flex min-w-0 items-center gap-2.5 px-3 py-4 text-left sm:gap-3 sm:px-4 sm:py-5"
+            className="flex min-w-0 items-center gap-2 px-3 py-3 text-left sm:px-3.5"
             aria-label="Phoenix Cross Dock home"
           >
             <Image
               src="/logo.png"
               alt=""
-              width={44}
-              height={44}
+              width={36}
+              height={36}
               priority
-              className="h-10 w-10 object-contain sm:h-11 sm:w-11"
+              className="h-8 w-8 object-contain"
             />
             <div className="min-w-0 leading-tight">
-              <div className="font-display text-[13px] font-semibold tracking-[0.05em] uppercase sm:text-[14px]">
+              <div className="font-display text-[12px] font-semibold tracking-[0.04em] uppercase">
                 <span>Phoenix </span>
                 <span className="sidebar-accent">Cross Dock</span>
               </div>
-              <div className="sidebar-muted text-[10px] font-semibold tracking-[0.1em] uppercase">WMS</div>
+              <div className="sidebar-muted text-[9px] font-semibold tracking-[0.1em] uppercase">WMS</div>
             </div>
           </button>
         </div>
         <NavLinks />
-        <div className="mt-auto border-t border-[rgba(255,255,255,0.14)] p-3 sm:p-4">
-          <div className="mb-3 px-1">
-            <div className="truncate text-[13px] font-semibold">{user.name}</div>
-            <div className="sidebar-muted text-[11px] capitalize">{user.role}</div>
+        <div className="mt-auto border-t border-[rgba(255,255,255,0.14)] p-2.5 sm:p-3">
+          <div className="mb-2 px-1">
+            <div className="truncate text-[12px] font-semibold">{user.name}</div>
+            <div className="sidebar-muted text-[10px] capitalize">{user.role}</div>
           </div>
           <button
             type="button"
@@ -209,7 +209,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               logout();
               router.replace("/");
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-colors"
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               border: "1px solid rgba(255,255,255,0.22)",
               background: "rgba(255,255,255,0.1)",
@@ -291,11 +291,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
         </header>
 
-        <main className="app-canvas mx-auto w-full max-w-[1680px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-7 xl:px-10">
+        <main className="app-canvas mx-auto w-full max-w-[1680px] flex-1 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-4">
           {children}
         </main>
 
-        <footer className="border-t border-border px-3 py-3 text-center text-[11px] text-muted sm:px-4 sm:py-4 sm:text-xs">
+        <footer className="border-t border-border px-3 py-2 text-center text-[10px] text-muted sm:px-4 sm:py-2.5">
           Phoenix Cross Dock · Suite 5 ·{" "}
           <a
             href="https://phoenixcrossdocks.com"

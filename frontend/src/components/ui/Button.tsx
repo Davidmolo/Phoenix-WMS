@@ -16,8 +16,8 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "px-2.5 py-1.5 text-xs rounded-[8px]",
-  md: "px-4 py-2.5 text-sm rounded-[var(--radius)]",
+  sm: "px-2 py-1 text-[11px] rounded-md",
+  md: "px-3 py-1.5 text-[13px] rounded-[var(--radius)]",
 };
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
