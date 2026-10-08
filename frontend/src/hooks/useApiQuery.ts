@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiAbortError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useScreenActive } from "@/lib/screenActive";
 
@@ -103,6 +103,8 @@ export function useApiQuery<T>(path: string | null, options: Options = {}) {
         setError("");
       } catch (err) {
         if (id !== fetchId.current) return;
+        // Tab switches / remounts abort in-flight fetches — not a real outage
+        if (err instanceof ApiAbortError) return;
         const message = err instanceof Error ? err.message : "Request failed";
         const prev = cache.get(k);
         if (!isTrusted(prev)) {
