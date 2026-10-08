@@ -23,7 +23,14 @@ import { useAppNav } from "@/lib/appNav";
 import { money } from "@/lib/format";
 import type { Customer } from "@/types";
 
-type PortalFilter = "all" | "activated" | "pending";
+type PortalFilter = "all" | "active" | "invite_sent" | "not_invited";
+
+function portalStatusOf(c: Customer): "active" | "invite_sent" | "not_invited" {
+  if (c.portalStatus) return c.portalStatus;
+  if (c.portalActivated) return "active";
+  if (c.invitePending) return "invite_sent";
+  return "not_invited";
+}
 
 export default function CustomersPage() {
   const { navigate } = useAppNav();
@@ -41,12 +48,24 @@ export default function CustomersPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
+  const allCustomers = data?.customers ?? [];
+  const counts = useMemo(() => {
+    let active = 0;
+    let inviteSent = 0;
+    let notInvited = 0;
+    for (const c of allCustomers) {
+      const s = portalStatusOf(c);
+      if (s === "active") active += 1;
+      else if (s === "invite_sent") inviteSent += 1;
+      else notInvited += 1;
+    }
+    return { active, inviteSent, notInvited, total: allCustomers.length };
+  }, [allCustomers]);
+
   const customers = useMemo(() => {
-    const list = data?.customers ?? [];
-    if (portalFilter === "activated") return list.filter((c) => c.portalActivated);
-    if (portalFilter === "pending") return list.filter((c) => !c.portalActivated);
-    return list;
-  }, [data?.customers, portalFilter]);
+    if (portalFilter === "all") return allCustomers;
+    return allCustomers.filter((c) => portalStatusOf(c) === portalFilter);
+  }, [allCustomers, portalFilter]);
 
   const columns: Column<Customer>[] = [
     {
@@ -65,12 +84,13 @@ export default function CustomersPage() {
     {
       key: "portal",
       header: "Portal",
-      render: (c) =>
-        c.portalActivated ? (
-          <Badge tone="success">Active</Badge>
-        ) : (
-          <Badge tone="warning">Invite pending</Badge>
-        ),
+      render: (c) => {
+        const status = portalStatusOf(c);
+        if (status === "active") return <Badge tone="success">Onboarded</Badge>;
+        if (status === "invite_sent")
+          return <Badge tone="warning">Invite sent — awaiting password</Badge>;
+        return <Badge tone="neutral">Not invited yet</Badge>;
+      },
     },
     {
       key: "billing",
@@ -144,7 +164,7 @@ export default function CustomersPage() {
       });
       setMsg(
         result.message ||
-          `Invite emailed to ${email}. They show as Invite pending until they set a password.`
+          `Invite emailed to ${email}. Status stays “Invite sent” until they set a password.`
       );
       setName("");
       setContact("");
@@ -205,15 +225,10 @@ export default function CustomersPage() {
           label="Show"
           size="sm"
           options={[
-            { id: "all", label: `All (${data?.customers?.length ?? 0})` },
-            {
-              id: "activated",
-              label: `Portal active (${(data?.customers ?? []).filter((c) => c.portalActivated).length})`,
-            },
-            {
-              id: "pending",
-              label: `Invite pending (${(data?.customers ?? []).filter((c) => !c.portalActivated).length})`,
-            },
+            { id: "all", label: `All (${counts.total})` },
+            { id: "active", label: `Onboarded (${counts.active})` },
+            { id: "invite_sent", label: `Invite sent (${counts.inviteSent})` },
+            { id: "not_invited", label: `Not invited (${counts.notInvited})` },
           ]}
           value={portalFilter}
           onChange={(id) => setPortalFilter(id as PortalFilter)}

@@ -16,6 +16,10 @@ export type Customer = {
   since?: string;
   /** True after they set a portal password from the invite email. */
   portalActivated?: boolean;
+  /** True when an invite email was sent and they have not set a password yet. */
+  invitePending?: boolean;
+  /** active = onboarded · invite_sent = emailed, no password yet · not_invited = never invited */
+  portalStatus?: "active" | "invite_sent" | "not_invited";
   quickbooksCustomerId?: string | null;
 };
 

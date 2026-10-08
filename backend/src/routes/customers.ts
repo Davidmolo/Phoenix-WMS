@@ -14,15 +14,40 @@ router.use(requireAuth);
 
 router.get("/", requireRole("admin", "staff"), async (req, res, next) => {
   try {
-    const filter: Record<string, unknown> = { companyId: req.auth!.companyId, active: true };
-    // Customers page: only accounts that finished portal signup (set password).
-    // Ops / billing dropdowns pass portal=all to include pending invites.
+    const companyId = req.auth!.companyId;
+    const filter: Record<string, unknown> = { companyId, active: true };
+    // Customers page default used to be activated-only; ops/billing use portal=all.
     const portal = String(req.query.portal || "activated");
     if (portal === "activated") filter.portalActivated = true;
     else if (portal === "pending") filter.portalActivated = false;
 
-    const customers = await Customer.find(filter).sort({ name: 1 });
-    res.json({ customers });
+    const customers = await Customer.find(filter).sort({ name: 1 }).lean();
+
+    // Enrich with invite state so UI can tell: onboarded vs invite sent vs never invited
+    const ids = customers.map((c) => c._id);
+    const portalUsers = await User.find({
+      companyId,
+      role: "customer",
+      customerId: { $in: ids },
+    })
+      .select("customerId inviteTokenHash")
+      .lean();
+
+    const inviteByCustomer = new Map(
+      portalUsers.map((u) => [String(u.customerId), Boolean(u.inviteTokenHash)])
+    );
+
+    const enriched = customers.map((c) => {
+      const invitePending = inviteByCustomer.get(String(c._id)) === true;
+      const portalStatus = c.portalActivated
+        ? "active"
+        : invitePending
+          ? "invite_sent"
+          : "not_invited";
+      return { ...c, invitePending, portalStatus };
+    });
+
+    res.json({ customers: enriched });
   } catch (err) {
     next(err);
   }
