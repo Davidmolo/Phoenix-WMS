@@ -9,7 +9,8 @@ const palletSchema = new Schema(
     externalId: { type: String, required: true }, // human-readable e.g. PLT-20001
     status: {
       type: String,
-      enum: ["expected", "received", "stored", "staged", "shipped", "void"],
+      // staged_for_store = received + label printed, awaiting putaway scan (Cesar receiving flow)
+      enum: ["expected", "received", "staged_for_store", "stored", "staged", "shipped", "void"],
       default: "received",
       index: true,
     },

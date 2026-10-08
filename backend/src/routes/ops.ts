@@ -12,6 +12,7 @@ import { Lpn } from "../models/Lpn";
 import { Location } from "../models/Location";
 import { Request as WhRequest } from "../models/Request";
 import { paginationMeta, parsePagination } from "../utils/pagination";
+import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
 
 const router = Router();
 
@@ -45,7 +46,7 @@ router.get("/dashboard", async (req, res, next) => {
     const customerFilter =
       req.auth!.role === "customer" ? { customerId: req.auth!.customerId } : {};
 
-    const activeStatus = { $in: ["received", "stored", "staged"] };
+    const activeStatus = { $in: [...ACTIVE_PALLET_STATUSES] };
 
     const [activePallets, pendingRequests, draftInvoices, customers, openCharges, locationsAvailable] =
       await Promise.all([

@@ -9,6 +9,7 @@ import { Lpn } from "../models/Lpn";
 import { nextPalletExternalId, nextLpnCode } from "../services/ids";
 import { splitClientReference } from "../services/palletSpace";
 import { paginationMeta, parsePagination } from "../utils/pagination";
+import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
 
 const router = Router();
 router.use(requireAuth);
@@ -104,7 +105,7 @@ router.post("/pick-list", requireRole("admin", "staff"), async (req, res, next) 
     const filter: Record<string, unknown> = {
       _id: { $in: palletIds },
       companyId,
-      status: { $in: ["received", "stored", "staged"] },
+      status: { $in: ACTIVE_PALLET_STATUSES },
     };
     if (warehouseId) filter.warehouseId = warehouseId;
     if (customerId) filter.customerId = customerId;
@@ -188,8 +189,13 @@ router.get("/:id", async (req, res, next) => {
 });
 
 /**
- * Receive inbound pallets into the warehouse.
- * Body: { warehouseId, customerId, palletCount, description?, billAsFtl?, locationIds?, carrier?, ref? }
+ * Receive inbound pallets (Cesar flow):
+ * 1) From expected or manual entry
+ * 2) Location = next available (default) or chosen slots
+ * 3) Status stays staged_for_store while labels print (location on barcode)
+ * 4) Later: Store scan confirms putaway → stored
+ *
+ * Body: { warehouseId, customerId, palletCount, locationMode?, locationIds?, expectedShipmentId?, ... }
  */
 router.post("/receive", requireRole("admin", "staff"), async (req, res, next) => {
   try {
@@ -200,7 +206,9 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       palletCount = 1,
       description = "",
       billAsFtl = false,
-      locationIds = [],
+      locationIds: bodyLocationIds = [],
+      locationMode = "next_available",
+      expectedShipmentId = null,
       carrier = "",
       trailerNumber = "",
       ref = "",
@@ -228,17 +236,71 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
     const footprint = resolvePalletSqft({ sqft, dimLength, dimWidth });
 
     const count = Math.max(1, Math.min(50, Number(palletCount) || 1));
-    const shipment = await Shipment.create({
-      companyId,
-      warehouseId,
-      customerId,
-      direction: "inbound",
-      status: "in_progress",
-      carrier,
-      trailerNumber,
-      billAsFtl: Boolean(billAsFtl),
-      notes: ref,
-    });
+
+    let locationIds: string[] = Array.isArray(bodyLocationIds)
+      ? bodyLocationIds.map(String).filter(Boolean)
+      : [];
+
+    if (locationMode === "next_available" || locationIds.length === 0) {
+      const available = await Location.find({
+        companyId,
+        warehouseId,
+        palletId: null,
+      })
+        .sort({ aisle: 1, code: 1 })
+        .limit(count)
+        .lean();
+      if (available.length < count) {
+        res.status(400).json({
+          error: `Need ${count} open location(s); only ${available.length} available. Free slots or choose fewer pallets.`,
+        });
+        return;
+      }
+      locationIds = available.map((l) => String(l._id));
+    }
+
+    if (locationIds.length < count) {
+      res.status(400).json({
+        error: `Select ${count} location(s) for this receipt (got ${locationIds.length}).`,
+      });
+      return;
+    }
+
+    let shipment;
+    if (expectedShipmentId) {
+      shipment = await Shipment.findOne({
+        _id: expectedShipmentId,
+        companyId,
+        direction: "inbound",
+        status: "expected",
+      });
+      if (!shipment) {
+        res.status(404).json({ error: "Expected inbound shipment not found" });
+        return;
+      }
+      if (String(shipment.customerId) !== String(customerId)) {
+        res.status(400).json({ error: "Customer does not match the expected shipment" });
+        return;
+      }
+      shipment.status = "in_progress";
+      shipment.carrier = carrier || shipment.carrier;
+      shipment.trailerNumber = trailerNumber || shipment.trailerNumber;
+      shipment.billAsFtl = Boolean(billAsFtl);
+      if (ref) shipment.notes = ref;
+      await shipment.save();
+    } else {
+      shipment = await Shipment.create({
+        companyId,
+        warehouseId,
+        customerId,
+        direction: "inbound",
+        status: "in_progress",
+        carrier,
+        trailerNumber,
+        billAsFtl: Boolean(billAsFtl),
+        notes: ref,
+      });
+    }
 
     const createdPallets = [];
     for (let i = 0; i < count; i++) {
@@ -258,13 +320,14 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         }
       }
 
+      // Cesar: after receive + label print, remain Staged for Store (not stored yet)
       const pallet = await Pallet.create({
         companyId,
         warehouseId,
         customerId,
         locationId,
         externalId,
-        status: locationId ? "stored" : "received",
+        status: locationId ? "staged_for_store" : "received",
         description: description || `Inbound receipt ${ref || shipment.id}`,
         poNumber: refs.poNumber,
         jobName: refs.jobName,
@@ -349,7 +412,12 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
     shipment.completedAt = new Date();
     await shipment.save();
 
-    res.status(201).json({ shipment, pallets: createdPallets });
+    const pallets = await Pallet.find({ _id: { $in: createdPallets.map((p) => p._id) } }).populate(
+      "locationId",
+      "code aisle type"
+    );
+
+    res.status(201).json({ shipment, pallets });
   } catch (err) {
     next(err);
   }
@@ -396,7 +464,7 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       _id: { $in: palletIds },
       companyId,
       customerId,
-      status: { $in: ["received", "stored", "staged"] },
+      status: { $in: ACTIVE_PALLET_STATUSES },
     });
 
     if (pallets.length !== palletIds.length) {

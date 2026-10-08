@@ -15,6 +15,7 @@ import LpnsScreen from "@/screens/LpnsScreen";
 import WarehouseScreen from "@/screens/WarehouseScreen";
 import RequestsScreen from "@/screens/RequestsScreen";
 import BillingScreen from "@/screens/BillingScreen";
+import YardJobsScreen from "@/screens/YardJobsScreen";
 import BookingsScreen from "@/screens/BookingsScreen";
 import PortalBookingsScreen from "@/screens/PortalBookingsScreen";
 import PortalProfileScreen from "@/screens/PortalProfileScreen";
@@ -141,6 +142,11 @@ export function ScreenRouter() {
       {mounted.has("profile") && isPortal ? (
         <ScreenPane active={active === "profile"}>
           <PortalProfileScreen />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("yard-jobs") ? (
+        <ScreenPane active={active === "yard-jobs"}>
+          <YardJobsScreen />
         </ScreenPane>
       ) : null}
       {mounted.has("billing") ? (

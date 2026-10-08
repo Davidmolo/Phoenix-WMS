@@ -9,7 +9,16 @@ const accessorialSchema = new Schema(
     shipmentId: { type: Schema.Types.ObjectId, ref: "Shipment", default: null },
     type: {
       type: String,
-      enum: ["handling", "ftl", "crossdock", "dwell", "storage", "accessorial", "other"],
+      enum: [
+        "handling",
+        "ftl",
+        "crossdock",
+        "trailer_rework",
+        "dwell",
+        "storage",
+        "accessorial",
+        "other",
+      ],
       default: "handling",
     },
     description: { type: String, required: true },

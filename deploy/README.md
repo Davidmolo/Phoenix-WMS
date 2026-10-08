@@ -68,7 +68,10 @@ Server env (never commit secrets):
 - `QUICKBOOKS_CLIENT_SECRET`
 - `QUICKBOOKS_REDIRECT_URI=https://wms.phoenixcrossdocks.com/api/quickbooks/callback`
 - `QUICKBOOKS_ENV=sandbox`
+- `QUICKBOOKS_SYNC_ENABLED=true` (default) — background cron pulls invoices into Mongo
+- `QUICKBOOKS_SYNC_CRON=*/15 * * * *` — every 15 minutes (override if needed)
+- `QUICKBOOKS_SYNC_ON_BOOT=true` — one sync ~15s after API start
 
 In Intuit Developer → app → Keys (Development) → Redirect URIs, add the callback URL above.
 
-Staff flow: **Billing → Connect QuickBooks → Sync invoices**.
+Staff flow: **Billing → Connect QuickBooks**. Invoices sync on the cron schedule; **Sync invoices** is always available for an immediate refresh.

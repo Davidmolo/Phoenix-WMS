@@ -43,7 +43,7 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
             $match: {
               companyId: new Types.ObjectId(companyId),
               warehouseId: new Types.ObjectId(warehouseId),
-              status: { $in: ["received", "stored", "staged"] },
+              status: { $in: ["received", "staged_for_store", "stored", "staged"] },
             },
           },
           { $group: { _id: null, occupiedSqft: { $sum: { $ifNull: ["$sqft", 16] } } } },

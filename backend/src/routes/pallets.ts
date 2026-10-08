@@ -1,11 +1,78 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Pallet } from "../models/Pallet";
+import { Location } from "../models/Location";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
 
 router.use(requireAuth);
+
+/**
+ * Cesar putaway: scan pallet barcode, then scan storage location → status stored.
+ * Body: { palletCode (externalId), locationCode }
+ */
+router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const palletCode = String(req.body.palletCode || req.body.externalId || "").trim();
+    const locationCode = String(req.body.locationCode || "").trim();
+
+    if (!palletCode || !locationCode) {
+      res.status(400).json({ error: "palletCode and locationCode are required" });
+      return;
+    }
+
+    const pallet = await Pallet.findOne({ companyId, externalId: palletCode });
+    if (!pallet) {
+      res.status(404).json({ error: `Pallet ${palletCode} not found` });
+      return;
+    }
+    if (!["staged_for_store", "received", "stored"].includes(pallet.status)) {
+      res.status(400).json({
+        error: `Pallet ${palletCode} cannot be stored (status: ${pallet.status})`,
+      });
+      return;
+    }
+
+    const location = await Location.findOne({
+      companyId,
+      warehouseId: pallet.warehouseId,
+      code: locationCode,
+    });
+    if (!location) {
+      res.status(404).json({ error: `Location ${locationCode} not found` });
+      return;
+    }
+
+    const occupiedByOther =
+      location.palletId && String(location.palletId) !== String(pallet._id);
+    if (occupiedByOther) {
+      res.status(400).json({ error: `Location ${locationCode} is already occupied` });
+      return;
+    }
+
+    // Free previous reserved slot if moving to a different bin
+    if (pallet.locationId && String(pallet.locationId) !== String(location._id)) {
+      await Location.findOneAndUpdate(
+        { _id: pallet.locationId, palletId: pallet._id },
+        { palletId: null }
+      );
+    }
+
+    location.palletId = pallet._id;
+    await location.save();
+
+    pallet.locationId = location._id;
+    pallet.status = "stored";
+    await pallet.save();
+
+    const populated = await Pallet.findById(pallet._id).populate("locationId", "code aisle type");
+    res.json({ pallet: populated, message: `${palletCode} stored at ${locationCode}` });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/", async (req, res, next) => {
   try {

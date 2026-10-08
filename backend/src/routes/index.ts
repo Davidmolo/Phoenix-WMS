@@ -12,6 +12,7 @@ import bookingRoutes from "./bookings";
 import publicBookingRoutes from "./publicBookings";
 import docsRoutes from "./docs";
 import quickbooksRoutes from "./quickbooks";
+import yardJobRoutes from "./yardJobs";
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.use("/requests", requestRoutes);
 router.use("/locations", locationRoutes);
 router.use("/lpns", lpnRoutes);
 router.use("/shipments", shipmentRoutes);
+router.use("/yard-jobs", yardJobRoutes);
 router.use("/bookings", bookingRoutes);
 router.use("/", opsRoutes);
 

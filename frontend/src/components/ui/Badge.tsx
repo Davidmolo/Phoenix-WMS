@@ -35,7 +35,18 @@ export function Badge({
 export function statusTone(status?: string): Tone {
   const s = (status || "").toLowerCase();
   if (["paid", "completed", "stored", "received", "approved"].includes(s)) return "success";
-  if (["pending", "draft", "expected", "staged"].includes(s)) return "warning";
+  if (["pending", "draft", "expected", "staged", "staged_for_store", "open", "in_progress"].includes(s))
+    return "warning";
   if (["void", "cancelled", "past_due", "shipped"].includes(s)) return s === "shipped" ? "accent" : "danger";
   return "neutral";
+}
+
+/** Human labels for warehouse statuses (Cesar: Staged for Store). */
+export function statusLabel(status?: string): string {
+  if (!status) return "—";
+  if (status === "staged_for_store") return "Staged for Store";
+  if (status === "trailer_rework") return "Trailer Rework";
+  if (status === "crossdock") return "Crossdock";
+  if (status === "in_progress") return "In progress";
+  return status.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

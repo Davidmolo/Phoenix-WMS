@@ -114,7 +114,7 @@ router.post("/group", requireRole("admin", "staff"), async (req, res, next) => {
       companyId,
       customerId,
       warehouseId,
-      status: { $in: ["received", "stored", "staged"] },
+      status: { $in: ["received", "staged_for_store", "stored", "staged"] },
     });
 
     if (pallets.length !== palletIds.length) {
@@ -183,7 +183,7 @@ router.post("/:id/attach", requireRole("admin", "staff"), async (req, res, next)
       _id: { $in: addIds },
       companyId,
       customerId: lpn.customerId,
-      status: { $in: ["received", "stored", "staged"] },
+      status: { $in: ["received", "staged_for_store", "stored", "staged"] },
     });
 
     for (const p of pallets) {

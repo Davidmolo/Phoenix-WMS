@@ -54,7 +54,10 @@ router.get("/:id/billing-report", requireRole("admin", "staff"), async (req, res
 
     const filter = { companyId: req.auth!.companyId, customerId: customer._id };
     const [activePallets, charges, invoices] = await Promise.all([
-      Pallet.countDocuments({ ...filter, status: { $in: ["received", "stored", "staged"] } }),
+      Pallet.countDocuments({
+        ...filter,
+        status: { $in: ["received", "staged_for_store", "stored", "staged"] },
+      }),
       Accessorial.find({
         ...filter,
         date: { $gte: start, $lte: end },
@@ -70,6 +73,13 @@ router.get("/:id/billing-report", requireRole("admin", "staff"), async (req, res
 
     const chargeTotal = charges.reduce((s, c) => s + (c.amount || 0), 0);
     const invoiceTotal = invoices.reduce((s, inv) => s + (inv.total || 0), 0);
+    const balanceDueTotal = invoices.reduce((s, inv) => {
+      const due =
+        inv.balanceDue != null && !Number.isNaN(Number(inv.balanceDue))
+          ? Number(inv.balanceDue)
+          : Number(inv.total) || 0;
+      return s + due;
+    }, 0);
 
     res.json({
       customer: {
@@ -90,6 +100,7 @@ router.get("/:id/billing-report", requireRole("admin", "staff"), async (req, res
         chargeTotal,
         invoiceCount: invoices.length,
         invoiceTotal,
+        balanceDueTotal,
       },
       charges,
       invoices,
@@ -116,7 +127,10 @@ router.get("/:id", async (req, res, next) => {
 
     const filter = { companyId: req.auth!.companyId, customerId: customer._id };
     const [activePallets, pallets, unbilledCharges, requests, invoices] = await Promise.all([
-      Pallet.countDocuments({ ...filter, status: { $in: ["received", "stored", "staged"] } }),
+      Pallet.countDocuments({
+        ...filter,
+        status: { $in: ["received", "staged_for_store", "stored", "staged"] },
+      }),
       Pallet.find(filter).sort({ updatedAt: -1 }).limit(100),
       Accessorial.find({ ...filter, invoiceId: null }).sort({ date: -1 }),
       WhRequest.find(filter).sort({ dateRequested: -1 }).limit(20),

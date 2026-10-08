@@ -19,6 +19,10 @@ const requestSchema = new Schema(
     poNumber: { type: String, default: "" },
     deliveryAddress: { type: String, default: "" },
     notes: { type: String, default: "" },
+    /** Portal: are any pallets non-standard size? */
+    abnormalPallets: { type: Boolean, default: false },
+    /** Free-text sizes when abnormalPallets is true (e.g. 48x60, oversized). */
+    abnormalPalletSize: { type: String, default: "" },
     dateRequested: { type: Date, default: Date.now },
     scheduledDate: { type: Date, default: null },
   },

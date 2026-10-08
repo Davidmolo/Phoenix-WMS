@@ -11,11 +11,20 @@ export type RegisterInvoice = {
   number: string;
   status: string;
   total: number;
+  balanceDue?: number | null;
   periodStart: string;
   periodEnd: string;
+  dueDate?: string | null;
   quickbooksId?: string | null;
   customerId?: string | { _id: string; name?: string };
 };
+
+function balanceDueOf(inv: RegisterInvoice) {
+  if (inv.balanceDue != null && !Number.isNaN(Number(inv.balanceDue))) {
+    return Number(inv.balanceDue);
+  }
+  return Number(inv.total) || 0;
+}
 
 function customerLabel(inv: RegisterInvoice) {
   if (inv.customerId && typeof inv.customerId === "object") return inv.customerId.name || "—";
@@ -39,7 +48,8 @@ export function InvoiceRegisterPrintModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const total = invoices.reduce((s, inv) => s + (inv.total || 0), 0);
+  const billed = invoices.reduce((s, inv) => s + (inv.total || 0), 0);
+  const owed = invoices.reduce((s, inv) => s + balanceDueOf(inv), 0);
 
   return (
     <div className="print-overlay fixed inset-0 z-50 flex items-end justify-center bg-navy-deep/50 p-3 backdrop-blur-sm sm:items-center sm:p-6">
@@ -58,7 +68,8 @@ export function InvoiceRegisterPrintModal({
           <div className="print-brand-meta">
             {filterLabel}
             <br />
-            {invoices.length} invoice{invoices.length === 1 ? "" : "s"} · {money(total)}
+            {invoices.length} invoice{invoices.length === 1 ? "" : "s"} · billed{" "}
+            {money(billed)} · owed {money(owed)}
           </div>
         </div>
 
@@ -68,8 +79,8 @@ export function InvoiceRegisterPrintModal({
               Invoice register
             </div>
             <p className="m-0 mt-0.5 text-xs text-muted">
-              {filterLabel} · {invoices.length} invoice{invoices.length === 1 ? "" : "s"} ·{" "}
-              {money(total)}
+              {filterLabel} · {invoices.length} invoice{invoices.length === 1 ? "" : "s"} · billed{" "}
+              {money(billed)} · still owed {money(owed)}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -103,9 +114,10 @@ export function InvoiceRegisterPrintModal({
                   <tr className="border-b border-border text-[11px] tracking-wide text-muted uppercase">
                     <th className="py-2 pr-2 font-semibold">Number</th>
                     <th className="py-2 pr-2 font-semibold">Customer</th>
-                    <th className="py-2 pr-2 font-semibold">Period</th>
+                    <th className="py-2 pr-2 font-semibold">Date</th>
                     <th className="py-2 pr-2 font-semibold">Status</th>
-                    <th className="py-2 font-semibold">Total</th>
+                    <th className="py-2 pr-2 font-semibold">Invoice total</th>
+                    <th className="py-2 font-semibold">Balance due</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -115,17 +127,16 @@ export function InvoiceRegisterPrintModal({
                         {inv.number}
                         {inv.quickbooksId ? (
                           <span className="mt-0.5 block text-[10px] font-normal text-muted">
-                            QB {inv.quickbooksId}
+                            From QuickBooks
                           </span>
                         ) : null}
                       </td>
                       <td className="py-2.5 pr-2 text-xs">{customerLabel(inv)}</td>
-                      <td className="py-2.5 pr-2 text-xs">
-                        {dateLabel(inv.periodStart)} – {dateLabel(inv.periodEnd)}
-                      </td>
+                      <td className="py-2.5 pr-2 text-xs">{dateLabel(inv.periodStart)}</td>
                       <td className="py-2.5 pr-2 capitalize">{inv.status}</td>
+                      <td className="py-2.5 pr-2 tabular-nums text-navy">{money(inv.total)}</td>
                       <td className="py-2.5 tabular-nums font-semibold text-navy">
-                        {money(inv.total)}
+                        {money(balanceDueOf(inv))}
                       </td>
                     </tr>
                   ))}

@@ -13,6 +13,7 @@ import {
   ChipGroup,
   DataTable,
   PageHeader,
+  statusLabel,
   statusTone,
   type Column,
 } from "@/components/ui";
@@ -22,7 +23,7 @@ import { dateLabel } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Pallet, PalletLocation } from "@/types";
 
-const FILTERS = ["all", "stored", "staged", "received", "shipped"] as const;
+const FILTERS = ["all", "staged_for_store", "stored", "staged", "received", "shipped"] as const;
 
 function locationCode(p: Pallet): string {
   const loc = p.locationId;
@@ -71,7 +72,9 @@ export default function InventoryPage() {
     {
       key: "status",
       header: "Status",
-      render: (p) => <Badge tone={statusTone(p.status)}>{p.status}</Badge>,
+      render: (p) => (
+        <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
+      ),
     },
     {
       key: "loc",
@@ -110,7 +113,7 @@ export default function InventoryPage() {
             size="sm"
             options={FILTERS.map((f) => ({
               id: f,
-              label: f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1),
+              label: f === "all" ? "All" : statusLabel(f),
             }))}
             value={filter}
             onChange={setFilter}
@@ -142,7 +145,11 @@ export default function InventoryPage() {
                     <DetailRow label="ID" value={selected.externalId} />
                     <DetailRow
                       label="Status"
-                      value={<Badge tone={statusTone(selected.status)}>{selected.status}</Badge>}
+                      value={
+                        <Badge tone={statusTone(selected.status)}>
+                          {statusLabel(selected.status)}
+                        </Badge>
+                      }
                     />
                     <DetailRow label="Location" value={locationCode(selected)} />
                     <DetailRow
@@ -179,7 +186,7 @@ export default function InventoryPage() {
         </div>
 
         {printPallet ? (
-          <PalletLabelPreview pallet={printPallet} onClose={() => setPrintPallet(null)} />
+          <PalletLabelPreview pallets={[printPallet]} onClose={() => setPrintPallet(null)} />
         ) : null}
     </>
   );

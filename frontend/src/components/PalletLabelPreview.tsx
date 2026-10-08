@@ -1,20 +1,44 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { printDocument } from "@/lib/print";
+import { titleCase } from "@/lib/format";
 import type { Pallet } from "@/types";
 
 type Props = {
-  pallet: Pallet;
+  pallets: Pallet[];
   companyName?: string;
   onClose: () => void;
 };
 
-/** Printable ~4" pallet label with Code128 barcode (prototype parity / Cesar ask). */
-export function PalletLabelPreview({ pallet, companyName = "Phoenix Cross Dock", onClose }: Props) {
+function locationCode(pallet: Pallet) {
+  if (pallet.locationId && typeof pallet.locationId === "object") {
+    return pallet.locationId.code || "—";
+  }
+  return "—";
+}
+
+function statusDisplay(status?: string) {
+  if (status === "staged_for_store") return "Staged for Store";
+  return titleCase(status);
+}
+
+/** Printable ~4" pallet label with Code128 barcode — location on label (Cesar). */
+export function PalletLabelPreview({
+  pallets,
+  companyName = "Phoenix Cross Dock",
+  onClose,
+}: Props) {
+  const [index, setIndex] = useState(0);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const pallet = pallets[index];
 
   useEffect(() => {
+    setIndex(0);
+  }, [pallets]);
+
+  useEffect(() => {
+    if (!pallet) return;
     let cancelled = false;
     (async () => {
       try {
@@ -34,7 +58,9 @@ export function PalletLabelPreview({ pallet, companyName = "Phoenix Cross Dock",
     return () => {
       cancelled = true;
     };
-  }, [pallet.externalId]);
+  }, [pallet?.externalId, index]);
+
+  if (!pallet) return null;
 
   const poJob = pallet.jobName || pallet.poNumber || "—";
   const dims =
@@ -42,14 +68,35 @@ export function PalletLabelPreview({ pallet, companyName = "Phoenix Cross Dock",
       ? `${pallet.dimLength}" × ${pallet.dimWidth}"`
       : "—";
   const sqft = pallet.sqft != null ? `${pallet.sqft} SF` : "—";
+  const loc = locationCode(pallet);
 
   return (
     <div className="pallet-label-overlay fixed inset-0 z-50 flex flex-col bg-black/50">
       <div className="no-print flex items-center justify-between gap-3 bg-[#141413] px-4 py-2.5 text-sm text-white">
         <span>
-          Pallet label — <strong>{pallet.externalId}</strong>
+          Pallet label {index + 1} of {pallets.length} — <strong>{pallet.externalId}</strong>
         </span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {pallets.length > 1 ? (
+            <>
+              <button
+                type="button"
+                className="rounded-md border border-white/40 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+                disabled={index === 0}
+                onClick={() => setIndex((i) => Math.max(0, i - 1))}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-white/40 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+                disabled={index >= pallets.length - 1}
+                onClick={() => setIndex((i) => Math.min(pallets.length - 1, i + 1))}
+              >
+                Next
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-navy"
@@ -76,6 +123,10 @@ export function PalletLabelPreview({ pallet, companyName = "Phoenix Cross Dock",
           <div className="mb-3 text-center font-mono text-xl font-extrabold tracking-wide">
             {pallet.externalId}
           </div>
+          <div className="mb-3 rounded border-2 border-black px-2 py-2 text-center">
+            <div className="text-[8.5px] tracking-wide text-muted uppercase">Storage location</div>
+            <div className="font-mono text-2xl font-extrabold tracking-wide">{loc}</div>
+          </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-black pt-2 text-[12px]">
             <div>
               <div className="text-[8.5px] tracking-wide text-muted uppercase">PO / Job</div>
@@ -83,7 +134,7 @@ export function PalletLabelPreview({ pallet, companyName = "Phoenix Cross Dock",
             </div>
             <div>
               <div className="text-[8.5px] tracking-wide text-muted uppercase">Status</div>
-              <div className="font-bold capitalize">{pallet.status}</div>
+              <div className="font-bold">{statusDisplay(pallet.status)}</div>
             </div>
             <div>
               <div className="text-[8.5px] tracking-wide text-muted uppercase">Footprint</div>

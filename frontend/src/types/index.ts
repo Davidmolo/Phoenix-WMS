@@ -53,18 +53,27 @@ export type WhRequest = {
   jobName?: string;
   poNumber?: string;
   notes?: string;
+  abnormalPallets?: boolean;
+  abnormalPalletSize?: string;
   dateRequested: string;
+  customerId?: string | { _id: string; name?: string; billingMethod?: string };
 };
 
 export type Invoice = {
   _id: string;
   number: string;
   status: string;
+  /** Full invoice amount (what was billed). */
   total: number;
+  /** Amount still owed after payments (QuickBooks Balance). */
+  balanceDue?: number | null;
+  subtotal?: number;
   periodStart: string;
   periodEnd: string;
+  dueDate?: string | null;
+  quickbooksId?: string | null;
   customerId?: string | { _id: string; name?: string; billingMethod?: string };
-  lines?: Array<{ description: string; amount: number; type: string }>;
+  lines?: Array<{ description: string; amount: number; type: string; qty?: number }>;
 };
 
 export type Warehouse = {
@@ -113,6 +122,7 @@ export type Shipment = {
   _id: string;
   direction: "inbound" | "outbound";
   status: string;
+  customerId?: string | { _id: string; name?: string };
   carrier?: string;
   trailerNumber?: string;
   billAsFtl?: boolean;

@@ -25,6 +25,13 @@ import type { WhRequest } from "@/types";
 
 type RequestsResponse = { requests: WhRequest[] } & PaginationMeta;
 
+function companyName(r: WhRequest) {
+  if (r.customerId && typeof r.customerId === "object") {
+    return r.customerId.name || "—";
+  }
+  return "—";
+}
+
 export default function RequestsPage() {
   const { token, user } = useAuth();
   const [page, setPage] = useState(1);
@@ -36,6 +43,8 @@ export default function RequestsPage() {
   const [qty, setQty] = useState(1);
   const [poOrJob, setPoOrJob] = useState("");
   const [notes, setNotes] = useState("");
+  const [abnormalPallets, setAbnormalPallets] = useState(false);
+  const [abnormalPalletSize, setAbnormalPalletSize] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -44,6 +53,10 @@ export default function RequestsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
+    if (abnormalPallets && !abnormalPalletSize.trim()) {
+      setErr("Please enter the abnormal pallet size(s).");
+      return;
+    }
     setBusy(true);
     setErr("");
     setMsg("");
@@ -60,11 +73,15 @@ export default function RequestsPage() {
           jobName: poOrJob,
           poNumber: poOrJob,
           status: "pending",
+          abnormalPallets,
+          abnormalPalletSize: abnormalPallets ? abnormalPalletSize.trim() : "",
         }),
       });
       setMsg("Request submitted");
       setPoOrJob("");
       setNotes("");
+      setAbnormalPallets(false);
+      setAbnormalPalletSize("");
       setPage(1);
       invalidateApiCache("/requests");
       await reload();
@@ -105,7 +122,17 @@ export default function RequestsPage() {
     }
   }
 
-  const columns: Column<WhRequest>[] = [
+  const columns: Column<WhRequest>[] = [];
+
+  if (!isPortal) {
+    columns.push({
+      key: "company",
+      header: "Company",
+      render: (r) => <span className="font-semibold text-navy">{companyName(r)}</span>,
+    });
+  }
+
+  columns.push(
     {
       key: "type",
       header: "Type",
@@ -127,11 +154,21 @@ export default function RequestsPage() {
       render: (r) => r.jobName || r.poNumber || r.ref || "—",
     },
     {
+      key: "abnormal",
+      header: "Abnormal size",
+      render: (r) =>
+        r.abnormalPallets ? (
+          <span className="text-sm font-medium text-navy">{r.abnormalPalletSize || "Yes"}</span>
+        ) : (
+          <span className="text-xs text-muted">No</span>
+        ),
+    },
+    {
       key: "date",
       header: "Requested",
       render: (r) => dateLabel(r.dateRequested),
-    },
-  ];
+    }
+  );
 
   if (!isPortal) {
     columns.push({
@@ -173,75 +210,105 @@ export default function RequestsPage() {
 
   return (
     <>
-        <PageHeader
-          title="Requests"
-          icon={<Inbox className="h-5 w-5" />}
-          description={
-            isPortal
-              ? "Submit inbound/outbound requests — agreement §10 portal target"
-              : "Inbound / outbound portal requests — approve or cancel pending items"
-          }
-        />
-        <Alert>{error || err}</Alert>
-        {msg ? <Alert tone="info">{msg}</Alert> : null}
+      <PageHeader
+        title="Requests"
+        icon={<Inbox className="h-5 w-5" />}
+        description={
+          isPortal
+            ? "Submit inbound/outbound requests — tell us if any pallets are abnormal size"
+            : "Portal requests by company — approve or cancel pending items"
+        }
+      />
+      <Alert>{error || err}</Alert>
+      {msg ? <Alert tone="info">{msg}</Alert> : null}
 
-        {isPortal ? (
-          <FormSection
-            title="New request"
-            description="Portal requests route to the dock for approval."
-            icon={<Inbox className="h-4 w-4" />}
-            className="mb-6"
-          >
-            <form onSubmit={onCreate} className="space-y-4">
-              <FormGrid>
-                <Field label="Type">
-                  <Select
-                    value={type}
-                    onChange={(e) => setType(e.target.value as "Inbound" | "Outbound")}
-                  >
-                    <option value="Inbound">Inbound</option>
-                    <option value="Outbound">Outbound</option>
-                  </Select>
-                </Field>
-                <Field label="Pallet qty">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={qty}
-                    onChange={(e) => setQty(Number(e.target.value))}
-                  />
-                </Field>
-              </FormGrid>
-              <Field label="PO / Job name" required>
+      {isPortal ? (
+        <FormSection
+          title="New request"
+          description="Portal requests route to the dock for approval."
+          icon={<Inbox className="h-4 w-4" />}
+          className="mb-6"
+        >
+          <form onSubmit={onCreate} className="space-y-4">
+            <FormGrid>
+              <Field label="Type">
+                <Select
+                  value={type}
+                  onChange={(e) => setType(e.target.value as "Inbound" | "Outbound")}
+                >
+                  <option value="Inbound">Inbound</option>
+                  <option value="Outbound">Outbound</option>
+                </Select>
+              </Field>
+              <Field label="Pallet qty">
                 <Input
-                  value={poOrJob}
-                  onChange={(e) => setPoOrJob(e.target.value)}
-                  placeholder="One reference — PO or job name"
+                  type="number"
+                  min={1}
+                  value={qty}
+                  onChange={(e) => setQty(Number(e.target.value))}
+                />
+              </Field>
+            </FormGrid>
+            <Field label="PO / Job name" required>
+              <Input
+                value={poOrJob}
+                onChange={(e) => setPoOrJob(e.target.value)}
+                placeholder="One reference — PO or job name"
+                required
+              />
+            </Field>
+            <Field
+              label="Are there abnormal sized pallets?"
+              hint="Yes if any pallet is not standard 48×48 (or your usual size)."
+            >
+              <Select
+                value={abnormalPallets ? "yes" : "no"}
+                onChange={(e) => {
+                  const yes = e.target.value === "yes";
+                  setAbnormalPallets(yes);
+                  if (!yes) setAbnormalPalletSize("");
+                }}
+              >
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </Select>
+            </Field>
+            {abnormalPallets ? (
+              <Field
+                label="What size are they?"
+                required
+                hint="Example: 48×60, 40×48 oversized, mix of sizes."
+              >
+                <Input
+                  value={abnormalPalletSize}
+                  onChange={(e) => setAbnormalPalletSize(e.target.value)}
+                  placeholder="Describe length × width (and height if needed)"
                   required
                 />
               </Field>
-              <Field label="Notes">
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </Field>
-              <Button type="submit" loading={busy}>
-                Submit request
-              </Button>
-            </form>
-          </FormSection>
-        ) : null}
+            ) : null}
+            <Field label="Notes">
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </Field>
+            <Button type="submit" loading={busy}>
+              Submit request
+            </Button>
+          </form>
+        </FormSection>
+      ) : null}
 
-        <DataTable
-          columns={columns}
-          rows={data?.requests ?? []}
-          rowKey={(r) => r._id}
-          loading={loading}
-          emptyTitle="No requests yet"
-          emptyDescription={
-            isPortal ? "Submit your first inbound or outbound request above." : undefined
-          }
-          pagination={paginationFrom(data)}
-          onPageChange={setPage}
-        />
+      <DataTable
+        columns={columns}
+        rows={data?.requests ?? []}
+        rowKey={(r) => r._id}
+        loading={loading}
+        emptyTitle="No requests yet"
+        emptyDescription={
+          isPortal ? "Submit your first inbound or outbound request above." : undefined
+        }
+        pagination={paginationFrom(data)}
+        onPageChange={setPage}
+      />
     </>
   );
 }

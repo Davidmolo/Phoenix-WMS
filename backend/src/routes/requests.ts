@@ -22,7 +22,11 @@ router.get("/", async (req, res, next) => {
     });
     const [total, requests] = await Promise.all([
       WhRequest.countDocuments(filter),
-      WhRequest.find(filter).sort({ dateRequested: -1 }).skip(skip).limit(limit),
+      WhRequest.find(filter)
+        .populate("customerId", "name billingMethod")
+        .sort({ dateRequested: -1 })
+        .skip(skip)
+        .limit(limit),
     ]);
     res.json({ requests, ...paginationMeta(page, limit, total) });
   } catch (err) {
@@ -38,13 +42,28 @@ router.post("/", async (req, res, next) => {
       res.status(400).json({ error: "customerId required" });
       return;
     }
+    const abnormalPallets = Boolean(req.body.abnormalPallets);
+    const abnormalPalletSize = abnormalPallets
+      ? String(req.body.abnormalPalletSize || "").trim()
+      : "";
+    if (abnormalPallets && !abnormalPalletSize) {
+      res.status(400).json({ error: "Please describe the abnormal pallet size(s)." });
+      return;
+    }
+
     const request = await WhRequest.create({
       ...req.body,
       companyId: req.auth!.companyId,
       customerId,
+      abnormalPallets,
+      abnormalPalletSize,
       dateRequested: new Date(),
     });
-    res.status(201).json({ request });
+    const populated = await WhRequest.findById(request._id).populate(
+      "customerId",
+      "name billingMethod"
+    );
+    res.status(201).json({ request: populated });
   } catch (err) {
     next(err);
   }
@@ -107,6 +126,9 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
               `From portal request ${existing.type}`,
               poJob ? `PO/Job: ${poJob}` : null,
               `${existing.palletCount || existing.qty || 1} pallet(s)`,
+              existing.abnormalPallets
+                ? `Abnormal size: ${existing.abnormalPalletSize || "yes"}`
+                : null,
               existing.notes || null,
             ]
               .filter(Boolean)

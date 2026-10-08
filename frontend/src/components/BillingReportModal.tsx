@@ -28,6 +28,7 @@ export type BillingReport = {
     chargeTotal: number;
     invoiceCount: number;
     invoiceTotal: number;
+    balanceDueTotal?: number;
   };
   charges: Array<{
     _id: string;
@@ -41,11 +42,19 @@ export type BillingReport = {
     number: string;
     status: string;
     total: number;
+    balanceDue?: number | null;
     periodStart: string;
     periodEnd: string;
     quickbooksId?: string | null;
   }>;
 };
+
+function balanceDueOf(inv: { total: number; balanceDue?: number | null }) {
+  if (inv.balanceDue != null && !Number.isNaN(Number(inv.balanceDue))) {
+    return Number(inv.balanceDue);
+  }
+  return Number(inv.total) || 0;
+}
 
 function monthValueFromDate(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -197,11 +206,19 @@ export function BillingReportModal({
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 <MiniStat label="Active pallets" value={String(report.summary.activePallets)} />
                 <MiniStat label="Charge lines" value={String(report.summary.chargeCount)} />
                 <MiniStat label="Charges total" value={money(report.summary.chargeTotal)} />
-                <MiniStat label="Invoices total" value={money(report.summary.invoiceTotal)} />
+                <MiniStat label="Invoices billed" value={money(report.summary.invoiceTotal)} />
+                <MiniStat
+                  label="Still owed"
+                  value={money(
+                    report.summary.balanceDueTotal != null
+                      ? report.summary.balanceDueTotal
+                      : report.summary.invoiceTotal
+                  )}
+                />
               </div>
 
               <section>
@@ -253,9 +270,10 @@ export function BillingReportModal({
                       <thead>
                         <tr className="border-b border-border text-[11px] text-muted uppercase">
                           <th className="py-2 pr-2 font-semibold">Number</th>
-                          <th className="py-2 pr-2 font-semibold">Period</th>
+                          <th className="py-2 pr-2 font-semibold">Date</th>
                           <th className="py-2 pr-2 font-semibold">Status</th>
-                          <th className="py-2 font-semibold">Total</th>
+                          <th className="py-2 pr-2 font-semibold">Invoice total</th>
+                          <th className="py-2 font-semibold">Balance due</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -265,16 +283,15 @@ export function BillingReportModal({
                               {inv.number}
                               {inv.quickbooksId ? (
                                 <span className="mt-0.5 block text-[10px] font-normal text-muted">
-                                  QB {inv.quickbooksId}
+                                  From QuickBooks
                                 </span>
                               ) : null}
                             </td>
-                            <td className="py-2 pr-2 text-xs">
-                              {dateLabel(inv.periodStart)} – {dateLabel(inv.periodEnd)}
-                            </td>
+                            <td className="py-2 pr-2 text-xs">{dateLabel(inv.periodStart)}</td>
                             <td className="py-2 pr-2 capitalize">{inv.status}</td>
+                            <td className="py-2 pr-2 tabular-nums text-navy">{money(inv.total)}</td>
                             <td className="py-2 tabular-nums font-semibold text-navy">
-                              {money(inv.total)}
+                              {money(balanceDueOf(inv))}
                             </td>
                           </tr>
                         ))}

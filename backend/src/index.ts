@@ -4,6 +4,7 @@ import { env } from "./config/env";
 import { connectDb } from "./config/db";
 import routes from "./routes";
 import { errorHandler } from "./middleware/errorHandler";
+import { startQuickBooksSyncCron } from "./jobs/quickbooksSync";
 
 async function main() {
   await connectDb();
@@ -21,6 +22,7 @@ async function main() {
 
   app.listen(env.port, () => {
     console.log(`[api] listening on http://localhost:${env.port}`);
+    startQuickBooksSyncCron();
   });
 }
 

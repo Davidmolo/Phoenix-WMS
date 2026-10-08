@@ -295,11 +295,13 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
       inv.TotalAmt != null && !Number.isNaN(Number(inv.TotalAmt))
         ? Number(inv.TotalAmt)
         : lineSum;
+    const balanceDue =
+      inv.Balance != null && !Number.isNaN(Number(inv.Balance)) ? Number(inv.Balance) : total;
     const subtotal = lineSum;
     const txnDate = inv.TxnDate ? new Date(`${inv.TxnDate}T12:00:00`) : new Date();
     const dueDate = inv.DueDate ? new Date(`${inv.DueDate}T12:00:00`) : null;
     const number = String(inv.DocNumber || `QB-${qbId}`).trim();
-    const status = mapInvoiceStatus(Number(inv.Balance ?? 0), inv.EmailStatus);
+    const status = mapInvoiceStatus(balanceDue, inv.EmailStatus);
 
     const existing = await Invoice.findOne({ companyId, quickbooksId: qbId });
     if (existing) {
@@ -311,6 +313,7 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
       existing.set("lines", lines);
       existing.subtotal = subtotal;
       existing.total = total;
+      existing.balanceDue = balanceDue;
       existing.dueDate = dueDate;
       existing.notes = inv.PrivateNote || existing.notes || "";
       await existing.save();
@@ -332,6 +335,7 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
       lines,
       subtotal,
       total,
+      balanceDue,
       dueDate,
       notes: inv.PrivateNote || "Synced from QuickBooks",
       quickbooksId: qbId,
@@ -359,5 +363,7 @@ export async function connectionStatus(companyId: string) {
     lastSyncAt: conn?.lastSyncAt || null,
     lastSyncSummary: conn?.lastSyncSummary || "",
     redirectUri: env.quickbooksRedirectUri,
+    autoSyncEnabled: env.quickbooksSyncEnabled && quickbooksConfigured(),
+    autoSyncCron: env.quickbooksSyncCron,
   };
 }

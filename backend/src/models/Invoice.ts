@@ -40,7 +40,13 @@ const invoiceSchema = new Schema(
     },
     lines: { type: [invoiceLineSchema], default: [] },
     subtotal: { type: Number, default: 0 },
+    /** Full invoice amount (QuickBooks TotalAmt). */
     total: { type: Number, default: 0 },
+    /**
+     * Amount still owed (QuickBooks Balance).
+     * Often lower than total after partial payments — not the same as invoice total.
+     */
+    balanceDue: { type: Number, default: null },
     dueDate: { type: Date, default: null },
     notes: { type: String, default: "" },
     quickbooksId: { type: String, default: null, index: true },

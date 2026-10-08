@@ -23,4 +23,12 @@ export const env = {
     `${process.env.APP_URL || "http://localhost:4000"}/api/quickbooks/callback`,
   /** "sandbox" | "production" */
   quickbooksEnv: (process.env.QUICKBOOKS_ENV || "sandbox") as "sandbox" | "production",
+  /**
+   * Background invoice sync from QuickBooks → Mongo.
+   * Default every 15 minutes. Staff can still Sync manually anytime.
+   */
+  quickbooksSyncEnabled: process.env.QUICKBOOKS_SYNC_ENABLED !== "false",
+  /** 5-field cron: minute hour day-of-month month day-of-week */
+  quickbooksSyncCron: process.env.QUICKBOOKS_SYNC_CRON || "*/15 * * * *",
+  quickbooksSyncOnBoot: process.env.QUICKBOOKS_SYNC_ON_BOOT !== "false",
 };

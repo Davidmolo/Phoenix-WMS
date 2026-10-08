@@ -16,6 +16,7 @@ import {
   Warehouse,
   Inbox,
   FileText,
+  Forklift,
   LogOut,
   Menu,
   X,
@@ -42,6 +43,7 @@ const STAFF_NAV: NavItem[] = [
   { href: "/lpns", label: "LPNs", icon: ScanBarcode },
   { href: "/warehouse", label: "Warehouse", icon: Warehouse },
   { href: "/requests", label: "Requests", icon: Inbox },
+  { href: "/yard-jobs", label: "Crossdock / Rework", icon: Forklift },
   { href: "/billing", label: "Billing", icon: FileText },
 ];
 
@@ -50,6 +52,7 @@ const PORTAL_NAV: NavItem[] = [
   { href: "/inventory", label: "My pallets", icon: Package },
   { href: "/bookings", label: "Book dock", icon: CalendarDays },
   { href: "/requests", label: "Requests", icon: Inbox },
+  { href: "/billing", label: "My invoices", icon: FileText },
   { href: "/profile", label: "Profile", icon: UserRound },
 ];
 
@@ -63,6 +66,7 @@ function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split
     pathname.startsWith("/customers") ||
     pathname.startsWith("/inventory") ||
     pathname.startsWith("/billing") ||
+    pathname.startsWith("/yard-jobs") ||
     pathname.startsWith("/fee-schedule") ||
     pathname.startsWith("/warehouse") ||
     pathname.startsWith("/bookings") ||

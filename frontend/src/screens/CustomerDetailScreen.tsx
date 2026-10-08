@@ -196,16 +196,26 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
             <KpiGrid>
               <KpiCard label="Billing method" value={c.billingMethod} />
               <KpiCard
-                label="Contract"
+                label="Contract monthly fee"
                 value={c.billingMethod === "contract" ? money(c.contractFee) : "—"}
-                hint={c.contractSqft ? `${c.contractSqft.toLocaleString()} SF reserved` : undefined}
               />
               <KpiCard
-                label="Handling"
+                label="Reserved square feet"
+                value={
+                  c.contractSqft != null && c.contractSqft > 0
+                    ? `${c.contractSqft.toLocaleString()} SF`
+                    : "—"
+                }
+              />
+              <KpiCard
+                label="Handling rate / pallet"
                 value={
                   c.contractHandlingPerPallet != null ? money(c.contractHandlingPerPallet) : "—"
                 }
-                hint={c.contractFtlRate ? `FTL ${money(c.contractFtlRate)}` : undefined}
+              />
+              <KpiCard
+                label="FTL rate"
+                value={c.contractFtlRate != null ? money(c.contractFtlRate) : "—"}
               />
               <KpiCard label="Active pallets" value={data?.summary.activePallets} />
               <KpiCard
@@ -275,19 +285,23 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
             </div>
 
             <div className="mb-5">
-              <PageHeader title="Invoices" description="Same register as Billing for this customer" />
+              <PageHeader
+                title="Invoices"
+                description="Same register as Billing — invoice total is billed; balance due is still owed"
+              />
               <DataTable
                 columns={[
                   {
                     key: "number",
-                    header: "Number",
-                    render: (inv: Invoice) => <span className="font-semibold">{inv.number}</span>,
+                    header: "Invoice #",
+                    render: (inv: Invoice) => (
+                      <span className="font-semibold">{inv.number}</span>
+                    ),
                   },
                   {
                     key: "period",
-                    header: "Period",
-                    render: (inv: Invoice) =>
-                      `${dateLabel(inv.periodStart)} – ${dateLabel(inv.periodEnd)}`,
+                    header: "Invoice date",
+                    render: (inv: Invoice) => dateLabel(inv.periodStart),
                   },
                   {
                     key: "status",
@@ -298,8 +312,30 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                   },
                   {
                     key: "total",
-                    header: "Total",
-                    render: (inv: Invoice) => money(inv.total),
+                    header: "Invoice total",
+                    render: (inv: Invoice) => (
+                      <span className="tabular-nums" title="Full amount billed">
+                        {money(inv.total)}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "balanceDue",
+                    header: "Balance due",
+                    render: (inv: Invoice) => {
+                      const due =
+                        inv.balanceDue != null && !Number.isNaN(Number(inv.balanceDue))
+                          ? Number(inv.balanceDue)
+                          : Number(inv.total) || 0;
+                      return (
+                        <span
+                          className="tabular-nums font-semibold text-navy"
+                          title="Amount still owed after payments"
+                        >
+                          {money(due)}
+                        </span>
+                      );
+                    },
                   },
                 ]}
                 rows={invoices}
