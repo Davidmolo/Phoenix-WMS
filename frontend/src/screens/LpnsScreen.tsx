@@ -12,7 +12,7 @@ import {
   FormSection,
   Input,
   PageHeader,
-  Select,
+  SearchableSelect,
   statusTone,
   type Column,
 } from "@/components/ui";
@@ -193,13 +193,17 @@ export default function LpnsPage() {
           <form onSubmit={onCreateGroup} className="space-y-4">
             <FormGrid>
               <Field label="Customer">
-                <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-                  {customers.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  options={customers.map((c) => ({
+                    value: c._id,
+                    label: c.name,
+                    keywords: c.email,
+                  }))}
+                  placeholder="Search customer…"
+                  searchPlaceholder="Search by name or email…"
+                />
               </Field>
               <Field label="Notes">
                 <Input

@@ -15,7 +15,7 @@ import {
   FormGrid,
   Input,
   PageHeader,
-  Select,
+  SearchableSelect,
   statusTone,
   type Column,
 } from "@/components/ui";
@@ -405,22 +405,24 @@ export default function BillingPage() {
               />
             </Field>
             {isStaff ? (
-              <Field label="Customer" htmlFor="billing-customer" hint="Optional filter.">
-                <Select
+              <Field label="Customer" htmlFor="billing-customer" hint="Type to search.">
+                <SearchableSelect
                   id="billing-customer"
                   value={customerId}
-                  onChange={(e) => {
-                    setCustomerId(e.target.value);
+                  onChange={(id) => {
+                    setCustomerId(id);
                     setPage(1);
                   }}
-                >
-                  <option value="">All customers</option>
-                  {customers.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                  options={customers.map((c) => ({
+                    value: c._id,
+                    label: c.name,
+                    keywords: c.email,
+                  }))}
+                  allowEmpty
+                  emptyOptionLabel="All customers"
+                  placeholder="Search customer…"
+                  searchPlaceholder="Search by name or email…"
+                />
               </Field>
             ) : null}
           </FormGrid>

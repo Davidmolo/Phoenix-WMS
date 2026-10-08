@@ -12,6 +12,7 @@ import {
   FormSection,
   Input,
   PageHeader,
+  SearchableSelect,
   Select,
   statusTone,
   type Column,
@@ -150,13 +151,18 @@ export default function ExpectedPage() {
           <form onSubmit={onCreate} className="space-y-4">
             <FormGrid>
               <Field label="Customer" required>
-                <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-                  {customers.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  options={customers.map((c) => ({
+                    value: c._id,
+                    label: c.name,
+                    keywords: c.email,
+                  }))}
+                  required
+                  placeholder="Search customer…"
+                  searchPlaceholder="Search by name or email…"
+                />
               </Field>
               <Field label="Direction">
                 <Select

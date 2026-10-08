@@ -12,6 +12,7 @@ export { Label } from "./Label";
 export { PageHeader } from "./PageHeader";
 export { Pagination } from "./Pagination";
 export { Select } from "./Select";
+export { SearchableSelect, type SearchableOption } from "./SearchableSelect";
 export {
   Skeleton,
   SkeletonText,

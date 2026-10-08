@@ -12,6 +12,7 @@ import {
   FormSection,
   Input,
   PageHeader,
+  SearchableSelect,
   Select,
   statusLabel,
   statusTone,
@@ -223,29 +224,36 @@ export default function YardJobsPage() {
                 <option value="trailer_rework">Trailer Rework</option>
               </Select>
             </Field>
-            <Field label="From Expected inbound" hint="Cesar: documentation comes from Expected.">
-              <Select
+            <Field label="From Expected inbound" hint="Type to search Expected loads.">
+              <SearchableSelect
                 value={expectedShipmentId}
-                onChange={(e) => setExpectedShipmentId(e.target.value)}
-              >
-                <option value="">Manual (no Expected)</option>
-                {(expectedData?.shipments ?? []).map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {(s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 48)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setExpectedShipmentId}
+                options={(expectedData?.shipments ?? []).map((s) => ({
+                  value: s._id,
+                  label: (s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 48),
+                  keywords: `${s.carrier || ""} ${s.trailerNumber || ""}`,
+                }))}
+                allowEmpty
+                emptyOptionLabel="Manual (no Expected)"
+                placeholder="Search Expected…"
+                searchPlaceholder="Search PO, job, notes…"
+              />
             </Field>
           </FormGrid>
           <FormGrid cols={2}>
             <Field label="Customer" required>
-              <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
-                {customers.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+              <SearchableSelect
+                value={customerId}
+                onChange={setCustomerId}
+                options={customers.map((c) => ({
+                  value: c._id,
+                  label: c.name,
+                  keywords: c.email,
+                }))}
+                required
+                placeholder="Search customer…"
+                searchPlaceholder="Search by name or email…"
+              />
             </Field>
             <Field label="Pallet count" hint="Used for crossdock fee math.">
               <Input

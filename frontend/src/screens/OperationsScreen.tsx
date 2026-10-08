@@ -23,6 +23,7 @@ import {
   FormSection,
   Input,
   PageHeader,
+  SearchableSelect,
   Select,
   statusLabel,
   statusTone,
@@ -341,28 +342,34 @@ export default function OperationsPage() {
           icon={<PackagePlus className="h-4 w-4" />}
         >
           <form onSubmit={onReceive} className="space-y-4">
-            <Field label="From Expected inbound" hint="Optional — use an Expected appointment.">
-              <Select
+            <Field label="From Expected inbound" hint="Optional — type to search Expected loads.">
+              <SearchableSelect
                 value={expectedShipmentId}
-                onChange={(e) => setExpectedShipmentId(e.target.value)}
-              >
-                <option value="">Manual receive (no Expected)</option>
-                {(expectedData?.shipments ?? []).map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {(s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 48)} ·{" "}
-                    {dateLabel(s.scheduledAt || s.createdAt)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setExpectedShipmentId}
+                options={(expectedData?.shipments ?? []).map((s) => ({
+                  value: s._id,
+                  label: `${(s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 48)} · ${dateLabel(s.scheduledAt || s.createdAt)}`,
+                  keywords: `${s.carrier || ""} ${s.trailerNumber || ""}`,
+                }))}
+                allowEmpty
+                emptyOptionLabel="Manual receive (no Expected)"
+                placeholder="Search Expected…"
+                searchPlaceholder="Search PO, job, notes…"
+              />
             </Field>
             <Field label="Customer" required>
-              <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
-                {customers.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+              <SearchableSelect
+                value={customerId}
+                onChange={setCustomerId}
+                options={customers.map((c) => ({
+                  value: c._id,
+                  label: c.name,
+                  keywords: c.email,
+                }))}
+                required
+                placeholder="Search customer…"
+                searchPlaceholder="Search by name or email…"
+              />
             </Field>
             <Field label="PO / Job name" required hint="Printed on the barcode label.">
               <Input
