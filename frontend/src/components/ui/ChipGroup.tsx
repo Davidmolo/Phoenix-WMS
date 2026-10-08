@@ -26,7 +26,7 @@ export function ChipGroup<T extends string>({
           {label}
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         {normalized.map((opt) => {
           const active = value === opt.id;
           return (
@@ -35,11 +35,11 @@ export function ChipGroup<T extends string>({
               type="button"
               onClick={() => onChange(opt.id)}
               className={cn(
-                "rounded-full border text-left font-semibold capitalize transition duration-200 ease-out",
-                size === "sm" ? "min-h-8 px-3.5 py-1.5 text-xs" : "min-h-9 px-4 py-2 text-[13px]",
+                "inline-flex shrink-0 items-center whitespace-nowrap rounded-full border text-left font-semibold transition duration-200 ease-out",
+                size === "sm" ? "h-7 px-2.5 text-[11px]" : "h-8 px-3.5 text-xs",
                 active
                   ? "border-navy bg-navy text-white shadow-[0_6px_14px_-8px_rgba(30,46,62,0.55)]"
-                  : "border-border bg-white text-navy hover:-translate-y-0.5 hover:border-navy/30 hover:bg-surface-2 hover:shadow-[var(--shadow)]"
+                  : "border-border bg-white text-navy hover:border-navy/30 hover:bg-surface-2"
               )}
             >
               {opt.label}

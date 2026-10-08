@@ -43,7 +43,7 @@ const STAFF_NAV: NavItem[] = [
   { href: "/lpns", label: "LPNs", icon: ScanBarcode },
   { href: "/warehouse", label: "Warehouse", icon: Warehouse },
   { href: "/requests", label: "Requests", icon: Inbox },
-  { href: "/yard-jobs", label: "Crossdock / Rework", icon: Forklift },
+  { href: "/yard-jobs", label: "Yard jobs", icon: Forklift },
   { href: "/billing", label: "Billing", icon: FileText },
 ];
 
@@ -152,7 +152,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
                 strokeWidth={2.25}
               />
-              <span className="truncate">{item.label}</span>
+              <span className="min-w-0 truncate whitespace-nowrap">{item.label}</span>
               {active ? (
                 <span
                   className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"

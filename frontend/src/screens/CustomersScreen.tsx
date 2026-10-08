@@ -84,22 +84,42 @@ export default function CustomersPage() {
     {
       key: "portal",
       header: "Portal",
+      className: "w-[1%] whitespace-nowrap",
       render: (c) => {
         const status = portalStatusOf(c);
-        if (status === "active") return <Badge tone="success">Onboarded</Badge>;
+        if (status === "active")
+          return (
+            <Badge tone="success" title="They set a portal password">
+              Onboarded
+            </Badge>
+          );
         if (status === "invite_sent")
-          return <Badge tone="warning">Invite sent — awaiting password</Badge>;
-        return <Badge tone="neutral">Not invited yet</Badge>;
+          return (
+            <Badge tone="warning" title="Invite emailed — waiting for them to set a password">
+              Invite sent
+            </Badge>
+          );
+        return (
+          <Badge tone="neutral" title="No portal invite has been sent yet">
+            Not invited
+          </Badge>
+        );
       },
     },
     {
       key: "billing",
       header: "Billing",
-      render: (c) => <Badge tone="accent">{c.billingMethod}</Badge>,
+      className: "w-[1%] whitespace-nowrap",
+      render: (c) => (
+        <Badge tone="accent" className="capitalize">
+          {c.billingMethod}
+        </Badge>
+      ),
     },
     {
       key: "contract",
       header: "Contract",
+      className: "whitespace-nowrap",
       render: (c) =>
         c.billingMethod === "contract"
           ? `${money(c.contractFee)}/mo · ${c.contractSqft ?? 0} SF`
@@ -108,6 +128,7 @@ export default function CustomersPage() {
     {
       key: "handling",
       header: "Handling",
+      className: "whitespace-nowrap",
       render: (c) =>
         c.contractHandlingPerPallet != null
           ? `${money(c.contractHandlingPerPallet)}/pallet${
@@ -118,11 +139,17 @@ export default function CustomersPage() {
     {
       key: "email",
       header: "Email",
-      render: (c) => c.email || "—",
+      className: "max-w-[12rem]",
+      render: (c) => (
+        <span className="block truncate" title={c.email || undefined}>
+          {c.email || "—"}
+        </span>
+      ),
     },
     {
       key: "source",
       header: "Source",
+      className: "w-[1%] whitespace-nowrap",
       render: (c) =>
         c.quickbooksCustomerId ? (
           <span className="text-[11px] text-muted">QuickBooks</span>
@@ -225,10 +252,10 @@ export default function CustomersPage() {
           label="Show"
           size="sm"
           options={[
-            { id: "all", label: `All (${counts.total})` },
-            { id: "active", label: `Onboarded (${counts.active})` },
-            { id: "invite_sent", label: `Invite sent (${counts.inviteSent})` },
-            { id: "not_invited", label: `Not invited (${counts.notInvited})` },
+            { id: "all", label: `All · ${counts.total}` },
+            { id: "active", label: `Onboarded · ${counts.active}` },
+            { id: "invite_sent", label: `Invite sent · ${counts.inviteSent}` },
+            { id: "not_invited", label: `Not invited · ${counts.notInvited}` },
           ]}
           value={portalFilter}
           onChange={(id) => setPortalFilter(id as PortalFilter)}

@@ -84,11 +84,11 @@ export function FormSection({
             </div>
           ) : null}
           <div className="min-w-0">
-            <h2 className="font-display m-0 text-[12px] font-semibold tracking-[0.04em] text-navy uppercase sm:text-[13px]">
+            <h2 className="font-display m-0 truncate text-[12px] font-semibold tracking-[0.04em] text-navy uppercase sm:text-[13px]">
               {title}
             </h2>
             {description ? (
-              <p className="mt-0.5 mb-0 text-[11.5px] leading-snug text-muted sm:text-xs">
+              <p className="mt-0.5 mb-0 line-clamp-2 text-[11.5px] leading-snug text-muted sm:text-xs">
                 {description}
               </p>
             ) : null}
