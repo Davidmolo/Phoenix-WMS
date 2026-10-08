@@ -47,17 +47,19 @@ export function FormGrid({
   children,
   className,
 }: {
-  cols?: 1 | 2 | 3;
+  cols?: 1 | 2 | 3 | 4;
   children: ReactNode;
   className?: string;
 }) {
   const colClass =
     cols === 1
       ? "grid-cols-1"
-      : cols === 3
-        ? "grid-cols-1 sm:grid-cols-3"
-        : "grid-cols-1 sm:grid-cols-2";
-  return <div className={cn("grid gap-4", colClass, className)}>{children}</div>;
+      : cols === 4
+        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+        : cols === 3
+          ? "grid-cols-1 sm:grid-cols-3"
+          : "grid-cols-1 sm:grid-cols-2";
+  return <div className={cn("grid gap-3 sm:gap-4", colClass, className)}>{children}</div>;
 }
 
 export function FormSection({

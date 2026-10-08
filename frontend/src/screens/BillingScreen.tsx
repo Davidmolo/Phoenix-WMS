@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Link2, Printer, RefreshCw, Unlink } from "lucide-react";
+import { FileText, Link2, Printer, RefreshCw, Search, Unlink } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
 import {
@@ -72,6 +72,7 @@ export default function BillingPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [showRegisterPrint, setShowRegisterPrint] = useState(false);
   const [showCustomerReport, setShowCustomerReport] = useState(false);
@@ -110,9 +111,10 @@ export default function BillingPage() {
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         customerId: isStaff && customerId ? customerId : undefined,
+        q: search.trim() || undefined,
       },
     });
-  }, [fromDate, toDate, customerId, isStaff, page]);
+  }, [fromDate, toDate, customerId, isStaff, page, search]);
 
   const { data, error, loading, reload } = useApiQuery<
     { invoices: InvoiceRow[] } & PaginationMeta
@@ -268,6 +270,7 @@ export default function BillingPage() {
     setFromDate("");
     setToDate("");
     setCustomerId("");
+    setSearch("");
     setPage(1);
     invalidateApiCache("/invoices");
     invalidateApiCache("/customers");
@@ -381,7 +384,7 @@ export default function BillingPage() {
 
       <Card className="mb-5">
         <CardBody>
-          <FormGrid cols={isStaff ? 3 : 2}>
+          <FormGrid cols={isStaff ? 4 : 3}>
             <Field label="From" htmlFor="billing-from" hint="Leave blank for all dates.">
               <Input
                 id="billing-from"
@@ -405,7 +408,7 @@ export default function BillingPage() {
               />
             </Field>
             {isStaff ? (
-              <Field label="Customer" htmlFor="billing-customer" hint="Type to search.">
+              <Field label="Customer" htmlFor="billing-customer" hint="Optional filter.">
                 <SearchableSelect
                   id="billing-customer"
                   value={customerId}
@@ -425,8 +428,21 @@ export default function BillingPage() {
                 />
               </Field>
             ) : null}
+            <Field label="Search" htmlFor="billing-search" hint="Invoice #, company, or status.">
+              <Input
+                id="billing-search"
+                type="search"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search invoices…"
+                icon={<Search className="h-3.5 w-3.5" />}
+              />
+            </Field>
           </FormGrid>
-          {(fromDate || toDate || customerId) && (
+          {(fromDate || toDate || customerId || search.trim()) && (
             <div className="mt-3">
               <Button type="button" size="sm" variant="ghost" onClick={clearFilters}>
                 Clear filters (show all)

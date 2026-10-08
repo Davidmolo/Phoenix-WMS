@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { Printer, Users } from "lucide-react";
+import { Printer, Search, Users } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import {
   Alert,
@@ -36,6 +36,7 @@ export default function CustomersPage() {
   const { navigate } = useAppNav();
   const { token } = useAuth();
   const [portalFilter, setPortalFilter] = useState<PortalFilter>("all");
+  const [search, setSearch] = useState("");
   const { data, error, loading, reload } = useApiQuery<{ customers: Customer[] }>(
     "/customers?portal=all"
   );
@@ -63,9 +64,17 @@ export default function CustomersPage() {
   }, [allCustomers]);
 
   const customers = useMemo(() => {
-    if (portalFilter === "all") return allCustomers;
-    return allCustomers.filter((c) => portalStatusOf(c) === portalFilter);
-  }, [allCustomers, portalFilter]);
+    const q = search.trim().toLowerCase();
+    return allCustomers.filter((c) => {
+      if (portalFilter !== "all" && portalStatusOf(c) !== portalFilter) return false;
+      if (!q) return true;
+      const hay = [c.name, c.email, c.contact, c.phone, c.billingMethod]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [allCustomers, portalFilter, search]);
 
   const columns: Column<Customer>[] = [
     {
@@ -247,19 +256,31 @@ export default function CustomersPage() {
         </form>
       </FormSection>
 
-      <div className="mb-3">
-        <ChipGroup
-          label="Show"
-          size="sm"
-          options={[
-            { id: "all", label: `All · ${counts.total}` },
-            { id: "active", label: `Onboarded · ${counts.active}` },
-            { id: "invite_sent", label: `Invite sent · ${counts.inviteSent}` },
-            { id: "not_invited", label: `Not invited · ${counts.notInvited}` },
-          ]}
-          value={portalFilter}
-          onChange={(id) => setPortalFilter(id as PortalFilter)}
-        />
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <ChipGroup
+            label="Show"
+            size="sm"
+            options={[
+              { id: "all", label: `All · ${counts.total}` },
+              { id: "active", label: `Onboarded · ${counts.active}` },
+              { id: "invite_sent", label: `Invite sent · ${counts.inviteSent}` },
+              { id: "not_invited", label: `Not invited · ${counts.notInvited}` },
+            ]}
+            value={portalFilter}
+            onChange={(id) => setPortalFilter(id as PortalFilter)}
+          />
+        </div>
+        <div className="w-full shrink-0 sm:w-64 lg:w-72">
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search company, email…"
+            icon={<Search className="h-3.5 w-3.5" />}
+            aria-label="Search customers"
+          />
+        </div>
       </div>
 
       <DataTable
@@ -267,8 +288,12 @@ export default function CustomersPage() {
         rows={customers}
         rowKey={(c) => c._id}
         loading={loading}
-        emptyTitle="No customers yet"
-        emptyDescription="Create & email an invite, or Sync invoices from QuickBooks to pull customers in."
+        emptyTitle={search.trim() ? "No customers match your search" : "No customers yet"}
+        emptyDescription={
+          search.trim()
+            ? "Try another name or clear the search."
+            : "Create & email an invite, or Sync invoices from QuickBooks to pull customers in."
+        }
       />
       {reportCustomer ? (
         <BillingReportModal

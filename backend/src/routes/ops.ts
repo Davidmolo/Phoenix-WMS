@@ -138,17 +138,46 @@ router.get("/invoices", async (req, res, next) => {
       (typeof req.query.onDate === "string" && req.query.onDate) ||
       "";
 
+    const andClauses: Record<string, unknown>[] = [];
+
     if (fromRaw || toRaw) {
       const start = parseDay(fromRaw || toRaw, false);
       const end = parseDay(toRaw || fromRaw, true);
       if (start && end) {
         const rangeStart = start <= end ? start : end;
         const rangeEnd = start <= end ? end : start;
-        filter.$or = [
-          { periodStart: { $lte: rangeEnd }, periodEnd: { $gte: rangeStart } },
-          { createdAt: { $gte: rangeStart, $lte: rangeEnd } },
-        ];
+        andClauses.push({
+          $or: [
+            { periodStart: { $lte: rangeEnd }, periodEnd: { $gte: rangeStart } },
+            { createdAt: { $gte: rangeStart, $lte: rangeEnd } },
+          ],
+        });
       }
+    }
+
+    const qRaw = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    if (qRaw) {
+      const escaped = qRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const nameMatches = await Customer.find({
+        companyId: req.auth!.companyId,
+        name: { $regex: escaped, $options: "i" },
+      })
+        .select("_id")
+        .lean();
+      andClauses.push({
+        $or: [
+          { number: { $regex: escaped, $options: "i" } },
+          { notes: { $regex: escaped, $options: "i" } },
+          { status: { $regex: `^${escaped}`, $options: "i" } },
+          { customerId: { $in: nameMatches.map((c) => c._id) } },
+        ],
+      });
+    }
+
+    if (andClauses.length === 1) {
+      Object.assign(filter, andClauses[0]);
+    } else if (andClauses.length > 1) {
+      filter.$and = andClauses;
     }
 
     const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
