@@ -226,10 +226,14 @@ type QbInvoice = {
   CustomerRef?: { value?: string; name?: string };
   BillEmail?: { Address?: string };
   Line?: Array<{
+    Id?: string;
     Amount?: number;
     Description?: string;
     DetailType?: string;
     SalesItemLineDetail?: { Qty?: number; UnitPrice?: number };
+    SubTotalLineDetail?: Record<string, unknown>;
+    DiscountLineDetail?: Record<string, unknown>;
+    DescriptionOnly?: Record<string, unknown>;
   }>;
 };
 
@@ -263,12 +267,19 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
     const email = String(inv.BillEmail?.Address || "");
     const customer = await resolveCustomer(companyId, qbCustomerId, displayName, email);
 
+    // QBO returns SubTotal / Discount / DescriptionOnly rows too — never treat those as items.
     const lines = (inv.Line || [])
-      .filter((l) => l.DetailType === "SalesItemLineDetail" || (l.Amount != null && l.Description))
+      .filter((l) => l.DetailType === "SalesItemLineDetail")
       .map((l) => {
         const qty = Number(l.SalesItemLineDetail?.Qty ?? 1) || 1;
-        const unit = Number(l.SalesItemLineDetail?.UnitPrice ?? l.Amount ?? 0);
-        const amount = Number(l.Amount ?? unit * qty);
+        const amount = Number(l.Amount ?? 0);
+        const unitFromQb = l.SalesItemLineDetail?.UnitPrice;
+        const unit =
+          unitFromQb != null && !Number.isNaN(Number(unitFromQb))
+            ? Number(unitFromQb)
+            : qty
+              ? amount / qty
+              : amount;
         return {
           description: l.Description || "QuickBooks line",
           qty,
@@ -278,7 +289,13 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
         };
       });
 
-    const total = Number(inv.TotalAmt ?? lines.reduce((s, l) => s + l.amount, 0));
+    // Always prefer QBO TotalAmt (authoritative). Fall back to sales lines only.
+    const lineSum = lines.reduce((s, l) => s + l.amount, 0);
+    const total =
+      inv.TotalAmt != null && !Number.isNaN(Number(inv.TotalAmt))
+        ? Number(inv.TotalAmt)
+        : lineSum;
+    const subtotal = lineSum;
     const txnDate = inv.TxnDate ? new Date(`${inv.TxnDate}T12:00:00`) : new Date();
     const dueDate = inv.DueDate ? new Date(`${inv.DueDate}T12:00:00`) : null;
     const number = String(inv.DocNumber || `QB-${qbId}`).trim();
@@ -292,7 +309,7 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
       existing.periodEnd = txnDate;
       existing.status = status;
       existing.set("lines", lines);
-      existing.subtotal = total;
+      existing.subtotal = subtotal;
       existing.total = total;
       existing.dueDate = dueDate;
       existing.notes = inv.PrivateNote || existing.notes || "";
@@ -313,7 +330,7 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
       periodEnd: txnDate,
       status,
       lines,
-      subtotal: total,
+      subtotal,
       total,
       dueDate,
       notes: inv.PrivateNote || "Synced from QuickBooks",
