@@ -60,18 +60,39 @@ No auth. CORS reflects the caller origin (works from phoenixcrossdocks.com).
 
 `serviceType`: `crossdock` (45m) · `drop_and_store` (45m) · `trailer_rework` (60m)
 
-## QuickBooks (Development / sandbox first)
+## QuickBooks
 
-Server env (never commit secrets):
+Redirect URI (same for sandbox and production):
 
-- `QUICKBOOKS_CLIENT_ID`
-- `QUICKBOOKS_CLIENT_SECRET`
-- `QUICKBOOKS_REDIRECT_URI=https://wms.phoenixcrossdocks.com/api/quickbooks/callback`
-- `QUICKBOOKS_ENV=sandbox`
-- `QUICKBOOKS_SYNC_ENABLED=true` (default) — background cron pulls invoices into Mongo
-- `QUICKBOOKS_SYNC_CRON=*/15 * * * *` — every 15 minutes (override if needed)
-- `QUICKBOOKS_SYNC_ON_BOOT=true` — one sync ~15s after API start
+`https://wms.phoenixcrossdocks.com/api/quickbooks/callback`
 
-In Intuit Developer → app → Keys (Development) → Redirect URIs, add the callback URL above.
+### Sandbox (already used)
 
-Staff flow: **Billing → Connect QuickBooks**. Invoices sync on the cron schedule; **Sync invoices** is always available for an immediate refresh.
+- Intuit Developer → app → **Keys → Development**
+- Server: `QUICKBOOKS_ENV=sandbox` + Development Client ID / Secret
+
+### Live / Production cutover
+
+1. Intuit Developer → your app → **Keys → Production**
+   - Copy **Client ID** and **Client Secret** (Production)
+   - Under Redirect URIs, add the same callback URL above (Production keys do not share Dev redirect list)
+2. On the API server `.env` (never commit):
+   ```
+   QUICKBOOKS_CLIENT_ID=<Production Client ID>
+   QUICKBOOKS_CLIENT_SECRET=<Production Client Secret>
+   QUICKBOOKS_REDIRECT_URI=https://wms.phoenixcrossdocks.com/api/quickbooks/callback
+   QUICKBOOKS_ENV=production
+   QUICKBOOKS_SYNC_ENABLED=true
+   QUICKBOOKS_SYNC_CRON=*/15 * * * *
+   QUICKBOOKS_SYNC_ON_BOOT=true
+   ```
+3. Restart the API (PM2): `pm2 restart phoenix-wms-api` (or your process name)
+4. In WMS **Billing**:
+   - **Disconnect** the old sandbox connection (if still connected)
+   - **Connect QuickBooks** — sign in with the **real** Phoenix QuickBooks Online company
+   - **Sync invoices** once; confirm a known live invoice (total vs balance due)
+5. Customer matching: same **name** and/or **email** in WMS and QB links accounts; after first sync, `quickbooksCustomerId` holds the link
+
+Optional: keep sandbox invoices in Mongo — they stay until overwritten by matching DocNumbers from live, or clear QB-synced invoices if you want a clean live register.
+
+Staff flow anytime: **Billing → Sync invoices**. Cron keeps Mongo updated every 15 minutes.
