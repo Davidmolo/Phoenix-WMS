@@ -49,10 +49,10 @@ const STAFF_NAV: NavItem[] = [
 
 const PORTAL_NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/inventory", label: "My pallets", icon: Package },
+  { href: "/inventory", label: "Pallets", icon: Package },
   { href: "/bookings", label: "Book dock", icon: CalendarDays },
   { href: "/requests", label: "Requests", icon: Inbox },
-  { href: "/billing", label: "My invoices", icon: FileText },
+  { href: "/billing", label: "Invoices", icon: FileText },
   { href: "/profile", label: "Profile", icon: UserRound },
 ];
 
@@ -143,7 +143,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 navigate(item.href);
               }}
               className={cn(
-                "sidebar-link flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] font-semibold transition-all duration-200",
+                "sidebar-link flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all duration-200",
                 active && "sidebar-link-active",
                 !active && "hover:translate-x-0.5"
               )}
@@ -152,7 +152,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
                 strokeWidth={2.25}
               />
-              <span className="min-w-0 truncate whitespace-nowrap">{item.label}</span>
+              <span className="truncate">{item.label}</span>
               {active ? (
                 <span
                   className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
@@ -186,14 +186,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               width={36}
               height={36}
               priority
-              className="h-8 w-8 object-contain"
+              className="h-8 w-8 shrink-0 object-contain"
             />
             <div className="min-w-0 leading-tight">
-              <div className="font-display text-[12px] font-semibold tracking-[0.04em] uppercase">
+              <div className="font-display truncate text-[11px] font-semibold tracking-[0.02em] whitespace-nowrap uppercase">
                 <span>Phoenix </span>
                 <span className="sidebar-accent">Cross Dock</span>
               </div>
-              <div className="sidebar-muted text-[9px] font-semibold tracking-[0.1em] uppercase">WMS</div>
+              <div className="sidebar-muted text-[9px] font-semibold tracking-[0.08em] uppercase">
+                WMS
+              </div>
             </div>
           </button>
         </div>

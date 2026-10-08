@@ -18,18 +18,26 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  // Long question-style labels wrap badly when forced to uppercase + wide tracking
+  const longLabel = label.length > 28;
+
   return (
     <div className={cn("space-y-1", className)}>
       <label
         htmlFor={htmlFor}
-        className="flex items-baseline gap-1 text-[10px] font-bold tracking-[0.06em] text-navy uppercase"
+        className={cn(
+          "flex items-baseline gap-1 font-bold text-navy",
+          longLabel
+            ? "text-[12px] leading-snug tracking-normal normal-case"
+            : "text-[10px] tracking-[0.06em] whitespace-nowrap uppercase"
+        )}
       >
-        {label}
-        {required ? <span className="text-accent">*</span> : null}
+        <span className={longLabel ? "min-w-0" : undefined}>{label}</span>
+        {required ? <span className="shrink-0 text-accent">*</span> : null}
       </label>
       {children}
       {error ? <p className="m-0 text-xs text-danger">{error}</p> : null}
-      {!error && hint ? <p className="m-0 text-xs leading-relaxed text-muted">{hint}</p> : null}
+      {!error && hint ? <p className="m-0 text-xs leading-snug text-muted">{hint}</p> : null}
     </div>
   );
 }

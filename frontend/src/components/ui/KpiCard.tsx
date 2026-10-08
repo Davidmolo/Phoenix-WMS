@@ -25,7 +25,9 @@ export function KpiCard({
             {icon}
           </div>
         ) : null}
-        <div className="text-[10px] font-bold tracking-[0.06em] text-muted uppercase">{label}</div>
+        <div className="truncate text-[10px] font-bold tracking-[0.06em] whitespace-nowrap text-muted uppercase">
+          {label}
+        </div>
         {loading ? (
           <Skeleton className="mt-2 h-7 w-16" />
         ) : (

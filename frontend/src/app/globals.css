@@ -41,7 +41,7 @@
   --gradient-hero: linear-gradient(165deg, #ffffff 0%, #f3f5f7 55%, #ebe4d8 100%);
   --gradient-warm: radial-gradient(900px 480px at 0% 0%, rgba(230, 160, 48, 0.16), transparent 55%),
     radial-gradient(700px 420px at 100% 0%, rgba(43, 66, 87, 0.1), transparent 50%);
-  --sidebar-width: 220px;
+  --sidebar-width: 232px;
 }
 
 @media (max-width: 1023px) {
@@ -52,7 +52,7 @@
 
 @media (min-width: 1280px) {
   :root {
-    --sidebar-width: 228px;
+    --sidebar-width: 240px;
   }
 }
 
@@ -162,9 +162,10 @@ textarea {
 
 .sidebar-shell .sidebar-link {
   color: #ffffff !important;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  white-space: nowrap;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 

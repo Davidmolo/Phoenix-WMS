@@ -281,8 +281,8 @@ export default function BillingPage() {
         icon={<FileText className="h-5 w-5" />}
         description={
           isStaff
-            ? "Invoice register from QuickBooks — see what was billed and what is still owed"
-            : "Your invoices from Phoenix Cross Dock — invoice total is billed; balance due is still owed"
+            ? "Invoice register from QuickBooks — billed vs still owed"
+            : "Invoice total = billed · Balance due = still owed"
         }
         actions={
           <div className="flex flex-wrap gap-2">

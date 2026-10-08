@@ -258,7 +258,7 @@ export default function RequestsPage() {
               />
             </Field>
             <Field
-              label="Are there abnormal sized pallets?"
+              label="Abnormal sized pallets?"
               hint="Yes if any pallet is not standard 48×48 (or your usual size)."
             >
               <Select
