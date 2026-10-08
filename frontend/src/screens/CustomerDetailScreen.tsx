@@ -67,6 +67,8 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
 
   const c = data?.customer;
   const invoices = invData?.invoices ?? [];
+  /** Hide invite once they have set a portal password (onboarded). */
+  const needsPortalInvite = Boolean(c && !c.portalActivated);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState("");
   const [inviteErr, setInviteErr] = useState("");
@@ -142,17 +144,20 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
           description={c ? `${c.contact || "—"} · ${c.email || "—"}` : "Loading account detail"}
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                icon={<Mail className="h-3.5 w-3.5" />}
-                onClick={() => void sendPortalInvite()}
-                loading={inviteBusy}
-                disabled={!c}
-              >
-                {data?.portal?.invitePending ? "Resend portal invite" : "Send portal invite"}
-              </Button>
+              {needsPortalInvite ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Mail className="h-3.5 w-3.5" />}
+                  onClick={() => void sendPortalInvite()}
+                  loading={inviteBusy}
+                  disabled={!c?.email}
+                  title={!c?.email ? "Add an email on this customer first" : undefined}
+                >
+                  {data?.portal?.invitePending ? "Resend portal invite" : "Send portal invite"}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 size="sm"
@@ -244,11 +249,11 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                   </div>
                   <div>
                     <span className="font-semibold text-text">Portal: </span>
-                    {data?.portal?.invitePending
-                      ? "Invite sent — waiting for password"
-                      : data?.portal
-                        ? "Active login"
-                        : "Not invited"}
+                    {c.portalActivated
+                      ? "Onboarded (active login)"
+                      : data?.portal?.invitePending
+                        ? "Invite sent — waiting for password"
+                        : "Not onboarded"}
                   </div>
                 </div>
               </CardBody>
