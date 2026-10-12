@@ -8,8 +8,13 @@ import { Accessorial } from "../models/Accessorial";
 import { Lpn } from "../models/Lpn";
 import { nextPalletExternalId, nextLpnCode } from "../services/ids";
 import { splitClientReference } from "../services/palletSpace";
+import { assignLocationGroups, slotsPerPallet } from "../services/locationAssign";
+import { buildBolDocument, bolHtml, generateBolNumber } from "../services/bol";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
+import { invoiceOutboundShipment } from "../services/billingInvoice";
+
+const SERVICE_TYPES = ["drop_and_store", "crossdock", "trailer_rework", "pickup"] as const;
 
 const router = Router();
 router.use(requireAuth);
@@ -26,9 +31,15 @@ router.get("/", async (req, res, next) => {
       defaultLimit: 50,
       maxLimit: 200,
     });
+    if (req.query.serviceType) filter.serviceType = req.query.serviceType;
+
     const [total, shipments] = await Promise.all([
       Shipment.countDocuments(filter),
-      Shipment.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Shipment.find(filter)
+        .populate("customerId", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
     ]);
     res.json({ shipments, ...paginationMeta(page, limit, total) });
   } catch (err) {
@@ -43,6 +54,7 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       warehouseId,
       customerId,
       direction = "inbound",
+      serviceType = "drop_and_store",
       palletCount = 1,
       carrier = "",
       trailerNumber = "",
@@ -52,6 +64,7 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       poOrJob = "",
       poNumber = "",
       jobName = "",
+      weightLbs = null,
     } = req.body;
 
     if (!warehouseId || !customerId) {
@@ -62,6 +75,10 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       res.status(400).json({ error: "direction must be inbound or outbound" });
       return;
     }
+    const st = SERVICE_TYPES.includes(serviceType) ? serviceType : "drop_and_store";
+    // Pickup is typically outbound; crossdock/rework/drop_and_store usually inbound
+    const dir =
+      st === "pickup" ? "outbound" : direction === "outbound" ? "outbound" : "inbound";
 
     const refs = splitClientReference(poOrJob || poNumber || jobName);
 
@@ -69,7 +86,8 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       companyId: req.auth!.companyId,
       warehouseId,
       customerId,
-      direction,
+      direction: dir,
+      serviceType: st,
       status: "expected",
       carrier,
       trailerNumber,
@@ -77,7 +95,8 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       jobName: refs.jobName,
       poNumber: refs.poNumber,
-      notes: notes || `Expected ${direction} · ${palletCount} pallet(s)`,
+      weightLbs: weightLbs != null && weightLbs !== "" ? Number(weightLbs) : null,
+      notes: notes || `Expected ${st.replace(/_/g, " ")} · ${palletCount} pallet(s)`,
       palletIds: [],
     });
 
@@ -164,7 +183,8 @@ router.post("/pick-list", requireRole("admin", "staff"), async (req, res, next) 
   }
 });
 
-router.get("/:id", async (req, res, next) => {
+/** Staff edit / cancel / reschedule expected or in-progress shipments (Cesar modify). */
+router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
   try {
     const shipment = await Shipment.findOne({
       _id: req.params.id,
@@ -174,15 +194,179 @@ router.get("/:id", async (req, res, next) => {
       res.status(404).json({ error: "Shipment not found" });
       return;
     }
+
+    const {
+      carrier,
+      trailerNumber,
+      sealNumber,
+      scac,
+      shipFrom,
+      shipTo,
+      thirdParty,
+      notes,
+      jobName,
+      poNumber,
+      scheduledAt,
+      serviceType,
+      status,
+      weightLbs,
+      billAsFtl,
+    } = req.body;
+
+    if (carrier !== undefined) shipment.carrier = String(carrier);
+    if (trailerNumber !== undefined) shipment.trailerNumber = String(trailerNumber);
+    if (sealNumber !== undefined) shipment.sealNumber = String(sealNumber);
+    if (scac !== undefined) shipment.scac = String(scac);
+    if (shipFrom !== undefined) shipment.shipFrom = String(shipFrom);
+    if (shipTo !== undefined) shipment.shipTo = String(shipTo);
+    if (thirdParty !== undefined) shipment.thirdParty = String(thirdParty);
+    if (notes !== undefined) shipment.notes = String(notes);
+    if (jobName !== undefined) shipment.jobName = String(jobName);
+    if (poNumber !== undefined) shipment.poNumber = String(poNumber);
+    if (billAsFtl !== undefined) shipment.billAsFtl = Boolean(billAsFtl);
+    if (weightLbs !== undefined) {
+      shipment.weightLbs =
+        weightLbs === null || weightLbs === "" ? null : Number(weightLbs);
+    }
+    if (scheduledAt !== undefined) {
+      shipment.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
+    }
+    if (serviceType !== undefined && SERVICE_TYPES.includes(serviceType)) {
+      shipment.serviceType = serviceType;
+    }
+    if (status !== undefined) {
+      const allowed = ["expected", "arrived", "in_progress", "completed", "cancelled"];
+      if (!allowed.includes(String(status))) {
+        res.status(400).json({ error: `status must be one of ${allowed.join(", ")}` });
+        return;
+      }
+      shipment.status = status;
+      if (status === "completed" && !shipment.completedAt) {
+        shipment.completedAt = new Date();
+      }
+    }
+
+    await shipment.save();
+    const populated = await Shipment.findById(shipment._id).populate(
+      "customerId",
+      "name email phone"
+    );
+    res.json({ shipment: populated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/:id", async (req, res, next) => {
+  try {
+    const shipment = await Shipment.findOne({
+      _id: req.params.id,
+      companyId: req.auth!.companyId,
+    }).populate("customerId", "name email phone address contact");
+    if (!shipment) {
+      res.status(404).json({ error: "Shipment not found" });
+      return;
+    }
     if (
       req.auth!.role === "customer" &&
-      String(shipment.customerId) !== String(req.auth!.customerId)
+      String((shipment.customerId as { _id?: unknown })?._id || shipment.customerId) !==
+        String(req.auth!.customerId)
+    ) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const pallets = await Pallet.find({ _id: { $in: shipment.palletIds } })
+      .populate({ path: "locationId", select: "code aisle type" })
+      .populate({ path: "secondaryLocationId", select: "code aisle type" });
+
+    // Backfill snapshot codes so barcode reprints always show storage location
+    for (const p of pallets) {
+      const primary =
+        p.locationId && typeof p.locationId === "object" && "code" in p.locationId
+          ? String((p.locationId as { code?: string }).code || "")
+          : "";
+      const secondary =
+        p.secondaryLocationId &&
+        typeof p.secondaryLocationId === "object" &&
+        "code" in p.secondaryLocationId
+          ? String((p.secondaryLocationId as { code?: string }).code || "")
+          : "";
+      let dirty = false;
+      if (primary && !p.locationCode) {
+        p.locationCode = primary;
+        dirty = true;
+      }
+      if (secondary && !p.secondaryLocationCode) {
+        p.secondaryLocationCode = secondary;
+        dirty = true;
+      }
+      if (dirty) await p.save();
+    }
+
+    const customer = shipment.customerId as unknown as { name?: string } | null;
+    const bol =
+      shipment.bolNumber || pallets.length
+        ? buildBolDocument({
+            bolNumber: shipment.bolNumber || "(pending)",
+            direction: shipment.direction,
+            carrier: shipment.carrier,
+            trailerNumber: shipment.trailerNumber,
+            sealNumber: shipment.sealNumber,
+            scac: shipment.scac,
+            shipFrom: shipment.shipFrom,
+            shipTo: shipment.shipTo || customer?.name || "",
+            thirdParty: shipment.thirdParty,
+            customerName: customer?.name || "",
+            notes: shipment.notes,
+            pallets,
+          })
+        : null;
+    res.json({ shipment, pallets, bol });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Printable Bill of Lading HTML for a completed (or in-progress) shipment. */
+router.get("/:id/bol", requireRole("admin", "staff", "customer"), async (req, res, next) => {
+  try {
+    const shipment = await Shipment.findOne({
+      _id: req.params.id,
+      companyId: req.auth!.companyId,
+    }).populate("customerId", "name");
+    if (!shipment) {
+      res.status(404).json({ error: "Shipment not found" });
+      return;
+    }
+    if (
+      req.auth!.role === "customer" &&
+      String((shipment.customerId as { _id?: unknown })?._id || shipment.customerId) !==
+        String(req.auth!.customerId)
     ) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
     const pallets = await Pallet.find({ _id: { $in: shipment.palletIds } });
-    res.json({ shipment, pallets });
+    const customer = shipment.customerId as unknown as { name?: string } | null;
+    if (!shipment.bolNumber) {
+      shipment.bolNumber = generateBolNumber();
+      await shipment.save();
+    }
+    const doc = buildBolDocument({
+      bolNumber: shipment.bolNumber,
+      direction: shipment.direction,
+      carrier: shipment.carrier,
+      trailerNumber: shipment.trailerNumber,
+      sealNumber: shipment.sealNumber,
+      scac: shipment.scac,
+      shipFrom: shipment.shipFrom || "Phoenix Cross Dock",
+      shipTo: shipment.shipTo || customer?.name || "",
+      thirdParty: shipment.thirdParty,
+      customerName: customer?.name || "",
+      notes: shipment.notes,
+      pallets,
+    });
+    res.type("html").send(bolHtml(doc));
   } catch (err) {
     next(err);
   }
@@ -218,6 +402,14 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       dimLength,
       dimWidth,
       sqft,
+      weightLbs = null,
+      weightLbsEach = null,
+      serviceType = "drop_and_store",
+      shipFrom = "",
+      shipTo = "",
+      thirdParty = "",
+      sealNumber = "",
+      scac = "",
     } = req.body;
 
     if (!warehouseId || !customerId) {
@@ -236,35 +428,34 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
     const footprint = resolvePalletSqft({ sqft, dimLength, dimWidth });
 
     const count = Math.max(1, Math.min(50, Number(palletCount) || 1));
+    const slotsEach = slotsPerPallet(footprint.dimLength, footprint.dimWidth);
+    const perPalletWeight =
+      weightLbsEach != null && weightLbsEach !== ""
+        ? Number(weightLbsEach)
+        : weightLbs != null && weightLbs !== ""
+          ? Number(weightLbs) / count
+          : null;
 
-    let locationIds: string[] = Array.isArray(bodyLocationIds)
-      ? bodyLocationIds.map(String).filter(Boolean)
-      : [];
-
-    if (locationMode === "next_available" || locationIds.length === 0) {
-      const available = await Location.find({
+    let locationGroups: string[][];
+    try {
+      locationGroups = await assignLocationGroups({
         companyId,
         warehouseId,
-        palletId: null,
-      })
-        .sort({ aisle: 1, code: 1 })
-        .limit(count)
-        .lean();
-      if (available.length < count) {
-        res.status(400).json({
-          error: `Need ${count} open location(s); only ${available.length} available. Free slots or choose fewer pallets.`,
-        });
-        return;
-      }
-      locationIds = available.map((l) => String(l._id));
-    }
-
-    if (locationIds.length < count) {
+        palletCount: count,
+        slotsEach,
+        preferredIds:
+          locationMode === "choose" && Array.isArray(bodyLocationIds)
+            ? bodyLocationIds.map(String)
+            : [],
+      });
+    } catch (assignErr) {
       res.status(400).json({
-        error: `Select ${count} location(s) for this receipt (got ${locationIds.length}).`,
+        error: assignErr instanceof Error ? assignErr.message : "Could not assign locations",
       });
       return;
     }
+
+    const st = SERVICE_TYPES.includes(serviceType) ? serviceType : "drop_and_store";
 
     let shipment;
     if (expectedShipmentId) {
@@ -286,6 +477,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       shipment.carrier = carrier || shipment.carrier;
       shipment.trailerNumber = trailerNumber || shipment.trailerNumber;
       shipment.billAsFtl = Boolean(billAsFtl);
+      shipment.serviceType = shipment.serviceType || st;
       if (ref) shipment.notes = ref;
       await shipment.save();
     } else {
@@ -294,10 +486,19 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         warehouseId,
         customerId,
         direction: "inbound",
+        serviceType: st,
         status: "in_progress",
         carrier,
         trailerNumber,
+        sealNumber,
+        scac,
+        shipFrom: shipFrom || "Phoenix Cross Dock",
+        shipTo: shipTo || customer.name,
+        thirdParty,
         billAsFtl: Boolean(billAsFtl),
+        bolNumber: generateBolNumber(),
+        weightLbs:
+          perPalletWeight != null ? Math.round(perPalletWeight * count * 100) / 100 : null,
         notes: ref,
       });
     }
@@ -305,19 +506,23 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
     const createdPallets = [];
     for (let i = 0; i < count; i++) {
       const externalId = await nextPalletExternalId(companyId);
-      const locationId = locationIds[i] || null;
+      const group = locationGroups[i] || [];
+      const locationId = group[0] || null;
+      const secondaryLocationId = group[1] || null;
 
-      if (locationId) {
+      const reservedLocs = [];
+      for (const lid of group) {
         const loc = await Location.findOne({
-          _id: locationId,
+          _id: lid,
           companyId,
           warehouseId,
           palletId: null,
         });
         if (!loc) {
-          res.status(400).json({ error: `Location ${locationId} is not available` });
+          res.status(400).json({ error: `Location ${lid} is not available` });
           return;
         }
+        reservedLocs.push(loc);
       }
 
       // Cesar: after receive + label print, remain Staged for Store (not stored yet)
@@ -326,6 +531,9 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         warehouseId,
         customerId,
         locationId,
+        secondaryLocationId,
+        locationCode: reservedLocs[0]?.code || "",
+        secondaryLocationCode: reservedLocs[1]?.code || "",
         externalId,
         status: locationId ? "staged_for_store" : "received",
         description: description || `Inbound receipt ${ref || shipment.id}`,
@@ -334,12 +542,16 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         dimLength: footprint.dimLength,
         dimWidth: footprint.dimWidth,
         sqft: footprint.sqft,
+        weightLbs: perPalletWeight != null ? Math.round(perPalletWeight * 100) / 100 : null,
         ref,
         receivedAt: new Date(),
       });
 
       if (locationId) {
         await Location.findByIdAndUpdate(locationId, { palletId: pallet._id });
+      }
+      if (secondaryLocationId) {
+        await Location.findByIdAndUpdate(secondaryLocationId, { palletId: pallet._id });
       }
 
       // Optional single LPN per pallet for demo/ops labeling
@@ -412,12 +624,11 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
     shipment.completedAt = new Date();
     await shipment.save();
 
-    const pallets = await Pallet.find({ _id: { $in: createdPallets.map((p) => p._id) } }).populate(
-      "locationId",
-      "code aisle type"
-    );
+    const pallets = await Pallet.find({ _id: { $in: createdPallets.map((p) => p._id) } })
+      .populate({ path: "locationId", select: "code aisle type" })
+      .populate({ path: "secondaryLocationId", select: "code aisle type" });
 
-    res.status(201).json({ shipment, pallets });
+    res.status(201).json({ shipment, pallets, slotsPerPallet: slotsEach });
   } catch (err) {
     next(err);
   }
@@ -425,20 +636,28 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
 
 /**
  * Ship outbound pallets.
- * Body: { warehouseId, customerId, palletIds?: string[], lpnId?: string, billAsFtl?, carrier? }
+ * Body: { warehouseId, customerId?, palletIds?: string[], lpnId?: string, billAsFtl?, carrier?, weightLbs?, ... }
  * Cesar: pass lpnId to ship an entire staging plate in one scan.
+ * customerId is optional when all selected pallets share one customer.
  */
 router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
   try {
     const companyId = req.auth!.companyId;
     const {
       warehouseId,
-      customerId,
+      customerId: bodyCustomerId,
       palletIds: bodyPalletIds = [],
       lpnId,
       billAsFtl = false,
       carrier = "",
       trailerNumber = "",
+      sealNumber = "",
+      scac = "",
+      shipFrom = "",
+      shipTo = "",
+      thirdParty = "",
+      weightLbs = null,
+      notes = "",
     } = req.body;
 
     let palletIds: string[] = Array.isArray(bodyPalletIds) ? [...bodyPalletIds] : [];
@@ -455,43 +674,92 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       palletIds = [...fromLpn];
     }
 
-    if (!warehouseId || !customerId || palletIds.length === 0) {
-      res.status(400).json({ error: "warehouseId, customerId, and palletIds (or lpnId) are required" });
+    if (!warehouseId || palletIds.length === 0) {
+      res.status(400).json({ error: "warehouseId and palletIds (or lpnId) are required" });
       return;
     }
 
-    const pallets = await Pallet.find({
+    const foundAny = await Pallet.find({
       _id: { $in: palletIds },
       companyId,
-      customerId,
       status: { $in: ACTIVE_PALLET_STATUSES },
     });
 
-    if (pallets.length !== palletIds.length) {
-      res.status(400).json({ error: "One or more pallets are missing or not shippable" });
+    if (foundAny.length !== palletIds.length) {
+      const foundIds = new Set(foundAny.map((p) => String(p._id)));
+      const missing = palletIds.filter((id) => !foundIds.has(String(id)));
+      res.status(400).json({
+        error: `One or more pallets are missing or not shippable (${missing.length} of ${palletIds.length}). Only received / staged / stored pallets can ship.`,
+      });
       return;
     }
+
+    const customerIds = [...new Set(foundAny.map((p) => String(p.customerId)))];
+    if (customerIds.length > 1) {
+      res.status(400).json({
+        error: "Selected pallets belong to multiple customers — ship one customer at a time.",
+      });
+      return;
+    }
+
+    const customerId = bodyCustomerId ? String(bodyCustomerId) : customerIds[0];
+    if (String(customerIds[0]) !== String(customerId)) {
+      res.status(400).json({
+        error: "Selected pallets do not belong to the chosen customer. Clear the selection or pick that customer's pallets.",
+      });
+      return;
+    }
+
+    const pallets = foundAny.filter((p) => String(p.customerId) === String(customerId));
+
+    const customer = await Customer.findOne({ _id: customerId, companyId });
+    const totalWeight =
+      weightLbs != null && weightLbs !== ""
+        ? Number(weightLbs)
+        : pallets.reduce((s, p) => s + (Number(p.weightLbs) || 0), 0) || null;
 
     const shipment = await Shipment.create({
       companyId,
       warehouseId,
       customerId,
       direction: "outbound",
+      serviceType: "pickup",
       status: "in_progress",
       carrier,
       trailerNumber,
+      sealNumber,
+      scac,
+      shipFrom: shipFrom || "Phoenix Cross Dock",
+      shipTo: shipTo || customer?.name || "",
+      thirdParty,
+      bolNumber: generateBolNumber(),
+      weightLbs: totalWeight,
       billAsFtl: Boolean(billAsFtl),
       palletIds: pallets.map((p) => p._id),
-      notes: lpnId ? `Shipped via LPN ${lpnId}` : "",
+      notes: notes || (lpnId ? `Shipped via LPN ${lpnId}` : ""),
     });
 
     for (const p of pallets) {
+      // Snapshot floor codes BEFORE freeing slots — labels/history keep last location after ship
+      if (p.locationId && !p.locationCode) {
+        const loc = await Location.findById(p.locationId).select("code");
+        if (loc?.code) p.locationCode = loc.code;
+      }
+      if (p.secondaryLocationId && !p.secondaryLocationCode) {
+        const loc = await Location.findById(p.secondaryLocationId).select("code");
+        if (loc?.code) p.secondaryLocationCode = loc.code;
+      }
       if (p.locationId) {
         await Location.findByIdAndUpdate(p.locationId, { palletId: null });
       }
+      if (p.secondaryLocationId) {
+        await Location.findByIdAndUpdate(p.secondaryLocationId, { palletId: null });
+      }
       p.status = "shipped";
       p.shippedAt = new Date();
+      // Free live slot pointers; keep locationCode / secondaryLocationCode for reprints
       p.locationId = null;
+      p.secondaryLocationId = null;
       await p.save();
     }
 
@@ -503,7 +771,6 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       { $set: { status: "shipped" } }
     );
 
-    const customer = await Customer.findOne({ _id: customerId, companyId });
     if (customer?.billingMethod === "contract" && billAsFtl && customer.contractFtlRate) {
       // If they already paid per-pallet on inbound, FTL on outbound is unusual;
       // only post when explicitly requested and no prior handling on these pallets.
@@ -523,7 +790,50 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
     shipment.completedAt = new Date();
     await shipment.save();
 
-    res.status(201).json({ shipment, pallets });
+    // Cesar: outbound ship → invoice in WMS + push to QuickBooks (SBA skips if IN+OUT already billed)
+    let billing = null;
+    try {
+      billing = await invoiceOutboundShipment({
+        companyId: String(companyId),
+        customerId: String(customerId),
+        shipmentId: String(shipment._id),
+        palletCount: pallets.length,
+        carrier: carrier || "",
+        billAsFtl: Boolean(billAsFtl),
+        completedAt: shipment.completedAt || new Date(),
+      });
+      if (billing.invoice?.number) {
+        shipment.notes = `${shipment.notes || ""}${shipment.notes ? " · " : ""}Invoice ${
+          billing.invoice.number
+        }`.trim();
+        await shipment.save();
+      }
+    } catch (billErr) {
+      console.error("[ship] invoice/QB push failed:", billErr);
+    }
+
+    const bol = buildBolDocument({
+      bolNumber: shipment.bolNumber,
+      direction: shipment.direction,
+      carrier: shipment.carrier,
+      trailerNumber: shipment.trailerNumber,
+      sealNumber: shipment.sealNumber,
+      scac: shipment.scac,
+      shipFrom: shipment.shipFrom,
+      shipTo: shipment.shipTo,
+      thirdParty: shipment.thirdParty,
+      customerName: customer?.name || "",
+      notes: shipment.notes,
+      pallets,
+    });
+
+    res.status(201).json({
+      shipment,
+      pallets,
+      bol,
+      invoice: billing?.invoice || null,
+      quickbooks: billing?.push || null,
+    });
   } catch (err) {
     next(err);
   }

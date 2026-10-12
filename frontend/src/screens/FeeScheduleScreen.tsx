@@ -1,14 +1,19 @@
 "use client";
 
-import { Receipt } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { Pencil, Receipt, Save } from "lucide-react";
 import {
   Alert,
+  Button,
   Card,
   CardBody,
+  NumberInput,
   PageHeader,
   SkeletonTable,
 } from "@/components/ui";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { api } from "@/lib/api";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
+import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 
 type FeeSchedule = Record<string, number | string | null | undefined>;
@@ -25,7 +30,17 @@ const RATE_ROWS: Array<{ key: string; label: string; hint?: string; money?: bool
   { key: "floorStoragePerPalletMo", label: "Floor storage (/pallet/mo)", money: true },
   { key: "rackStoragePerPalletMo", label: "Rack storage (/pallet/mo)", money: true },
   { key: "handStackPerHour", label: "Hand-stack (/hr)", money: true },
-  { key: "sortRelabelPerHour", label: "Sort / relabel (/hr)", money: true },
+  {
+    key: "sortRelabelPerHour",
+    label: "Trailer rework / sort-relabel (/hr)",
+    hint: "Cesar: $65/hr",
+    money: true,
+  },
+  {
+    key: "trailerReworkMinimumHours",
+    label: "Trailer rework minimum (hours)",
+    hint: "Billed hours never go below this (default 1)",
+  },
   { key: "sortRelabelPerCase", label: "Sort / relabel (/case)", money: true },
   { key: "afterHoursSurchargePct", label: "After-hours surcharge (%)" },
   { key: "noShowFee", label: "No-show fee", money: true },
@@ -34,13 +49,79 @@ const RATE_ROWS: Array<{ key: string; label: string; hint?: string; money?: bool
 ];
 
 export default function FeeSchedulePage() {
-  const { data, error, loading } = useApiQuery<{
+  const { user, token } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { data, error, loading, reload } = useApiQuery<{
     companyName: string;
     feeSchedule: FeeSchedule | null;
     source?: string;
   }>("/company/fee-schedule");
 
   const fs = data?.feeSchedule;
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!fs || editing) return;
+    const next: Record<string, string> = {};
+    for (const row of RATE_ROWS) {
+      const raw = fs[row.key];
+      next[row.key] = raw == null ? "" : String(raw);
+    }
+    setForm(next);
+  }, [fs, editing]);
+
+  function beginEdit() {
+    if (!fs) return;
+    const next: Record<string, string> = {};
+    for (const row of RATE_ROWS) {
+      const raw = fs[row.key];
+      next[row.key] = raw == null ? "" : String(raw);
+    }
+    setForm(next);
+    setEditing(true);
+    setMsg("");
+    setErr("");
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setErr("");
+  }
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const payload: Record<string, number> = {};
+      for (const row of RATE_ROWS) {
+        const raw = form[row.key];
+        if (raw === undefined || raw.trim() === "") continue;
+        const n = Number(raw);
+        if (Number.isFinite(n)) payload[row.key] = n;
+      }
+      await api("/company/fee-schedule", {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(payload),
+      });
+      setMsg("Fee schedule saved");
+      setEditing(false);
+      invalidateApiCache("/company/fee-schedule");
+      await reload();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
@@ -52,6 +133,34 @@ export default function FeeSchedulePage() {
               ? `${data.companyName} published rates — ad hoc / overflow (non-contract)`
               : "Company published rate card"
           }
+          actions={
+            isAdmin && fs ? (
+              editing ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" onClick={cancelEdit} disabled={busy}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    form="fee-schedule-form"
+                    loading={busy}
+                    icon={<Save className="h-4 w-4" />}
+                  >
+                    Save
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={beginEdit}
+                  icon={<Pencil className="h-4 w-4" />}
+                >
+                  Edit rates
+                </Button>
+              )
+            ) : undefined
+          }
         />
 
         {error ? (
@@ -60,6 +169,8 @@ export default function FeeSchedulePage() {
             the new company.
           </Alert>
         ) : null}
+        {msg ? <Alert tone="success">{msg}</Alert> : null}
+        {err ? <Alert>{err}</Alert> : null}
 
         <Alert tone="info">
           Contract customers bill from their signed agreement (base rent, handling, FTL). Overflow
@@ -79,44 +190,56 @@ export default function FeeSchedulePage() {
         ) : (
           <Card>
             <CardBody className="overflow-hidden p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[520px] border-collapse text-[13.5px]">
-                  <thead>
-                    <tr className="bg-surface-2 text-left">
-                      <th className="px-4 py-3 text-xs font-semibold tracking-wide text-muted uppercase">
-                        Rate
-                      </th>
-                      <th className="w-36 px-4 py-3 text-right text-xs font-semibold tracking-wide text-muted uppercase sm:w-44">
-                        Value
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {RATE_ROWS.map((row) => {
-                      const raw = fs[row.key];
-                      const display =
-                        raw == null || raw === ""
-                          ? "—"
-                          : row.money
-                            ? money(Number(raw))
-                            : String(raw);
-                      return (
-                        <tr key={row.key} className="border-t border-border">
-                          <td className="px-4 py-3.5">
-                            <div className="font-semibold text-text">{row.label}</div>
-                            {row.hint ? (
-                              <div className="mt-0.5 text-xs text-muted">{row.hint}</div>
-                            ) : null}
-                          </td>
-                          <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-text">
-                            {display}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <form id="fee-schedule-form" onSubmit={onSave}>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[520px] border-collapse text-[13.5px]">
+                    <thead>
+                      <tr className="bg-surface-2 text-left">
+                        <th className="px-4 py-3 text-xs font-semibold tracking-wide text-muted uppercase">
+                          Rate
+                        </th>
+                        <th className="w-36 px-4 py-3 text-right text-xs font-semibold tracking-wide text-muted uppercase sm:w-44">
+                          Value
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {RATE_ROWS.map((row) => {
+                        const raw = fs[row.key];
+                        const display =
+                          raw == null || raw === ""
+                            ? "—"
+                            : row.money
+                              ? money(Number(raw))
+                              : String(raw);
+                        return (
+                          <tr key={row.key} className="border-t border-border">
+                            <td className="px-4 py-3.5">
+                              <div className="font-semibold text-text">{row.label}</div>
+                              {row.hint ? (
+                                <div className="mt-0.5 text-xs text-muted">{row.hint}</div>
+                              ) : null}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-text">
+                              {editing ? (
+                                <NumberInput
+                                  className="text-right"
+                                  value={form[row.key] ?? ""}
+                                  onValueChange={(v) =>
+                                    setForm((f) => ({ ...f, [row.key]: v }))
+                                  }
+                                />
+                              ) : (
+                                display
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </form>
               {fs.notes ? (
                 <div className="border-t border-border bg-surface-2 px-4 py-3 text-xs leading-relaxed text-muted">
                   {String(fs.notes)}

@@ -25,3 +25,29 @@ export function printDocument() {
     window.setTimeout(cleanup, 1500);
   });
 }
+
+/**
+ * Open a server-rendered HTML document (e.g. a Bill of Lading) in a new tab and
+ * trigger the browser print dialog once it has loaded. Used for routes that return
+ * `text/html` and require the auth header, so a plain `<a href>` won't work.
+ */
+export function openHtmlForPrint(html: string) {
+  if (typeof window === "undefined") return;
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  if (win) {
+    const tryPrint = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        /* user may have already closed the tab */
+      }
+    };
+    win.addEventListener("load", tryPrint, { once: true });
+    // Some browsers fire load before the listener attaches
+    window.setTimeout(tryPrint, 500);
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+}

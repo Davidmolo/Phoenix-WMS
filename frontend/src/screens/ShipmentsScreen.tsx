@@ -2,15 +2,22 @@
 
 import { Truck } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Alert, Badge, DataTable, PageHeader, statusTone, type Column } from "@/components/ui";
+import { Alert, Badge, DataTable, PageHeader, statusLabel, statusTone, type Column } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useAppNav } from "@/lib/appNav";
 import { dateLabel } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Shipment } from "@/types";
 
 type ShipmentsResponse = { shipments: Shipment[] } & PaginationMeta;
 
+function customerNameOf(s: Shipment) {
+  if (s.customerId && typeof s.customerId === "object") return s.customerId.name || "—";
+  return "—";
+}
+
 export default function ShipmentsPage() {
+  const { navigate } = useAppNav();
   const [page, setPage] = useState(1);
   const path = useMemo(() => listQuery("/shipments", { page }), [page]);
   const { data, error, loading } = useApiQuery<ShipmentsResponse>(path);
@@ -24,7 +31,17 @@ export default function ShipmentsPage() {
     {
       key: "status",
       header: "Status",
-      render: (s) => <Badge tone={statusTone(s.status)}>{s.status}</Badge>,
+      render: (s) => <Badge tone={statusTone(s.status)}>{statusLabel(s.status)}</Badge>,
+    },
+    {
+      key: "customer",
+      header: "Customer",
+      render: (s) => customerNameOf(s),
+    },
+    {
+      key: "bol",
+      header: "BOL #",
+      render: (s) => s.bolNumber || "—",
     },
     {
       key: "carrier",
@@ -58,7 +75,7 @@ export default function ShipmentsPage() {
         <PageHeader
           title="Shipments"
           icon={<Truck className="h-5 w-5" />}
-          description="Completed and in-progress inbound/outbound movements"
+          description="Completed and in-progress inbound/outbound movements — click a row for BOL and detail"
         />
         <Alert>{error}</Alert>
         <DataTable
@@ -66,6 +83,7 @@ export default function ShipmentsPage() {
           rows={data?.shipments ?? []}
           rowKey={(s) => s._id}
           loading={loading}
+          onRowClick={(s) => navigate(`/shipments/${s._id}`)}
           emptyTitle="No shipments yet"
           pagination={paginationFrom(data)}
           onPageChange={setPage}

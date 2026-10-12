@@ -16,7 +16,19 @@ async function main() {
       credentials: true,
     })
   );
-  app.use(express.json({ limit: "2mb" }));
+  app.use(
+    express.json({
+      limit: "2mb",
+      // Preserve raw body for Intuit webhook signature verification
+      verify: (req, _res, buf) => {
+        const r = req as express.Request & { rawBody?: Buffer; originalUrl?: string };
+        const url = r.originalUrl || r.url || "";
+        if (url.includes("/quickbooks/webhook")) {
+          r.rawBody = buf;
+        }
+      },
+    })
+  );
   app.use("/api", routes);
   app.use(errorHandler);
 

@@ -7,6 +7,7 @@ export { DataTable, type Column } from "./DataTable";
 export { EmptyState } from "./EmptyState";
 export { Field, FormGrid, FormSection, CheckboxField } from "./Field";
 export { Input } from "./Input";
+export { NumberInput } from "./NumberInput";
 export { KpiCard, KpiGrid } from "./KpiCard";
 export { Label } from "./Label";
 export { PageHeader } from "./PageHeader";

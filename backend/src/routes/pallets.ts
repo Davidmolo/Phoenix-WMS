@@ -15,7 +15,10 @@ router.use(requireAuth);
 router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
   try {
     const companyId = req.auth!.companyId;
-    const palletCode = String(req.body.palletCode || req.body.externalId || "").trim();
+    // Twin oversized label scans as PLT-xxxxx-B — resolve to the parent pallet
+    const rawCode = String(req.body.palletCode || req.body.externalId || "").trim();
+    const palletCode = rawCode.replace(/-B$/i, "");
+    const scannedSecondary = /-B$/i.test(rawCode);
     const locationCode = String(req.body.locationCode || "").trim();
 
     if (!palletCode || !locationCode) {
@@ -25,7 +28,11 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
 
     const pallet = await Pallet.findOne({ companyId, externalId: palletCode });
     if (!pallet) {
-      res.status(404).json({ error: `Pallet ${palletCode} not found` });
+      res.status(404).json({
+        error: scannedSecondary
+          ? `Pallet ${palletCode} (from ${rawCode}) not found`
+          : `Pallet ${palletCode} not found`,
+      });
       return;
     }
     if (!["staged_for_store", "received", "stored"].includes(pallet.status)) {
@@ -52,8 +59,16 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
       return;
     }
 
-    // Free previous reserved slot if moving to a different bin
-    if (pallet.locationId && String(pallet.locationId) !== String(location._id)) {
+    const isSecondary =
+      pallet.secondaryLocationId &&
+      String(pallet.secondaryLocationId) === String(location._id);
+
+    // Free previous reserved slot if moving to a different bin (primary only)
+    if (
+      pallet.locationId &&
+      String(pallet.locationId) !== String(location._id) &&
+      !isSecondary
+    ) {
       await Location.findOneAndUpdate(
         { _id: pallet.locationId, palletId: pallet._id },
         { palletId: null }
@@ -63,12 +78,31 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
     location.palletId = pallet._id;
     await location.save();
 
-    pallet.locationId = location._id;
+    if (!isSecondary) {
+      pallet.locationId = location._id;
+      pallet.locationCode = location.code;
+    } else {
+      pallet.secondaryLocationCode = location.code;
+    }
+    // Confirming either reserved slot (or a chosen bin) marks putaway complete
     pallet.status = "stored";
     await pallet.save();
 
-    const populated = await Pallet.findById(pallet._id).populate("locationId", "code aisle type");
-    res.json({ pallet: populated, message: `${palletCode} stored at ${locationCode}` });
+    const populated = await Pallet.findById(pallet._id)
+      .populate({ path: "locationId", select: "code aisle type" })
+      .populate({ path: "secondaryLocationId", select: "code aisle type" });
+    const secondary =
+      populated?.secondaryLocationId &&
+      typeof populated.secondaryLocationId === "object" &&
+      "code" in populated.secondaryLocationId
+        ? String((populated.secondaryLocationId as { code?: string }).code || "")
+        : "";
+    res.json({
+      pallet: populated,
+      message: secondary
+        ? `${palletCode} stored at ${locationCode} (pair includes ${secondary})`
+        : `${palletCode} stored at ${locationCode}`,
+    });
   } catch (err) {
     next(err);
   }
@@ -92,7 +126,8 @@ router.get("/", async (req, res, next) => {
     const [total, pallets] = await Promise.all([
       Pallet.countDocuments(filter),
       Pallet.find(filter)
-        .populate("locationId", "code aisle type")
+        .populate({ path: "locationId", select: "code aisle type" })
+        .populate({ path: "secondaryLocationId", select: "code aisle type" })
         .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -105,10 +140,9 @@ router.get("/", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    const pallet = await Pallet.findOne({ _id: req.params.id, companyId: req.auth!.companyId }).populate(
-      "locationId",
-      "code aisle type"
-    );
+    const pallet = await Pallet.findOne({ _id: req.params.id, companyId: req.auth!.companyId })
+      .populate({ path: "locationId", select: "code aisle type" })
+      .populate({ path: "secondaryLocationId", select: "code aisle type" });
     if (!pallet) {
       res.status(404).json({ error: "Pallet not found" });
       return;
@@ -138,16 +172,60 @@ router.post("/", requireRole("admin", "staff"), async (req, res, next) => {
 
 router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
   try {
-    const pallet = await Pallet.findOneAndUpdate(
-      { _id: req.params.id, companyId: req.auth!.companyId },
-      { $set: req.body },
-      { new: true }
-    );
+    const pallet = await Pallet.findOne({
+      _id: req.params.id,
+      companyId: req.auth!.companyId,
+    });
     if (!pallet) {
       res.status(404).json({ error: "Pallet not found" });
       return;
     }
-    res.json({ pallet });
+
+    if (req.body.description !== undefined) pallet.description = String(req.body.description);
+    if (req.body.poNumber !== undefined) pallet.poNumber = String(req.body.poNumber);
+    if (req.body.jobName !== undefined) pallet.jobName = String(req.body.jobName);
+    if (req.body.ref !== undefined) pallet.ref = String(req.body.ref);
+    if (req.body.notes !== undefined) pallet.notes = String(req.body.notes);
+    if (req.body.dimLength !== undefined) pallet.dimLength = Number(req.body.dimLength) || null;
+    if (req.body.dimWidth !== undefined) pallet.dimWidth = Number(req.body.dimWidth) || null;
+    if (req.body.dimHeight !== undefined) pallet.dimHeight = Number(req.body.dimHeight) || null;
+    if (req.body.sqft !== undefined) pallet.sqft = Number(req.body.sqft) || null;
+    if (req.body.weightLbs !== undefined) {
+      pallet.weightLbs =
+        req.body.weightLbs === null || req.body.weightLbs === ""
+          ? null
+          : Number(req.body.weightLbs);
+    }
+    if (req.body.status !== undefined && req.body.status !== "void") {
+      pallet.status = req.body.status;
+    }
+
+    // Void: free reserved floor slots so the barcode is retired (Cesar modify)
+    if (req.body.status === "void") {
+      if (pallet.locationId) {
+        await Location.findOneAndUpdate(
+          { _id: pallet.locationId, palletId: pallet._id },
+          { palletId: null }
+        );
+      }
+      if (pallet.secondaryLocationId) {
+        await Location.findOneAndUpdate(
+          { _id: pallet.secondaryLocationId, palletId: pallet._id },
+          { palletId: null }
+        );
+      }
+      pallet.locationId = null;
+      pallet.secondaryLocationId = null;
+      pallet.locationCode = "";
+      pallet.secondaryLocationCode = "";
+      pallet.status = "void";
+    }
+
+    await pallet.save();
+    const populated = await Pallet.findById(pallet._id)
+      .populate({ path: "locationId", select: "code aisle type" })
+      .populate({ path: "secondaryLocationId", select: "code aisle type" });
+    res.json({ pallet: populated });
   } catch (err) {
     next(err);
   }

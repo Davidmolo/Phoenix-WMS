@@ -1,98 +1,57 @@
-# Phoenix WMS — production deploy notes
+# Phoenix WMS — deploy notes (operators)
 
-## Isolation (do not disturb other apps)
+Private runbook for people who already have server and CI access.  
+**Do not put passwords, API keys, SSH keys, or connection strings in this file.**
 
-| App | Web port | API port |
-|---|---|---|
-| retention-module | 3000 | — |
-| trailhead | 3010 | 4010 |
-| fuel-optimizer | 3020 | 5000 |
-| fuel-staging | — | 4000 |
-| **phoenix-wms** | **3030** | **4020** |
+## Isolation
 
-App root: `/var/www/phoenix-wms`  
-PM2 names: `phoenix-wms-api`, `phoenix-wms-web` only.
+Phoenix WMS runs as its own PM2 apps and ports so it does not collide with other services on the same host.
 
-## One-time server setup
+| App | Role |
+| --- | --- |
+| `phoenix-wms-web` | Next.js frontend |
+| `phoenix-wms-api` | Express API |
 
-```bash
-# as ubuntu@3.146.118.154
-sudo mkdir -p /var/www/phoenix-wms /var/www/phoenix-wms/logs
-sudo chown -R ubuntu:ubuntu /var/www/phoenix-wms
-```
+App root on the server is under `/var/www/phoenix-wms`. Exact ports and nginx config live on the server only.
 
-Fill `/var/www/phoenix-wms/backend/.env` (Mongo Atlas `phoenix_wms` DB, JWT, SMTP).  
-Frontend production API base is `/api` (same origin through nginx).
+## One-time setup (high level)
 
-## GitHub Actions secrets
+1. Create the app directory and log folder (owned by the deploy user).
+2. Copy backend env from `.env.example` → server `backend/.env` and fill secrets there.
+3. Set frontend production API base to same-origin `/api` (`NEXT_PUBLIC_API_URL=/api`).
+4. Configure nginx + TLS for the public hostname.
+5. Start `phoenix-wms-api` and `phoenix-wms-web` with PM2.
 
-| Secret | Value |
-|---|---|
-| `PHOENIX_WMS_HOST` | `3.146.118.154` |
-| `PHOENIX_WMS_USER` | `ubuntu` |
-| `PHOENIX_WMS_SSH_KEY` | private key for deploy user |
+## CI / GitHub Actions
 
-Workflow: `.github/workflows/deploy.yml`  
-Triggers: push to `master`, or **Actions → Deploy Phoenix WMS → Run workflow**.
+Workflow: `.github/workflows/deploy.yml`
 
-## Domain (live)
+Required Actions secrets (names only — values stay in GitHub):
 
-**https://wms.phoenixcrossdocks.com**
+- `PHOENIX_WMS_HOST`
+- `PHOENIX_WMS_USER`
+- `PHOENIX_WMS_SSH_KEY`
 
-- nginx site: `phoenix-wms` (enabled) · TLS via certbot  
-- `CORS_ORIGIN` / `APP_URL` on server: `https://wms.phoenixcrossdocks.com`  
-- Deploys do **not** overwrite the live nginx vhost once certbot has configured it  
+Triggers: push to `master`, or manual **Actions → Deploy Phoenix WMS**.
 
-## Public booking APIs (Darya / marketing site)
+## Public booking API
 
-**Swagger UI:** https://wms.phoenixcrossdocks.com/api/docs  
-**OpenAPI JSON:** https://wms.phoenixcrossdocks.com/api/docs/openapi.json  
+Documented for the marketing site (no auth). Paths under `/api/public/bookings` and OpenAPI at `/api/docs`.
 
-No auth. CORS reflects the caller origin (works from phoenixcrossdocks.com).
+Service types: `crossdock` · `drop_and_store` · `trailer_rework` · `pickup`
 
-| Method | Path | Use |
-|---|---|---|
-| GET | `/api/public/bookings` | Index + quick start |
-| GET | `/api/public/bookings/config` | Hours + service types |
-| GET | `/api/public/bookings/calendar?year=&month=&serviceType=` | Month availability |
-| GET | `/api/public/bookings/slots?date=YYYY-MM-DD&serviceType=` | Day grid — `status: available` = free |
-| POST | `/api/public/bookings` | Create website booking |
+## QuickBooks Online
 
-`serviceType`: `crossdock` (45m) · `drop_and_store` (45m) · `trailer_rework` (60m)
-
-## QuickBooks
-
-Redirect URI (same for sandbox and production):
+OAuth redirect URI (sandbox and production):
 
 `https://wms.phoenixcrossdocks.com/api/quickbooks/callback`
 
-### Sandbox (already used)
+Cutover checklist (secrets only on the server / Intuit console):
 
-- Intuit Developer → app → **Keys → Development**
-- Server: `QUICKBOOKS_ENV=sandbox` + Development Client ID / Secret
+1. Create Production keys in Intuit Developer and register the redirect URI.
+2. Set `QUICKBOOKS_*` values in server `backend/.env` (`QUICKBOOKS_ENV=production`). Never commit them.
+3. Restart `phoenix-wms-api` with updated env.
+4. In WMS **Billing**: Disconnect any sandbox connection → Connect live company → Sync invoices.
+5. Match customers by name/email; cron can refresh invoices on an interval once configured.
 
-### Live / Production cutover
-
-1. Intuit Developer → your app → **Keys → Production**
-   - Copy **Client ID** and **Client Secret** (Production)
-   - Under Redirect URIs, add the same callback URL above (Production keys do not share Dev redirect list)
-2. On the API server `.env` (never commit):
-   ```
-   QUICKBOOKS_CLIENT_ID=<Production Client ID>
-   QUICKBOOKS_CLIENT_SECRET=<Production Client Secret>
-   QUICKBOOKS_REDIRECT_URI=https://wms.phoenixcrossdocks.com/api/quickbooks/callback
-   QUICKBOOKS_ENV=production
-   QUICKBOOKS_SYNC_ENABLED=true
-   QUICKBOOKS_SYNC_CRON=*/15 * * * *
-   QUICKBOOKS_SYNC_ON_BOOT=true
-   ```
-3. Restart the API (PM2): `pm2 restart phoenix-wms-api` (or your process name)
-4. In WMS **Billing**:
-   - **Disconnect** the old sandbox connection (if still connected)
-   - **Connect QuickBooks** — sign in with the **real** Phoenix QuickBooks Online company
-   - **Sync invoices** once; confirm a known live invoice (total vs balance due)
-5. Customer matching: same **name** and/or **email** in WMS and QB links accounts; after first sync, `quickbooksCustomerId` holds the link
-
-Optional: keep sandbox invoices in Mongo — they stay until overwritten by matching DocNumbers from live, or clear QB-synced invoices if you want a clean live register.
-
-Staff flow anytime: **Billing → Sync invoices**. Cron keeps Mongo updated every 15 minutes.
+Staff can always run **Billing → Sync invoices** manually.

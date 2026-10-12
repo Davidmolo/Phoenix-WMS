@@ -35,7 +35,8 @@ const invoiceSchema = new Schema(
     periodEnd: { type: Date, required: true },
     status: {
       type: String,
-      enum: ["draft", "sent", "paid", "void", "past_due"],
+      // unpaid = balance > 0 and due date not yet passed; past_due = overdue
+      enum: ["draft", "sent", "unpaid", "paid", "void", "past_due"],
       default: "draft",
     },
     lines: { type: [invoiceLineSchema], default: [] },
@@ -48,8 +49,23 @@ const invoiceSchema = new Schema(
      */
     balanceDue: { type: Number, default: null },
     dueDate: { type: Date, default: null },
+    /** Payment terms in days (Cesar: Net 30). */
+    termsDays: { type: Number, default: 30 },
     notes: { type: String, default: "" },
     quickbooksId: { type: String, default: null, index: true },
+    /**
+     * Idempotency key for WMS→QB create (e.g. yard:{id}, ship:{id}, storage:{customer}:{yyyy-mm}).
+     * Retries must never create a second QB invoice.
+     */
+    wmsJobKey: { type: String, default: null, index: true },
+    sourceType: {
+      type: String,
+      enum: ["yard_job", "shipment", "storage", "manual", "quickbooks", ""],
+      default: "",
+    },
+    sourceId: { type: String, default: "" },
+    /** Last push error (if QB create failed); cleared on success. */
+    quickbooksPushError: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -58,6 +74,10 @@ invoiceSchema.index({ companyId: 1, number: 1 }, { unique: true });
 invoiceSchema.index(
   { companyId: 1, quickbooksId: 1 },
   { unique: true, partialFilterExpression: { quickbooksId: { $type: "string" } } }
+);
+invoiceSchema.index(
+  { companyId: 1, wmsJobKey: 1 },
+  { unique: true, partialFilterExpression: { wmsJobKey: { $type: "string" } } }
 );
 
 export type InvoiceDoc = InferSchemaType<typeof invoiceSchema> & { _id: Types.ObjectId };

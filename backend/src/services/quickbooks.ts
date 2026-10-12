@@ -143,6 +143,15 @@ async function getValidConnection(companyId: string) {
   return conn;
 }
 
+function qbFaultMessage(data: Record<string, unknown>, status: number) {
+  const fault = data.Fault as { Error?: Array<{ Message?: string; Detail?: string }> } | undefined;
+  return (
+    fault?.Error?.[0]?.Detail ||
+    fault?.Error?.[0]?.Message ||
+    `QuickBooks API error (${status})`
+  );
+}
+
 async function qbGet<T>(companyId: string, pathAndQuery: string): Promise<T> {
   const conn = await getValidConnection(companyId);
   const url = `${apiHost()}/v3/company/${conn.realmId}/${pathAndQuery}`;
@@ -153,21 +162,49 @@ async function qbGet<T>(companyId: string, pathAndQuery: string): Promise<T> {
     },
   });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    const fault = data.Fault as { Error?: Array<{ Message?: string; Detail?: string }> } | undefined;
-    const msg =
-      fault?.Error?.[0]?.Detail ||
-      fault?.Error?.[0]?.Message ||
-      `QuickBooks API error (${res.status})`;
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(qbFaultMessage(data, res.status));
   return data as T;
 }
 
-function mapInvoiceStatus(balance: number, emailStatus?: string): "draft" | "sent" | "paid" | "past_due" {
+async function qbPost<T>(
+  companyId: string,
+  pathAndQuery: string,
+  body: Record<string, unknown>,
+  opts?: { requestId?: string }
+): Promise<T> {
+  const conn = await getValidConnection(companyId);
+  const url = `${apiHost()}/v3/company/${conn.realmId}/${pathAndQuery}`;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${conn.accessToken}`,
+  };
+  // Intuit idempotency — same Request-Id must not create a duplicate entity
+  if (opts?.requestId) headers["Request-Id"] = opts.requestId.slice(0, 50);
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(qbFaultMessage(data, res.status));
+  return data as T;
+}
+
+function mapInvoiceStatus(
+  balance: number,
+  _emailStatus?: string,
+  dueDate?: Date | null
+): "draft" | "sent" | "unpaid" | "paid" | "past_due" {
   if (balance <= 0) return "paid";
-  if (String(emailStatus || "").toLowerCase() === "emailSent") return "sent";
-  return "sent";
+  // Overdue: still owed and due date has passed
+  if (dueDate && dueDate.getTime() < Date.now()) return "past_due";
+  // Balance owed but not yet past due → unpaid
+  return "unpaid";
+}
+
+function ymd(d: Date) {
+  return d.toISOString().slice(0, 10);
 }
 
 async function resolveCustomer(
@@ -209,6 +246,7 @@ async function resolveCustomer(
     contact: "",
     billingMethod: "crossdock",
     quickbooksCustomerId: qbCustomerId || null,
+    source: "quickbooks",
     portalActivated: false,
     active: true,
   });
@@ -301,7 +339,7 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
     const txnDate = inv.TxnDate ? new Date(`${inv.TxnDate}T12:00:00`) : new Date();
     const dueDate = inv.DueDate ? new Date(`${inv.DueDate}T12:00:00`) : null;
     const number = String(inv.DocNumber || `QB-${qbId}`).trim();
-    const status = mapInvoiceStatus(balanceDue, inv.EmailStatus);
+    const status = mapInvoiceStatus(balanceDue, inv.EmailStatus, dueDate);
 
     const existing = await Invoice.findOne({ companyId, quickbooksId: qbId });
     if (existing) {
@@ -315,7 +353,9 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
       existing.total = total;
       existing.balanceDue = balanceDue;
       existing.dueDate = dueDate;
-      existing.notes = inv.PrivateNote || existing.notes || "";
+      // Keep WMS notes if we authored them; otherwise adopt QBO PrivateNote
+      if (!existing.wmsJobKey) existing.notes = inv.PrivateNote || existing.notes || "";
+      existing.quickbooksPushError = "";
       await existing.save();
       updated += 1;
       continue;
@@ -366,4 +406,561 @@ export async function connectionStatus(companyId: string) {
     autoSyncEnabled: env.quickbooksSyncEnabled && quickbooksConfigured(),
     autoSyncCron: env.quickbooksSyncCron,
   };
+}
+
+/** Cesar: every billable customer must have an email on WMS (QB send + portal). */
+export function requireCustomerEmail(email?: string | null): string {
+  const to = String(email || "").trim();
+  if (!to || !to.includes("@")) {
+    throw new Error(
+      "Customer email is required on WMS before creating or emailing a QuickBooks invoice"
+    );
+  }
+  return to;
+}
+
+/** Keep QBO customer PrimaryEmailAddr in sync with WMS (needed for invoice Bill Email). */
+async function syncQbCustomerEmail(companyId: string, qbCustomerId: string, email: string) {
+  const to = requireCustomerEmail(email);
+  try {
+    const got = await qbGet<{ Customer?: { Id?: string; SyncToken?: string; PrimaryEmailAddr?: { Address?: string } } }>(
+      companyId,
+      `customer/${qbCustomerId}?minorversion=65`
+    );
+    const c = got.Customer;
+    if (!c?.Id || c.SyncToken == null) return;
+    const existing = String(c.PrimaryEmailAddr?.Address || "").trim().toLowerCase();
+    if (existing === to.toLowerCase()) return;
+    await qbPost(companyId, "customer?minorversion=65", {
+      sparse: true,
+      Id: String(c.Id),
+      SyncToken: String(c.SyncToken),
+      PrimaryEmailAddr: { Address: to },
+    });
+  } catch (err) {
+    console.warn("[qb] could not sync customer email:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Ensure WMS customer has a QBO Customer.Id (create in QB if missing). */
+export async function ensureQuickBooksCustomer(companyId: string, customerId: string) {
+  const customer = await Customer.findOne({ _id: customerId, companyId });
+  if (!customer) throw new Error("Customer not found");
+  const email = requireCustomerEmail(customer.email);
+  if (customer.quickbooksCustomerId) {
+    await syncQbCustomerEmail(companyId, String(customer.quickbooksCustomerId), email);
+    return { customer, qbCustomerId: String(customer.quickbooksCustomerId) };
+  }
+
+  // Prefer match by DisplayName to avoid duplicates in QB
+  const safeName = customer.name.replace(/'/g, "\\'");
+  const query = encodeURIComponent(
+    `select Id, DisplayName from Customer where DisplayName = '${safeName}' maxresults 1`
+  );
+  const found = await qbGet<{ QueryResponse?: { Customer?: Array<{ Id?: string }> } }>(
+    companyId,
+    `query?query=${query}&minorversion=65`
+  );
+  const existingId = found.QueryResponse?.Customer?.[0]?.Id;
+  if (existingId) {
+    customer.quickbooksCustomerId = String(existingId);
+    await customer.save();
+    await syncQbCustomerEmail(companyId, String(existingId), email);
+    return { customer, qbCustomerId: String(existingId) };
+  }
+
+  const created = await qbPost<{ Customer?: { Id?: string } }>(
+    companyId,
+    "customer?minorversion=65",
+    {
+      DisplayName: customer.name.slice(0, 100),
+      CompanyName: customer.name.slice(0, 50),
+      PrimaryEmailAddr: { Address: email },
+      PrimaryPhone: customer.phone ? { FreeFormNumber: customer.phone } : undefined,
+      BillAddr: customer.address ? { Line1: customer.address.slice(0, 500) } : undefined,
+      Notes: `WMS customer ${customer._id}`,
+    }
+  );
+  const id = String(created.Customer?.Id || "");
+  if (!id) throw new Error("QuickBooks did not return a Customer Id");
+  customer.quickbooksCustomerId = id;
+  await customer.save();
+  return { customer, qbCustomerId: id };
+}
+
+type ItemMap = {
+  handling?: string;
+  storage?: string;
+  overage?: string;
+  rewrap?: string;
+  crossdock?: string;
+  detention?: string;
+  ftl?: string;
+  dwell?: string;
+  accessorial?: string;
+  other?: string;
+  defaultItem?: string;
+};
+
+const itemIdCache = new Map<string, string>(); // companyId:ref → Item Id
+
+async function findAnyServiceItemId(companyId: string): Promise<string | null> {
+  const anyQ = encodeURIComponent(
+    "select Id, Name from Item where Type = 'Service' maxresults 5"
+  );
+  const any = await qbGet<{ QueryResponse?: { Item?: Array<{ Id?: string }> } }>(
+    companyId,
+    `query?query=${anyQ}&minorversion=65`
+  );
+  return any.QueryResponse?.Item?.[0]?.Id ? String(any.QueryResponse.Item[0].Id) : null;
+}
+
+async function findIncomeAccountId(companyId: string): Promise<string | null> {
+  const q = encodeURIComponent(
+    "select Id, Name from Account where AccountType = 'Income' maxresults 5"
+  );
+  const raw = await qbGet<{ QueryResponse?: { Account?: Array<{ Id?: string }> } }>(
+    companyId,
+    `query?query=${q}&minorversion=65`
+  );
+  return raw.QueryResponse?.Account?.[0]?.Id
+    ? String(raw.QueryResponse.Account[0].Id)
+    : null;
+}
+
+async function resolveQbItemId(companyId: string, ref: string): Promise<string> {
+  const key = `${companyId}:${ref}`;
+  const cached = itemIdCache.get(key);
+  if (cached) return cached;
+
+  // Numeric Id already
+  if (/^\d+$/.test(ref)) {
+    itemIdCache.set(key, ref);
+    return ref;
+  }
+
+  const safe = ref.replace(/'/g, "\\'");
+  const query = encodeURIComponent(
+    `select Id, Name from Item where Name = '${safe}' maxresults 1`
+  );
+  const found = await qbGet<{ QueryResponse?: { Item?: Array<{ Id?: string }> } }>(
+    companyId,
+    `query?query=${query}&minorversion=65`
+  );
+  let id = found.QueryResponse?.Item?.[0]?.Id;
+
+  if (!id) {
+    try {
+      const incomeId = await findIncomeAccountId(companyId);
+      const body: Record<string, unknown> = {
+        Name: ref.slice(0, 100),
+        Type: "Service",
+      };
+      if (incomeId) body.IncomeAccountRef = { value: incomeId };
+      const created = await qbPost<{ Item?: { Id?: string } }>(
+        companyId,
+        "item?minorversion=65",
+        body
+      );
+      id = created.Item?.Id;
+    } catch {
+      id = undefined;
+    }
+  }
+
+  if (!id) id = (await findAnyServiceItemId(companyId)) || undefined;
+  if (!id) {
+    throw new Error(
+      `QuickBooks Item "${ref}" not found — create a Service item in QB or set company.quickbooksItemMap`
+    );
+  }
+  itemIdCache.set(key, String(id));
+  return String(id);
+}
+
+async function itemIdForLineType(companyId: string, lineType: string, map?: ItemMap | null) {
+  const m = map || {};
+  const typeKey = lineType === "trailer_rework" ? "accessorial" : lineType;
+  const ref =
+    (m as Record<string, string | undefined>)[typeKey] ||
+    m.defaultItem ||
+    m.other ||
+    "Services";
+  return resolveQbItemId(companyId, ref || "Services");
+}
+
+export type PushInvoiceResult = {
+  invoiceId: string;
+  quickbooksId: string | null;
+  pushed: boolean;
+  emailed?: boolean;
+  emailedTo?: string;
+  skipped?: string;
+  error?: string;
+};
+
+/**
+ * Cesar: QuickBooks emails the invoice (includes QB Pay Now / ACH-card link when enabled).
+ * POST /v3/company/{realmId}/invoice/{id}/send?sendTo=
+ */
+export async function sendInvoiceEmailViaQuickBooks(opts: {
+  companyId: string;
+  quickbooksInvoiceId: string;
+  sendTo: string;
+}) {
+  const to = requireCustomerEmail(opts.sendTo);
+  const conn = await getValidConnection(opts.companyId);
+  const q = new URLSearchParams({ sendTo: to, minorversion: "65" });
+  const url = `${apiHost()}/v3/company/${conn.realmId}/invoice/${opts.quickbooksInvoiceId}/send?${q.toString()}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${conn.accessToken}`,
+      "Content-Type": "application/octet-stream",
+    },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(qbFaultMessage(data, res.status));
+  return { emailedTo: to, invoice: (data as { Invoice?: QbInvoice }).Invoice };
+}
+
+/** Pull one QBO invoice by Id and upsert into WMS (used by webhooks + targeted sync). */
+export async function syncInvoiceByQuickBooksId(companyId: string, qbInvoiceId: string) {
+  const raw = await qbGet<{ Invoice?: QbInvoice }>(
+    companyId,
+    `invoice/${qbInvoiceId}?minorversion=65`
+  );
+  const inv = raw.Invoice;
+  if (!inv?.Id) throw new Error(`QuickBooks invoice ${qbInvoiceId} not found`);
+
+  const qbCustomerId = String(inv.CustomerRef?.value || "");
+  const displayName = String(inv.CustomerRef?.name || "QuickBooks customer");
+  const email = String(inv.BillEmail?.Address || "");
+  const customer = await resolveCustomer(companyId, qbCustomerId, displayName, email);
+
+  const lines = (inv.Line || [])
+    .filter((l) => l.DetailType === "SalesItemLineDetail")
+    .map((l) => {
+      const qty = Number(l.SalesItemLineDetail?.Qty ?? 1) || 1;
+      const amount = Number(l.Amount ?? 0);
+      const unitFromQb = l.SalesItemLineDetail?.UnitPrice;
+      const unit =
+        unitFromQb != null && !Number.isNaN(Number(unitFromQb))
+          ? Number(unitFromQb)
+          : qty
+            ? amount / qty
+            : amount;
+      return {
+        description: l.Description || "QuickBooks line",
+        qty,
+        unitAmount: unit,
+        amount,
+        type: "other" as const,
+      };
+    });
+
+  const lineSum = lines.reduce((s, l) => s + l.amount, 0);
+  const total =
+    inv.TotalAmt != null && !Number.isNaN(Number(inv.TotalAmt)) ? Number(inv.TotalAmt) : lineSum;
+  const balanceDue =
+    inv.Balance != null && !Number.isNaN(Number(inv.Balance)) ? Number(inv.Balance) : total;
+  const txnDate = inv.TxnDate ? new Date(`${inv.TxnDate}T12:00:00`) : new Date();
+  const dueDate = inv.DueDate ? new Date(`${inv.DueDate}T12:00:00`) : null;
+  const number = String(inv.DocNumber || `QB-${inv.Id}`).trim();
+  const status = mapInvoiceStatus(balanceDue, inv.EmailStatus, dueDate);
+  const qbId = String(inv.Id);
+
+  const existing = await Invoice.findOne({ companyId, quickbooksId: qbId });
+  if (existing) {
+    // Don't overwrite WMS-authored line types/notes when we already own the invoice
+    existing.status = status;
+    existing.total = total;
+    existing.subtotal = lineSum || existing.subtotal;
+    existing.balanceDue = balanceDue;
+    existing.dueDate = dueDate;
+    if (!existing.wmsJobKey) {
+      existing.set("lines", lines);
+      existing.notes = inv.PrivateNote || existing.notes || "";
+      existing.number = number;
+    }
+    await existing.save();
+    return { invoice: existing, updated: true as const };
+  }
+
+  const numberTaken = await Invoice.findOne({ companyId, number, quickbooksId: { $ne: qbId } });
+  const safeNumber = numberTaken ? `QB-${number}-${qbId}` : number;
+  const created = await Invoice.create({
+    companyId,
+    customerId: customer._id,
+    number: safeNumber,
+    periodStart: txnDate,
+    periodEnd: txnDate,
+    status,
+    lines,
+    subtotal: lineSum,
+    total,
+    balanceDue,
+    dueDate,
+    notes: inv.PrivateNote || "Synced from QuickBooks",
+    quickbooksId: qbId,
+    sourceType: "quickbooks",
+  });
+  return { invoice: created, updated: false as const };
+}
+
+/**
+ * Cesar: invoice sync is one-way WMS → QB.
+ * Idempotent via Invoice.quickbooksId + wmsJobKey + Request-Id header.
+ */
+export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushInvoiceResult> {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) throw new Error("Invoice not found");
+  const companyId = String(invoice.companyId);
+
+  if (invoice.quickbooksId) {
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: invoice.quickbooksId,
+      pushed: false,
+      skipped: "already_pushed",
+    };
+  }
+
+  if (!quickbooksConfigured()) {
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: null,
+      pushed: false,
+      skipped: "not_configured",
+    };
+  }
+
+  const conn = await QuickBooksConnection.findOne({ companyId });
+  if (!conn) {
+    invoice.quickbooksPushError = "QuickBooks not connected";
+    await invoice.save();
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: null,
+      pushed: false,
+      skipped: "not_connected",
+    };
+  }
+
+  try {
+    const company = await Company.findById(companyId);
+    const { customer, qbCustomerId } = await ensureQuickBooksCustomer(
+      companyId,
+      String(invoice.customerId)
+    );
+    const billEmail = requireCustomerEmail(customer.email);
+
+    const lines = [];
+    for (const line of invoice.lines || []) {
+      const amount = Number(line.amount) || 0;
+      if (amount === 0) continue;
+      const qty = Number(line.qty) || 1;
+      const unit = Number(line.unitAmount) || amount / qty;
+      const itemId = await itemIdForLineType(
+        companyId,
+        String(line.type || "other"),
+        company?.quickbooksItemMap as ItemMap | undefined
+      );
+      lines.push({
+        DetailType: "SalesItemLineDetail",
+        Amount: Math.round(amount * 100) / 100,
+        Description: String(line.description || "WMS charge").slice(0, 4000),
+        SalesItemLineDetail: {
+          ItemRef: { value: itemId },
+          Qty: qty,
+          UnitPrice: Math.round(unit * 100) / 100,
+        },
+      });
+    }
+
+    if (lines.length === 0) {
+      return {
+        invoiceId: String(invoice._id),
+        quickbooksId: null,
+        pushed: false,
+        skipped: "no_lines",
+      };
+    }
+
+    // termsDays 0 = due same day (crossdock/rework). Do NOT use `|| 30` — 0 is valid.
+    const termsDays =
+      invoice.termsDays != null && !Number.isNaN(Number(invoice.termsDays))
+        ? Number(invoice.termsDays)
+        : 30;
+    const txnDate = invoice.periodEnd || invoice.periodStart || new Date();
+    const due =
+      invoice.dueDate ||
+      new Date(txnDate.getTime() + Math.max(0, termsDays) * 24 * 60 * 60 * 1000);
+    // Persist corrected due/terms so retries stay consistent
+    invoice.dueDate = due;
+    invoice.termsDays = termsDays;
+
+    const wmsTag = invoice.wmsJobKey ? `WMS:${invoice.wmsJobKey}` : `WMS:inv:${invoice._id}`;
+    const privateNote = [
+      wmsTag,
+      invoice.sourceId ? `source:${invoice.sourceType || "job"}:${invoice.sourceId}` : null,
+      invoice.notes || null,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+      .slice(0, 4000);
+
+    // Recover if a prior push succeeded in QB but WMS lost the Id (no duplicate)
+    if (invoice.wmsJobKey) {
+      const existingQbId = await findQbInvoiceIdByWmsKey(companyId, invoice.wmsJobKey);
+      if (existingQbId) {
+        invoice.quickbooksId = existingQbId;
+        invoice.quickbooksPushError = "";
+        invoice.status = mapInvoiceStatus(Number(invoice.balanceDue ?? invoice.total), undefined, due);
+        await invoice.save();
+        return {
+          invoiceId: String(invoice._id),
+          quickbooksId: existingQbId,
+          pushed: false,
+          skipped: "recovered_existing_qb",
+        };
+      }
+    }
+
+    const requestId = (invoice.wmsJobKey || String(invoice._id)).replace(/[^a-zA-Z0-9_-]/g, "-");
+
+    const payload: Record<string, unknown> = {
+      Line: lines,
+      CustomerRef: { value: qbCustomerId },
+      // QB "Enter customer email" on the invoice comes from BillEmail — not only the customer record
+      BillEmail: { Address: billEmail },
+      TxnDate: ymd(txnDate),
+      DueDate: ymd(due),
+      PrivateNote: privateNote,
+      CustomerMemo: {
+        value: `Phoenix WMS · ${invoice.number}${invoice.wmsJobKey ? ` · ${invoice.wmsJobKey}` : ""}`.slice(
+          0,
+          1000
+        ),
+      },
+    };
+
+    // Prefer stable DocNumber from WMS invoice number when QB accepts it
+    if (invoice.number) {
+      payload.DocNumber = String(invoice.number).slice(0, 21);
+    }
+
+    let created: { Invoice?: { Id?: string; DocNumber?: string; Balance?: number } };
+    try {
+      created = await qbPost(companyId, "invoice?minorversion=65", payload, { requestId });
+    } catch (createErr) {
+      const msg = createErr instanceof Error ? createErr.message : String(createErr);
+      // DocNumber collision — retry once without DocNumber (QB assigns its own)
+      if (/docnumber|duplicate document|already exists/i.test(msg) && payload.DocNumber) {
+        delete payload.DocNumber;
+        created = await qbPost(companyId, "invoice?minorversion=65", payload, {
+          requestId: `${requestId}-r`,
+        });
+      } else {
+        // Last chance: another request may have created it
+        if (invoice.wmsJobKey) {
+          const recovered = await findQbInvoiceIdByWmsKey(companyId, invoice.wmsJobKey);
+          if (recovered) {
+            invoice.quickbooksId = recovered;
+            invoice.quickbooksPushError = "";
+            await invoice.save();
+            return {
+              invoiceId: String(invoice._id),
+              quickbooksId: recovered,
+              pushed: false,
+              skipped: "recovered_after_error",
+            };
+          }
+        }
+        throw createErr;
+      }
+    }
+
+    const qbId = String(created.Invoice?.Id || "");
+    if (!qbId) throw new Error("QuickBooks did not return an Invoice Id");
+
+    invoice.quickbooksId = qbId;
+    invoice.balanceDue =
+      created.Invoice?.Balance != null ? Number(created.Invoice.Balance) : invoice.total;
+    invoice.status = mapInvoiceStatus(Number(invoice.balanceDue), undefined, due);
+    invoice.dueDate = due;
+    invoice.quickbooksPushError = "";
+    if (created.Invoice?.DocNumber) {
+      const doc = String(created.Invoice.DocNumber);
+      if (doc && doc !== invoice.number) {
+        const clash = await Invoice.findOne({
+          companyId,
+          number: doc,
+          _id: { $ne: invoice._id },
+        });
+        if (!clash) invoice.number = doc;
+      }
+    }
+    await invoice.save();
+
+    // Email via QuickBooks (Pay Now link when enabled on the QB company)
+    let emailed = false;
+    let emailedTo: string | undefined;
+    try {
+      const cust = await Customer.findById(invoice.customerId).select("email");
+      const to = requireCustomerEmail(cust?.email);
+      await sendInvoiceEmailViaQuickBooks({
+        companyId,
+        quickbooksInvoiceId: qbId,
+        sendTo: to,
+      });
+      emailed = true;
+      emailedTo = to;
+    } catch (mailErr) {
+      const mailMsg = mailErr instanceof Error ? mailErr.message : String(mailErr);
+      invoice.quickbooksPushError = `Invoice created in QB but email failed: ${mailMsg}`.slice(0, 500);
+      await invoice.save();
+    }
+
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: qbId,
+      pushed: true,
+      emailed,
+      emailedTo,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    invoice.quickbooksPushError = message.slice(0, 500);
+    await invoice.save();
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: null,
+      pushed: false,
+      error: message,
+    };
+  }
+}
+
+/** Find an existing QBO invoice by our WMS: job key in PrivateNote (dedupe). */
+async function findQbInvoiceIdByWmsKey(companyId: string, wmsJobKey: string): Promise<string | null> {
+  // QBO query can't reliably CONTAINS PrivateNote — pull recent and scan
+  const query = encodeURIComponent(
+    "select Id, DocNumber, PrivateNote from Invoice order by MetaData.CreateTime DESC MAXRESULTS 50"
+  );
+  try {
+    const raw = await qbGet<{
+      QueryResponse?: { Invoice?: Array<{ Id?: string; PrivateNote?: string }> };
+    }>(companyId, `query?query=${query}&minorversion=65`);
+    const needle = `WMS:${wmsJobKey}`;
+    for (const inv of raw.QueryResponse?.Invoice || []) {
+      if (String(inv.PrivateNote || "").includes(needle) && inv.Id) {
+        return String(inv.Id);
+      }
+    }
+  } catch {
+    /* best-effort dedupe */
+  }
+  return null;
 }

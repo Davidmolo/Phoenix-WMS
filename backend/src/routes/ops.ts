@@ -87,8 +87,37 @@ router.get("/dashboard", async (req, res, next) => {
     const availableSqft = Math.max(0, Math.round((capacitySqft - occupiedSqft) * 100) / 100);
 
     const recentShipments = await Shipment.find({ companyId, ...customerFilter })
+      .populate("customerId", "name")
       .sort({ createdAt: -1 })
       .limit(5);
+
+    // Revenue: paid + sent invoices by period (MTD + prior calendar month)
+    const now = new Date();
+    const mtdStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const lastMonthEnd = mtdStart;
+    const invoiceMatch: Record<string, unknown> = {
+      companyId: companyOid,
+      status: { $in: ["paid", "sent", "past_due"] },
+    };
+    if (req.auth!.role === "customer" && req.auth!.customerId) {
+      invoiceMatch.customerId = new Types.ObjectId(String(req.auth!.customerId));
+    }
+    const sumInvoices = async (from: Date, to?: Date) => {
+      const match: Record<string, unknown> = {
+        ...invoiceMatch,
+        createdAt: to ? { $gte: from, $lt: to } : { $gte: from },
+      };
+      const agg = await Invoice.aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: { $ifNull: ["$total", 0] } } } },
+      ]);
+      return Math.round((agg[0]?.total ?? 0) * 100) / 100;
+    };
+    const [revenueMtd, revenueLastMonth] = await Promise.all([
+      sumInvoices(mtdStart),
+      sumInvoices(lastMonthStart, lastMonthEnd),
+    ]);
 
     res.json({
       kpis: {
@@ -101,6 +130,8 @@ router.get("/dashboard", async (req, res, next) => {
         capacitySqft,
         occupiedSqft,
         availableSqft,
+        revenueMtd,
+        revenueLastMonth,
       },
       recentShipments,
     });
@@ -218,6 +249,93 @@ router.get("/stats/overview", requireRole("admin", "staff"), async (req, res, ne
       Shipment.countDocuments({ companyId }),
     ]);
     res.json({ lpns, shipments });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Email invoice to customer.
+ * Prefer QuickBooks send (includes QB Pay Now when enabled); fall back to WMS SMTP + portal/Zelle.
+ */
+router.post("/invoices/:id/send", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      companyId: req.auth!.companyId,
+    }).populate("customerId", "name email");
+    if (!invoice) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    const customer = invoice.customerId as unknown as { name?: string; email?: string } | null;
+    const to = String(req.body.email || customer?.email || "").trim();
+    if (!to || !to.includes("@")) {
+      res.status(400).json({
+        error: "Customer email is required on WMS before sending an invoice",
+      });
+      return;
+    }
+
+    // Cesar: QB emails the invoice (pay link). Push first if not yet in QB.
+    const {
+      pushInvoiceToQuickBooks,
+      sendInvoiceEmailViaQuickBooks,
+      quickbooksConfigured,
+    } = await import("../services/quickbooks");
+    const { QuickBooksConnection } = await import("../models/QuickBooksConnection");
+    const companyId = String(req.auth!.companyId);
+    const qbConnected = Boolean(await QuickBooksConnection.findOne({ companyId }));
+
+    if (quickbooksConfigured() && qbConnected) {
+      if (!invoice.quickbooksId) {
+        const pushed = await pushInvoiceToQuickBooks(String(invoice._id));
+        if (!pushed.quickbooksId) {
+          res.status(502).json({
+            error: pushed.error || "Could not create invoice in QuickBooks before emailing",
+          });
+          return;
+        }
+        invoice.quickbooksId = pushed.quickbooksId;
+      }
+      await sendInvoiceEmailViaQuickBooks({
+        companyId,
+        quickbooksInvoiceId: String(invoice.quickbooksId),
+        sendTo: to,
+      });
+      if (invoice.status === "draft") {
+        invoice.status = "unpaid";
+        await invoice.save();
+      }
+      const fresh = await Invoice.findById(invoice._id);
+      res.json({
+        ok: true,
+        via: "quickbooks",
+        invoice: fresh,
+        emailedTo: to,
+      });
+      return;
+    }
+
+    const { sendInvoiceEmail } = await import("../services/mail");
+    const { env } = await import("../config/env");
+    const portalUrl = `${env.appUrl.replace(/\/$/, "")}/billing`;
+    const zelleHint =
+      process.env.ZELLE_PAY_HINT ||
+      "Pay via Zelle to the Phoenix Cross Dock business account listed in your welcome email.";
+    await sendInvoiceEmail({
+      to,
+      name: customer?.name || to,
+      invoiceNumber: invoice.number,
+      total: invoice.total,
+      portalUrl,
+      zelleHint,
+    });
+    if (invoice.status === "draft") {
+      invoice.status = "unpaid";
+      await invoice.save();
+    }
+    res.json({ ok: true, via: "wms_smtp", invoice, emailedTo: to });
   } catch (err) {
     next(err);
   }

@@ -28,7 +28,12 @@ export const env = {
    * Default every 15 minutes. Staff can still Sync manually anytime.
    */
   quickbooksSyncEnabled: process.env.QUICKBOOKS_SYNC_ENABLED !== "false",
-  /** 5-field cron: minute hour day-of-month month day-of-week */
-  quickbooksSyncCron: process.env.QUICKBOOKS_SYNC_CRON || "*/15 * * * *",
+  /** 5-field cron: minute hour day-of-month month day-of-week (backup if webhooks miss) */
+  quickbooksSyncCron: process.env.QUICKBOOKS_SYNC_CRON || "*/5 * * * *",
   quickbooksSyncOnBoot: process.env.QUICKBOOKS_SYNC_ON_BOOT !== "false",
+  /**
+   * Intuit Developer → Webhooks verifier token.
+   * Endpoint: POST {APP}/api/quickbooks/webhook
+   */
+  quickbooksWebhookVerifier: process.env.QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN || "",
 };

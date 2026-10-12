@@ -48,6 +48,16 @@ const customerSchema = new Schema(
     portalActivated: { type: Boolean, default: false, index: true },
     /** QuickBooks Customer.Id when linked/imported from QBO */
     quickbooksCustomerId: { type: String, default: null, index: true },
+    /**
+     * Where this customer record originated.
+     * Survives unlink/clear of quickbooksCustomerId so UI Source stays accurate.
+     */
+    source: {
+      type: String,
+      enum: ["wms", "quickbooks"],
+      default: "wms",
+      index: true,
+    },
   },
   { timestamps: true }
 );

@@ -9,10 +9,21 @@ export type Customer = {
   contractHandlingPerPallet?: number | null;
   contractFtlRate?: number | null;
   contractNoDwellInside?: boolean;
+  /** Blanket per-pallet rates (storage accounts). */
+  rateInside?: number;
+  rateOutside?: number;
+  unloadFee?: number;
+  loadFee?: number;
+  rateInsideSqft?: number;
+  rateOutsideSqft?: number;
+  transportEnabled?: boolean;
+  transportInboundFee?: number;
+  transportOutboundFee?: number;
   email?: string;
   phone?: string;
   contact?: string;
   address?: string;
+  active?: boolean;
   since?: string;
   /** True after they set a portal password from the invite email. */
   portalActivated?: boolean;
@@ -21,6 +32,8 @@ export type Customer = {
   /** active = onboarded · invite_sent = emailed, no password yet · not_invited = never invited */
   portalStatus?: "active" | "invite_sent" | "not_invited";
   quickbooksCustomerId?: string | null;
+  /** Origin of the customer record — not cleared when QB is disconnected. */
+  source?: "wms" | "quickbooks";
 };
 
 export type PalletLocation = {
@@ -35,9 +48,14 @@ export type Pallet = {
   externalId: string;
   status: string;
   description?: string;
-  customerId: string;
+  customerId: string | { _id: string; name?: string };
   warehouseId?: string;
   locationId?: string | PalletLocation | null;
+  /** Second adjacent slot when footprint exceeds 48×48 (oversized putaway). */
+  secondaryLocationId?: string | PalletLocation | null;
+  /** Denormalized slot codes for barcode labels. */
+  locationCode?: string;
+  secondaryLocationCode?: string;
   weightLbs?: number | null;
   sqft?: number | null;
   dimLength?: number | null;
@@ -101,6 +119,10 @@ export type DashboardKpis = {
   capacitySqft?: number;
   occupiedSqft?: number;
   availableSqft?: number;
+  /** Paid + sent + past-due invoice total for the current calendar month. */
+  revenueMtd?: number;
+  /** Same total for the prior calendar month. */
+  revenueLastMonth?: number;
 };
 
 export type Location = {
@@ -129,9 +151,18 @@ export type Shipment = {
   _id: string;
   direction: "inbound" | "outbound";
   status: string;
-  customerId?: string | { _id: string; name?: string };
+  customerId?: string | { _id: string; name?: string; email?: string };
+  /** Appointment flavor: drop_and_store | crossdock | trailer_rework | pickup. */
+  serviceType?: string;
   carrier?: string;
   trailerNumber?: string;
+  bolNumber?: string;
+  sealNumber?: string;
+  scac?: string;
+  shipFrom?: string;
+  shipTo?: string;
+  thirdParty?: string;
+  weightLbs?: number | null;
   billAsFtl?: boolean;
   completedAt?: string | null;
   createdAt?: string;

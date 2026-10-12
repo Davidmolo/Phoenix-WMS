@@ -425,10 +425,29 @@ body {
     margin: 0 0 6px !important;
   }
 
+  /* Same 4×6-ish label card everywhere (Operations / Inventory / Shipment detail). */
   html.printing body .pallet-label-sheet {
     box-shadow: none !important;
+    border: 2px solid #000 !important;
     border-radius: 0 !important;
-    max-width: 100% !important;
-    padding: 8px !important;
+    width: 4in !important;
+    max-width: 4in !important;
+    min-height: 0 !important;
+    padding: 12px !important;
+    margin: 0 auto !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* One label per page — never after the last (avoids blank 3rd page for 2 labels). */
+  html.printing body .print-only .pallet-label-sheet:not(:last-child) {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  html.printing body .print-only {
+    width: 100% !important;
   }
 }

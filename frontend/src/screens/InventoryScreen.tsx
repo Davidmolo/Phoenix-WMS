@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Package } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Package, Printer, Save, Trash2 } from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
@@ -12,12 +12,17 @@ import {
   CardTitle,
   ChipGroup,
   DataTable,
+  Field,
+  FormGrid,
+  Input,
+  NumberInput,
   PageHeader,
   statusLabel,
   statusTone,
   type Column,
 } from "@/components/ui";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { api } from "@/lib/api";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
@@ -26,19 +31,40 @@ import type { Pallet, PalletLocation } from "@/types";
 const FILTERS = ["all", "staged_for_store", "stored", "staged", "received", "shipped"] as const;
 
 function locationCode(p: Pallet): string {
+  if (p.locationCode) {
+    return p.secondaryLocationCode
+      ? `${p.locationCode} + ${p.secondaryLocationCode}`
+      : p.locationCode;
+  }
   const loc = p.locationId;
-  if (!loc || typeof loc === "string") return "—";
-  return (loc as PalletLocation).code || "—";
+  const primary =
+    loc && typeof loc === "object" ? (loc as PalletLocation).code || "" : "";
+  const sec = p.secondaryLocationId;
+  const secondary =
+    sec && typeof sec === "object" ? (sec as PalletLocation).code || "" : "";
+  if (!primary && !secondary) return "—";
+  return secondary ? `${primary || "—"} + ${secondary}` : primary || "—";
 }
 
 type PalletsResponse = { pallets: Pallet[] } & PaginationMeta;
 
 export default function InventoryPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const isStaff = user?.role === "admin" || user?.role === "staff";
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [printPallet, setPrintPallet] = useState<Pallet | null>(null);
+  const [printPallets, setPrintPallets] = useState<Pallet[] | null>(null);
+
+  // Edit form state (staff only)
+  const [description, setDescription] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [jobName, setJobName] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     setPage(1);
@@ -54,7 +80,7 @@ export default function InventoryPage() {
     [page, filter]
   );
 
-  const { data, error, loading } = useApiQuery<PalletsResponse>(path);
+  const { data, error, loading, reload } = useApiQuery<PalletsResponse>(path);
   const rows = data?.pallets ?? [];
   const pagination = paginationFrom(data);
 
@@ -62,6 +88,74 @@ export default function InventoryPage() {
     () => rows.find((p) => p._id === selectedId) ?? null,
     [rows, selectedId]
   );
+
+  // Sync the edit form whenever the selected pallet changes (new selection or fresh data)
+  useEffect(() => {
+    if (!selected) return;
+    setDescription(selected.description || "");
+    setPoNumber(selected.poNumber || "");
+    setJobName(selected.jobName || "");
+    setWeightLbs(selected.weightLbs != null ? String(selected.weightLbs) : "");
+    setNotes(selected.notes || "");
+    setMsg("");
+    setErr("");
+  }, [selected]);
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selected) return;
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/pallets/${selected._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          description,
+          poNumber,
+          jobName,
+          notes,
+          weightLbs: weightLbs === "" ? null : Number(weightLbs),
+        }),
+      });
+      setMsg(`${selected.externalId} updated`);
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not update pallet");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onVoid() {
+    if (!token || !selected) return;
+    if (
+      !window.confirm(
+        `Void pallet ${selected.externalId}? This frees its storage location(s) and retires the barcode.`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/pallets/${selected._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ status: "void" }),
+      });
+      setMsg(`${selected.externalId} voided — location freed`);
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not void pallet");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const columns: Column<Pallet>[] = [
     {
@@ -104,8 +198,22 @@ export default function InventoryPage() {
           title={user?.role === "customer" ? "My pallets" : "Inventory"}
           icon={<Package className="h-5 w-5" />}
           description="Filter by status · select a row for detail and barcode label"
+          actions={
+            isStaff && rows.length > 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Printer className="h-3.5 w-3.5" />}
+                onClick={() => setPrintPallets(rows)}
+              >
+                Print labels for this page ({rows.length})
+              </Button>
+            ) : undefined
+          }
         />
-        <Alert>{error}</Alert>
+        <Alert>{error || err}</Alert>
+        {msg ? <Alert tone="success">{msg}</Alert> : null}
 
         <div className="mb-4">
           <ChipGroup
@@ -120,7 +228,7 @@ export default function InventoryPage() {
           />
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]">
           <DataTable
             columns={columns}
             rows={rows}
@@ -144,6 +252,17 @@ export default function InventoryPage() {
                   <dl className="mt-3 space-y-2.5 text-sm">
                     <DetailRow label="ID" value={selected.externalId} />
                     <DetailRow
+                      label="Barcodes"
+                      value={
+                        Number(selected.dimLength) > 48 ||
+                        Number(selected.dimWidth) > 48 ||
+                        selected.secondaryLocationId ||
+                        selected.secondaryLocationCode
+                          ? `${selected.externalId} · ${selected.externalId}-B (2nd slot)`
+                          : selected.externalId
+                      }
+                    />
+                    <DetailRow
                       label="Status"
                       value={
                         <Badge tone={statusTone(selected.status)}>
@@ -151,7 +270,14 @@ export default function InventoryPage() {
                         </Badge>
                       }
                     />
-                    <DetailRow label="Location" value={locationCode(selected)} />
+                    <DetailRow
+                      label={selected.status === "shipped" ? "Last location" : "Location"}
+                      value={
+                        locationCode(selected) === "—" && selected.status === "shipped"
+                          ? "Released on ship (slot freed)"
+                          : locationCode(selected)
+                      }
+                    />
                     <DetailRow
                       label="PO / Job"
                       value={selected.jobName || selected.poNumber || "—"}
@@ -176,8 +302,79 @@ export default function InventoryPage() {
                     <DetailRow label="Shipped" value={dateLabel(selected.shippedAt)} />
                     <DetailRow label="Description" value={selected.description || "—"} />
                   </dl>
-                  <Button className="mt-4 w-full" onClick={() => setPrintPallet(selected)}>
-                    Print barcode label
+
+                  {isStaff ? (
+                    <form onSubmit={onSave} className="mt-4 space-y-3 border-t border-border pt-4">
+                      <div className="text-[11px] font-bold tracking-wide text-muted uppercase">
+                        Edit pallet
+                      </div>
+                      <Field label="Description">
+                        <Input
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <FormGrid cols={2}>
+                        <Field label="PO number">
+                          <Input
+                            value={poNumber}
+                            onChange={(e) => setPoNumber(e.target.value)}
+                            placeholder="Optional"
+                          />
+                        </Field>
+                        <Field label="Job name">
+                          <Input
+                            value={jobName}
+                            onChange={(e) => setJobName(e.target.value)}
+                            placeholder="Optional"
+                          />
+                        </Field>
+                      </FormGrid>
+                      <Field label="Weight (lbs)">
+                        <NumberInput
+                          value={weightLbs}
+                          onValueChange={setWeightLbs}
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <Field label="Notes">
+                        <Input
+                          value={notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="submit" loading={busy} icon={<Save className="h-3.5 w-3.5" />}>
+                          Save changes
+                        </Button>
+                        {selected.status !== "void" && selected.status !== "shipped" ? (
+                          <Button
+                            type="button"
+                            variant="danger"
+                            disabled={busy}
+                            icon={<Trash2 className="h-3.5 w-3.5" />}
+                            onClick={onVoid}
+                          >
+                            Void pallet
+                          </Button>
+                        ) : null}
+                      </div>
+                    </form>
+                  ) : null}
+
+                  <Button
+                    className="mt-4 w-full"
+                    icon={<Printer className="h-3.5 w-3.5" />}
+                    onClick={() => setPrintPallets([selected])}
+                  >
+                    {Number(selected.dimLength) > 48 ||
+                    Number(selected.dimWidth) > 48 ||
+                    selected.secondaryLocationId ||
+                    selected.secondaryLocationCode
+                      ? "Print both barcodes (A + B)"
+                      : "Print barcode label"}
                   </Button>
                 </>
               )}
@@ -185,8 +382,8 @@ export default function InventoryPage() {
           </Card>
         </div>
 
-        {printPallet ? (
-          <PalletLabelPreview pallets={[printPallet]} onClose={() => setPrintPallet(null)} />
+        {printPallets ? (
+          <PalletLabelPreview pallets={printPallets} onClose={() => setPrintPallets(null)} />
         ) : null}
     </>
   );

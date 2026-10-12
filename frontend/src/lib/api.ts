@@ -55,3 +55,31 @@ export async function api<T>(
   }
   return data as T;
 }
+
+/**
+ * Fetch a raw HTML document (e.g. a printable BOL) with the bearer token attached.
+ * The API returns `Content-Type: text/html` for these routes instead of JSON.
+ */
+export async function apiFetchHtml(path: string, token?: string | null): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (err) {
+    if (isAbortError(err)) throw new ApiAbortError();
+    throw new Error("Cannot reach the server right now. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let message = text;
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      message = parsed.error || text;
+    } catch {
+      /* not JSON — use raw text */
+    }
+    throw new Error(message || `Request failed (${res.status})`);
+  }
+  return res.text();
+}

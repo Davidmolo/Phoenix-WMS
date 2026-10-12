@@ -216,6 +216,7 @@ router.post("/", requireRole("admin", "staff"), async (req, res, next) => {
       email,
       companyId: req.auth!.companyId,
       portalActivated: false,
+      source: "wms",
     });
 
     try {
@@ -307,7 +308,73 @@ router.patch("/:id", async (req, res, next) => {
       return;
     }
 
-    Object.assign(customer, req.body);
+    // Contact / identity — admin or staff
+    if (req.body.name !== undefined) customer.name = String(req.body.name ?? "").trim();
+    if (req.body.contact !== undefined) customer.contact = String(req.body.contact ?? "").trim();
+    if (req.body.email !== undefined) customer.email = String(req.body.email ?? "").trim();
+    if (req.body.phone !== undefined) customer.phone = String(req.body.phone ?? "").trim();
+    if (req.body.address !== undefined) customer.address = String(req.body.address ?? "").trim();
+    if (req.body.active !== undefined) customer.active = Boolean(req.body.active);
+    if (req.body.transportEnabled !== undefined) {
+      customer.transportEnabled = Boolean(req.body.transportEnabled);
+    }
+
+    // Billing / contract — admin only (Cesar)
+    const billingTouched =
+      req.body.billingMethod !== undefined ||
+      req.body.contractSqft !== undefined ||
+      req.body.contractFee !== undefined ||
+      req.body.contractHandlingPerPallet !== undefined ||
+      req.body.contractFtlRate !== undefined ||
+      req.body.rateInside !== undefined ||
+      req.body.rateOutside !== undefined ||
+      req.body.unloadFee !== undefined ||
+      req.body.loadFee !== undefined ||
+      req.body.rateInsideSqft !== undefined ||
+      req.body.rateOutsideSqft !== undefined ||
+      req.body.contractNoDwellInside !== undefined ||
+      req.body.transportInboundFee !== undefined ||
+      req.body.transportOutboundFee !== undefined;
+
+    if (billingTouched) {
+      if (role !== "admin") {
+        res.status(403).json({ error: "Only admins can change billing method and rates" });
+        return;
+      }
+      if (req.body.billingMethod !== undefined) customer.billingMethod = req.body.billingMethod;
+      if (req.body.contractSqft !== undefined) customer.contractSqft = Number(req.body.contractSqft) || 0;
+      if (req.body.contractFee !== undefined) customer.contractFee = Number(req.body.contractFee) || 0;
+      if (req.body.contractHandlingPerPallet !== undefined) {
+        customer.contractHandlingPerPallet =
+          req.body.contractHandlingPerPallet === null || req.body.contractHandlingPerPallet === ""
+            ? null
+            : Number(req.body.contractHandlingPerPallet);
+      }
+      if (req.body.contractFtlRate !== undefined) {
+        customer.contractFtlRate =
+          req.body.contractFtlRate === null || req.body.contractFtlRate === ""
+            ? null
+            : Number(req.body.contractFtlRate);
+      }
+      if (req.body.rateInside !== undefined) customer.rateInside = Number(req.body.rateInside);
+      if (req.body.rateOutside !== undefined) customer.rateOutside = Number(req.body.rateOutside);
+      if (req.body.unloadFee !== undefined) customer.unloadFee = Number(req.body.unloadFee);
+      if (req.body.loadFee !== undefined) customer.loadFee = Number(req.body.loadFee);
+      if (req.body.rateInsideSqft !== undefined) customer.rateInsideSqft = Number(req.body.rateInsideSqft);
+      if (req.body.rateOutsideSqft !== undefined) {
+        customer.rateOutsideSqft = Number(req.body.rateOutsideSqft);
+      }
+      if (req.body.contractNoDwellInside !== undefined) {
+        customer.contractNoDwellInside = Boolean(req.body.contractNoDwellInside);
+      }
+      if (req.body.transportInboundFee !== undefined) {
+        customer.transportInboundFee = Number(req.body.transportInboundFee) || 0;
+      }
+      if (req.body.transportOutboundFee !== undefined) {
+        customer.transportOutboundFee = Number(req.body.transportOutboundFee) || 0;
+      }
+    }
+
     await customer.save();
     res.json({ customer });
   } catch (err) {

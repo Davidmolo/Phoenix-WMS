@@ -14,6 +14,7 @@ const accessorialSchema = new Schema(
         "ftl",
         "crossdock",
         "trailer_rework",
+        "detention",
         "dwell",
         "storage",
         "accessorial",

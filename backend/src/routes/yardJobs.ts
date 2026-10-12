@@ -6,6 +6,8 @@ import { Customer } from "../models/Customer";
 import { Company } from "../models/Company";
 import { Accessorial } from "../models/Accessorial";
 import { DEFAULT_FEE_SCHEDULE } from "../constants/feeSchedule";
+import { generateBolNumber } from "../services/bol";
+import { createAndPushInvoice } from "../services/billingInvoice";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
@@ -156,10 +158,25 @@ router.patch("/:id", async (req, res, next) => {
             job.truckNumberOut ? ` / out ${job.truckNumberOut}` : ""
           } (${job.palletCount || 0} pallets)`;
         } else {
+          // Cesar: rework = $65/hr with a 1-hour minimum
           accType = "trailer_rework";
-          amount = Math.round(hours * (fees.sortRelabelPerHour ?? 65) * 100) / 100;
-          description = `Trailer rework — truck ${job.truckNumberIn || "—"} · ${hours.toFixed(2)} hrs @ fee schedule`;
+          const rate = Number(fees.sortRelabelPerHour ?? 65);
+          const minHours = Number(fees.trailerReworkMinimumHours ?? 1);
+          const billableHours = Math.max(minHours, hours);
+          amount = Math.round(billableHours * rate * 100) / 100;
+          description = `Trailer rework — truck ${job.truckNumberIn || "—"} · ${billableHours.toFixed(2)} hrs @ $${rate}/hr${
+            hours < minHours ? ` (${hours.toFixed(2)} hrs actual, ${minHours}h minimum)` : ""
+          }`;
         }
+
+        // Cesar: free detention window (default 2h / appointment length), then $90/hr
+        const freeHours = Number(fees.detentionFreeHours ?? 2);
+        const detentionRate = Number(fees.detentionPerHour ?? 90);
+        const billableDetention = Math.max(0, hours - freeHours);
+        const detentionAmount =
+          billableDetention > 0
+            ? Math.round(billableDetention * detentionRate * 100) / 100
+            : 0;
 
         const acc = await Accessorial.create({
           companyId: job.companyId,
@@ -172,11 +189,88 @@ router.patch("/:id", async (req, res, next) => {
         });
         job.chargeAmount = amount;
         job.accessorialId = acc._id;
+
+        let detentionAcc = null;
+        if (detentionAmount > 0) {
+          detentionAcc = await Accessorial.create({
+            companyId: job.companyId,
+            customerId: job.customerId,
+            shipmentId: job.expectedShipmentId || null,
+            type: "detention",
+            description: `Detention — ${billableDetention.toFixed(2)} hrs beyond ${freeHours}h free @ $${detentionRate}/hr`,
+            amount: detentionAmount,
+            date: job.endedAt,
+          });
+          job.chargeAmount = amount + detentionAmount;
+        }
+
+        // Cesar: job close → WMS invoice → push to QuickBooks (same-day due, idempotent)
+        const lines: Array<{
+          description: string;
+          qty: number;
+          unitAmount: number;
+          amount: number;
+          type: "crossdock" | "accessorial" | "other";
+          shipmentId: string | null;
+        }> = [
+          {
+            description,
+            qty: 1,
+            unitAmount: amount,
+            amount,
+            type: job.type === "crossdock" ? "crossdock" : "other",
+            shipmentId: job.expectedShipmentId ? String(job.expectedShipmentId) : null,
+          },
+        ];
+        if (detentionAcc) {
+          lines.push({
+            description: detentionAcc.description,
+            qty: 1,
+            unitAmount: detentionAmount,
+            amount: detentionAmount,
+            type: "accessorial",
+            shipmentId: job.expectedShipmentId ? String(job.expectedShipmentId) : null,
+          });
+        }
+        const billed = await createAndPushInvoice({
+          companyId: String(job.companyId),
+          customerId: String(job.customerId),
+          wmsJobKey: `yard:${job._id}`,
+          sourceType: "yard_job",
+          sourceId: String(job._id),
+          lines,
+          periodStart: job.startedAt,
+          periodEnd: job.endedAt,
+          notes: `Auto from ${job.type} yard job · BOL ref ${generateBolNumber("YD")}`,
+          // Cesar: crossdock + rework invoices are due same day
+          termsDays: 0,
+          accessorialIds: [String(acc._id), ...(detentionAcc ? [String(detentionAcc._id)] : [])],
+        });
+        // Attach BOL number onto linked expected shipment when present
+        if (job.expectedShipmentId) {
+          await Shipment.findByIdAndUpdate(job.expectedShipmentId, {
+            $set: {
+              bolNumber: generateBolNumber(),
+              status: "completed",
+              completedAt: job.endedAt,
+              carrier: job.truckNumberIn || "",
+              trailerNumber: job.truckNumberOut || job.truckNumberIn || "",
+            },
+          });
+        }
+        const invLabel = billed.invoice?.number || "pending";
+        const qbNote = billed.push?.quickbooksId
+          ? ` · QB ${billed.push.quickbooksId}`
+          : billed.push?.error
+            ? ` · QB push pending`
+            : "";
+        job.notes = `${job.notes || ""}${job.notes ? " · " : ""}Invoice ${invLabel}${qbNote}`.trim();
       }
     }
 
-    if (status === "cancelled") {
+    if (status === "cancelled" || req.body.cancel) {
       job.status = "cancelled";
+      if (!job.endedAt) job.endedAt = new Date();
     }
 
     await job.save();

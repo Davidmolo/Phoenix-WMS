@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftRight,
   PackagePlus,
+  Printer,
   Truck,
   Ruler,
   ClipboardList,
@@ -22,6 +23,7 @@ import {
   FormGrid,
   FormSection,
   Input,
+  NumberInput,
   PageHeader,
   SearchableSelect,
   Select,
@@ -29,16 +31,32 @@ import {
   statusTone,
   type Column,
 } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, apiFetchHtml } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useAppNav } from "@/lib/appNav";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel, money } from "@/lib/format";
+import { openHtmlForPrint } from "@/lib/print";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import { sqftFromInches } from "@/lib/palletSpace";
 import type { Customer, DashboardKpis, Location, Pallet, Shipment, Warehouse } from "@/types";
 
+/** Pallet.customerId comes back as a plain id string from most endpoints, but can be
+ * a populated object on a few routes — normalize so filters/sync logic always work. */
+function customerIdOf(p: Pallet): string {
+  if (typeof p.customerId === "string") return p.customerId;
+  return p.customerId?._id || "";
+}
+
+function locationCodeOf(loc?: Pallet["locationId"] | null, fallback = ""): string {
+  if (fallback) return fallback;
+  if (loc && typeof loc === "object") return loc.code || "—";
+  return "—";
+}
+
 export default function OperationsPage() {
   const { token } = useAuth();
+  const { navigate } = useAppNav();
   const [shipPage, setShipPage] = useState(1);
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
@@ -69,12 +87,16 @@ export default function OperationsPage() {
 
   const [customerId, setCustomerId] = useState("");
   const [expectedShipmentId, setExpectedShipmentId] = useState("");
-  const [palletCount, setPalletCount] = useState(1);
+  const [palletCountStr, setPalletCountStr] = useState("1");
+  const palletCount = Math.min(50, Math.max(1, Number(palletCountStr) || 1));
   const [description, setDescription] = useState("");
   const [ref, setRef] = useState("");
   const [poOrJob, setPoOrJob] = useState("");
-  const [dimLength, setDimLength] = useState(48);
-  const [dimWidth, setDimWidth] = useState(48);
+  const [dimLengthStr, setDimLengthStr] = useState("48");
+  const [dimWidthStr, setDimWidthStr] = useState("48");
+  const dimLength = Number(dimLengthStr) || 48;
+  const dimWidth = Number(dimWidthStr) || 48;
+  const [weightLbsEach, setWeightLbsEach] = useState("");
   const [billAsFtl, setBillAsFtl] = useState(false);
   const [carrier, setCarrier] = useState("");
   const [locationMode, setLocationMode] = useState<"next_available" | "choose">("next_available");
@@ -87,6 +109,14 @@ export default function OperationsPage() {
   const [pickList, setPickList] = useState<PickListPayload | null>(null);
   const [storePalletCode, setStorePalletCode] = useState("");
   const [storeLocationCode, setStoreLocationCode] = useState("");
+  const [bolInfo, setBolInfo] = useState<{ id: string; bolNumber: string } | null>(null);
+
+  // Ship-specific carrier/trailer/BOL fields — separate from the Receive form above
+  const [shipCarrier, setShipCarrier] = useState("");
+  const [shipTrailerNumber, setShipTrailerNumber] = useState("");
+  const [shipSealNumber, setShipSealNumber] = useState("");
+  const [shipTo, setShipTo] = useState("");
+  const [shipWeightLbs, setShipWeightLbs] = useState("");
 
   const selectedCustomer = useMemo(
     () => customers.find((c) => c._id === customerId),
@@ -98,6 +128,11 @@ export default function OperationsPage() {
   const neededSqft = sqftEach * palletCount;
   const availableSqft = kpis?.availableSqft;
   const spaceTight = availableSqft != null && neededSqft > availableSqft;
+
+  /** Cesar: anything over 48" on a side needs 2 adjacent floor slots. */
+  const needsDualSlot = dimLength > 48 || dimWidth > 48;
+  const slotsEach = needsDualSlot ? 2 : 1;
+  const slotsNeeded = palletCount * slotsEach;
 
   useEffect(() => {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
@@ -128,23 +163,64 @@ export default function OperationsPage() {
     [palletData]
   );
 
+  /** Only this customer's pallets are shippable at once — matches the backend's single-customer rule. */
+  const shipPallets = useMemo(
+    () => (customerId ? activePallets.filter((p) => customerIdOf(p) === customerId) : activePallets),
+    [activePallets, customerId]
+  );
+
   const shipableSelected = useMemo(
     () => activePallets.filter((p) => selectedShipIds.includes(p._id)),
     [activePallets, selectedShipIds]
   );
 
+  // If pallets were pre-selected (e.g. leftover from a prior filter) make sure the
+  // chosen customer always matches what's actually checked.
+  useEffect(() => {
+    if (selectedShipIds.length === 0) return;
+    const first = activePallets.find((p) => p._id === selectedShipIds[0]);
+    if (!first) return;
+    const cid = customerIdOf(first);
+    if (cid && cid !== customerId) setCustomerId(cid);
+    // customerId intentionally omitted — this effect only reacts to selection changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedShipIds, activePallets]);
+
+  // Cesar: total weight defaults to sum of selected pallet weights
+  useEffect(() => {
+    if (selectedShipIds.length === 0) {
+      setShipWeightLbs("");
+      return;
+    }
+    const sum = activePallets
+      .filter((p) => selectedShipIds.includes(p._id))
+      .reduce((s, p) => s + (Number(p.weightLbs) || 0), 0);
+    setShipWeightLbs(sum > 0 ? String(Math.round(sum * 100) / 100) : "");
+  }, [selectedShipIds, activePallets]);
+
   const availableLocations = locData?.locations ?? [];
+
+  async function printBol(shipmentId: string) {
+    setError("");
+    try {
+      const html = await apiFetchHtml(`/shipments/${shipmentId}/bol`, token);
+      openHtmlForPrint(html);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open BOL");
+    }
+  }
 
   async function onReceive(e: FormEvent) {
     e.preventDefault();
     if (!token || !warehouse || !customerId) return;
-    if (locationMode === "choose" && chosenLocationIds.length < palletCount) {
-      setError(`Choose ${palletCount} location(s) (selected ${chosenLocationIds.length}).`);
+    if (locationMode === "choose" && chosenLocationIds.length < slotsNeeded) {
+      setError(`Choose ${slotsNeeded} location(s) (selected ${chosenLocationIds.length}).`);
       return;
     }
     setBusy(true);
     setError("");
     setMessage("");
+    setBolInfo(null);
     try {
       const result = await api<{ shipment: Shipment; pallets: Pallet[] }>("/shipments/receive", {
         method: "POST",
@@ -159,19 +235,29 @@ export default function OperationsPage() {
           dimLength,
           dimWidth,
           sqft: sqftEach,
+          weightLbsEach: weightLbsEach === "" ? undefined : Number(weightLbsEach),
           billAsFtl,
           carrier,
           locationMode,
-          locationIds: locationMode === "choose" ? chosenLocationIds.slice(0, palletCount) : [],
+          locationIds: locationMode === "choose" ? chosenLocationIds.slice(0, slotsNeeded) : [],
           expectedShipmentId: expectedShipmentId || undefined,
         }),
       });
-      setMessage(
-        `Received ${result.pallets.length} pallet(s) · Staged for Store · print labels, then Store scan to put away`
+      const labelCount = result.pallets.reduce(
+        (n, p) => n + (p.secondaryLocationId ? 2 : 1),
+        0
       );
+      setMessage(
+        `Received ${result.pallets.length} pallet(s) · Staged for Store · ${labelCount} individual barcode label(s) ready — use Print all, then Store scan to put away`
+      );
+      if (result.shipment?.bolNumber) {
+        setBolInfo({ id: result.shipment._id, bolNumber: result.shipment.bolNumber });
+      }
       setDescription("");
       setRef("");
       setExpectedShipmentId("");
+      setWeightLbsEach("");
+      setPalletCountStr("1");
       setChosenLocationIds([]);
       setLabelPallets(result.pallets);
       invalidateApiCache();
@@ -218,24 +304,41 @@ export default function OperationsPage() {
 
   async function onShip(e: FormEvent) {
     e.preventDefault();
-    if (!token || !warehouse || !customerId || selectedShipIds.length === 0) return;
+    if (!token || !warehouse || selectedShipIds.length === 0) return;
     setBusy(true);
     setError("");
     setMessage("");
+    setBolInfo(null);
     try {
       const result = await api<{ shipment: Shipment }>("/shipments/ship", {
         method: "POST",
         token,
         body: JSON.stringify({
           warehouseId: warehouse._id,
-          customerId,
+          customerId: customerId || undefined,
           palletIds: selectedShipIds,
           billAsFtl,
-          carrier,
+          carrier: shipCarrier,
+          trailerNumber: shipTrailerNumber,
+          sealNumber: shipSealNumber,
+          shipTo: shipTo || undefined,
+          weightLbs: shipWeightLbs === "" ? undefined : Number(shipWeightLbs),
         }),
       });
-      setMessage(`Shipped ${selectedShipIds.length} pallet(s) — ${result.shipment._id.slice(-6)}`);
+      setMessage(
+        `Shipped ${selectedShipIds.length} pallet(s) — ${result.shipment._id.slice(-6)}${
+          result.shipment.bolNumber ? ` · BOL ${result.shipment.bolNumber}` : ""
+        }`
+      );
+      if (result.shipment?.bolNumber) {
+        setBolInfo({ id: result.shipment._id, bolNumber: result.shipment.bolNumber });
+      }
       setSelectedShipIds([]);
+      setShipCarrier("");
+      setShipTrailerNumber("");
+      setShipSealNumber("");
+      setShipTo("");
+      setShipWeightLbs("");
       invalidateApiCache();
       await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
     } catch (err) {
@@ -270,7 +373,7 @@ export default function OperationsPage() {
   function toggleChosenLocation(id: string) {
     setChosenLocationIds((ids) => {
       if (ids.includes(id)) return ids.filter((x) => x !== id);
-      if (ids.length >= palletCount) return [...ids.slice(1), id];
+      if (ids.length >= slotsNeeded) return [...ids.slice(1), id];
       return [...ids, id];
     });
   }
@@ -285,6 +388,16 @@ export default function OperationsPage() {
       key: "status",
       header: "Status",
       render: (s) => <Badge tone={statusTone(s.status)}>{statusLabel(s.status)}</Badge>,
+    },
+    {
+      key: "customer",
+      header: "Customer",
+      render: (s) => (s.customerId && typeof s.customerId === "object" ? s.customerId.name || "—" : "—"),
+    },
+    {
+      key: "bol",
+      header: "BOL #",
+      render: (s) => s.bolNumber || "—",
     },
     {
       key: "pallets",
@@ -312,6 +425,24 @@ export default function OperationsPage() {
       />
       <Alert>{error}</Alert>
       {message ? <Alert tone="info">{message}</Alert> : null}
+      {bolInfo ? (
+        <Alert tone="success">
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              BOL <strong>{bolInfo.bolNumber}</strong> ready.
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              icon={<Printer className="h-3.5 w-3.5" />}
+              onClick={() => printBol(bolInfo.id)}
+            >
+              Print BOL
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
       {spaceTight ? (
         <Alert>
           This receipt needs ~{neededSqft} SF but only {availableSqft} SF is available in the
@@ -346,11 +477,18 @@ export default function OperationsPage() {
               <SearchableSelect
                 value={expectedShipmentId}
                 onChange={setExpectedShipmentId}
-                options={(expectedData?.shipments ?? []).map((s) => ({
-                  value: s._id,
-                  label: `${(s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 48)} · ${dateLabel(s.scheduledAt || s.createdAt)}`,
-                  keywords: `${s.carrier || ""} ${s.trailerNumber || ""}`,
-                }))}
+                options={(expectedData?.shipments ?? []).map((s) => {
+                  const cust =
+                    s.customerId && typeof s.customerId === "object"
+                      ? s.customerId.name || ""
+                      : "";
+                  const ref = (s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 40);
+                  return {
+                    value: s._id,
+                    label: `${cust ? `${cust} · ` : ""}${ref} · ${dateLabel(s.scheduledAt || s.createdAt)}`,
+                    keywords: `${cust} ${s.carrier || ""} ${s.trailerNumber || ""}`,
+                  };
+                })}
                 allowEmpty
                 emptyOptionLabel="Manual receive (no Expected)"
                 placeholder="Search Expected…"
@@ -381,15 +519,13 @@ export default function OperationsPage() {
             </Field>
             <FormGrid>
               <Field label="Pallet count">
-                <Input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={palletCount}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    setPalletCount(n);
-                    setChosenLocationIds((ids) => ids.slice(0, n));
+                <NumberInput
+                  decimal={false}
+                  value={palletCountStr}
+                  onValueChange={(v) => {
+                    setPalletCountStr(v);
+                    const n = Math.min(50, Math.max(1, Number(v) || 1));
+                    setChosenLocationIds((ids) => ids.slice(0, n * slotsEach));
                   }}
                 />
               </Field>
@@ -442,15 +578,17 @@ export default function OperationsPage() {
                     ))
                   )}
                   <p className="m-0 px-2 pt-1 text-[11px] text-muted">
-                    Selected {chosenLocationIds.length} / {palletCount}
+                    Selected {chosenLocationIds.length} / {slotsNeeded}
+                    {needsDualSlot ? " (2 adjacent slots per oversized pallet)" : ""}
                   </p>
                 </div>
               ) : (
                 <p className="m-0 mt-2 text-xs text-muted">
-                  Will reserve the next {palletCount} open slot
-                  {palletCount === 1 ? "" : "s"} and print{" "}
-                  {palletCount === 1 ? "it" : "them"} on the label
-                  {palletCount === 1 ? "" : "s"}.
+                  Will reserve the next {slotsNeeded} open slot{slotsNeeded === 1 ? "" : "s"} and
+                  print the label{palletCount === 1 ? "" : "s"}.
+                  {needsDualSlot
+                    ? ` Oversized footprint — each pallet reserves 2 adjacent slots.`
+                    : ""}
                 </p>
               )}
             </div>
@@ -462,25 +600,40 @@ export default function OperationsPage() {
               </div>
               <FormGrid cols={3}>
                 <Field label="Length (in)">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={dimLength}
-                    onChange={(e) => setDimLength(Number(e.target.value))}
+                  <NumberInput
+                    decimal={false}
+                    value={dimLengthStr}
+                    onValueChange={setDimLengthStr}
                   />
                 </Field>
                 <Field label="Width (in)">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={dimWidth}
-                    onChange={(e) => setDimWidth(Number(e.target.value))}
+                  <NumberInput
+                    decimal={false}
+                    value={dimWidthStr}
+                    onValueChange={setDimWidthStr}
                   />
                 </Field>
                 <Field label="Sq ft / pallet" hint={`Load total ~${neededSqft} SF`}>
                   <Input value={sqftEach} readOnly />
                 </Field>
               </FormGrid>
+              {needsDualSlot ? (
+                <p className="m-0 mt-2 text-xs font-semibold text-accent-dark">
+                  Over 48″ on a side — each pallet needs 2 adjacent floor slots.
+                </p>
+              ) : null}
+              <div className="mt-3">
+                <Field
+                  label="Weight / pallet (lbs)"
+                  hint="Optional — used on the BOL and pallet label. Leave blank if unknown."
+                >
+                  <NumberInput
+                    value={weightLbsEach}
+                    onValueChange={setWeightLbsEach}
+                    placeholder="Optional"
+                  />
+                </Field>
+              </div>
             </div>
             <FormGrid>
               <Field label="Reference / BOL">
@@ -541,20 +694,20 @@ export default function OperationsPage() {
                           className="font-mono font-semibold text-navy underline-offset-2 hover:underline"
                           onClick={() => {
                             setStorePalletCode(p.externalId);
-                            const code =
-                              typeof p.locationId === "object" && p.locationId?.code
-                                ? p.locationId.code
-                                : "";
-                            if (code) setStoreLocationCode(code);
+                            const code = locationCodeOf(p.locationId, p.locationCode);
+                            if (code && code !== "—") setStoreLocationCode(code);
                           }}
                         >
                           {p.externalId}
                         </button>
                         <Badge tone="warning">{statusLabel(p.status)}</Badge>
                         <span className="text-xs text-muted">
-                          {typeof p.locationId === "object" && p.locationId?.code
-                            ? `→ ${p.locationId.code}`
+                          {locationCodeOf(p.locationId, p.locationCode) !== "—"
+                            ? `→ ${locationCodeOf(p.locationId, p.locationCode)}`
                             : "No slot"}
+                          {p.secondaryLocationId || p.secondaryLocationCode
+                            ? ` + ${locationCodeOf(p.secondaryLocationId, p.secondaryLocationCode)}`
+                            : ""}
                         </span>
                       </li>
                     ))}
@@ -570,11 +723,18 @@ export default function OperationsPage() {
             icon={<Truck className="h-4 w-4" />}
           >
             <form onSubmit={onShip} className="space-y-4">
+              {customerId ? (
+                <p className="m-0 text-xs text-muted">
+                  Showing <strong className="text-navy">{selectedCustomer?.name || "selected customer"}</strong>
+                  &rsquo;s pallets only ({shipPallets.length} available). Pick a different Customer above
+                  to ship another account.
+                </p>
+              ) : null}
               <div className="max-h-64 space-y-1 overflow-y-auto rounded-[var(--radius)] border border-border bg-surface-2/50 p-2">
-                {activePallets.length === 0 ? (
-                  <p className="m-0 p-3 text-sm text-muted">No active pallets to ship.</p>
+                {shipPallets.length === 0 ? (
+                  <p className="m-0 p-3 text-sm text-muted">No active pallets to ship for this customer.</p>
                 ) : (
-                  activePallets.map((p) => (
+                  shipPallets.map((p) => (
                     <label
                       key={p._id}
                       className="flex flex-wrap items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm transition-colors hover:bg-surface"
@@ -592,17 +752,58 @@ export default function OperationsPage() {
                       <span className="font-semibold text-navy">{p.externalId}</span>
                       <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
                       <span className="text-xs text-muted">
-                        {typeof p.locationId === "object" && p.locationId?.code
-                          ? p.locationId.code
-                          : "No slot"}
+                        {locationCodeOf(p.locationId, p.locationCode)}
+                        {p.secondaryLocationId || p.secondaryLocationCode
+                          ? ` + ${locationCodeOf(p.secondaryLocationId, p.secondaryLocationCode)}`
+                          : ""}
                         {" · "}
                         {p.jobName || p.poNumber || "—"}
                         {p.sqft != null ? ` · ${p.sqft} SF` : ""}
+                        {p.weightLbs != null ? ` · ${p.weightLbs} lbs` : ""}
                       </span>
                     </label>
                   ))
                 )}
               </div>
+
+              <FormGrid>
+                <Field label="Carrier">
+                  <Input
+                    value={shipCarrier}
+                    onChange={(e) => setShipCarrier(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+                <Field label="Trailer #">
+                  <Input
+                    value={shipTrailerNumber}
+                    onChange={(e) => setShipTrailerNumber(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+                <Field label="Seal #">
+                  <Input
+                    value={shipSealNumber}
+                    onChange={(e) => setShipSealNumber(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+                <Field label="Ship to" hint="Defaults to the customer on file.">
+                  <Input
+                    value={shipTo}
+                    onChange={(e) => setShipTo(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+                <Field label="Total weight (lbs)" hint="Optional — defaults to the sum of pallet weights.">
+                  <NumberInput
+                    value={shipWeightLbs}
+                    onValueChange={setShipWeightLbs}
+                    placeholder="Optional"
+                  />
+                </Field>
+              </FormGrid>
+
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -634,6 +835,7 @@ export default function OperationsPage() {
         rows={shipData?.shipments ?? []}
         rowKey={(s) => s._id}
         loading={shipsLoading}
+        onRowClick={(s) => navigate(`/shipments/${s._id}`)}
         emptyTitle="No shipments yet"
         emptyDescription="Receive your first inbound load above."
         pagination={paginationFrom(shipData)}

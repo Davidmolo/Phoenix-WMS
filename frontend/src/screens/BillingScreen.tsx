@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { FileText, Link2, Printer, RefreshCw, Search, Unlink } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, Link2, Mail, Printer, RefreshCw, Search, Unlink } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
 import {
@@ -16,6 +16,7 @@ import {
   Input,
   PageHeader,
   SearchableSelect,
+  statusLabel,
   statusTone,
   type Column,
 } from "@/components/ui";
@@ -79,6 +80,9 @@ export default function BillingPage() {
   const [qbMsg, setQbMsg] = useState("");
   const [qbErr, setQbErr] = useState("");
   const [qbBusy, setQbBusy] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sendMsg, setSendMsg] = useState("");
+  const [sendErr, setSendErr] = useState("");
 
   const { data: qbStatus, reload: reloadQb } = useApiQuery<QbStatus>("/quickbooks/status", {
     enabled: isStaff,
@@ -155,6 +159,52 @@ export default function BillingPage() {
     }
   }
 
+  /** Cesar: WMS → QB one-way — retry any local invoices missing a QuickBooks Id. */
+  async function pushPendingToQuickBooks() {
+    setQbBusy(true);
+    setQbErr("");
+    setQbMsg("");
+    try {
+      const result = await api<{ attempted: number; pushed: number }>(
+        "/quickbooks/push-pending",
+        { method: "POST", token }
+      );
+      setQbMsg(
+        `Pushed ${result.pushed} of ${result.attempted} pending invoice(s) to QuickBooks`
+      );
+      invalidateApiCache("/invoices");
+      void reload();
+      void reloadQb();
+    } catch (ex) {
+      setQbErr(ex instanceof Error ? ex.message : "Could not push invoices to QuickBooks");
+    } finally {
+      setQbBusy(false);
+    }
+  }
+
+  const sendInvoice = useCallback(
+    async (inv: InvoiceRow) => {
+      if (!token) return;
+      setSendingId(inv._id);
+      setSendErr("");
+      setSendMsg("");
+      try {
+        const result = await api<{ emailedTo: string }>(`/invoices/${inv._id}/send`, {
+          method: "POST",
+          token,
+        });
+        setSendMsg(`Invoice ${inv.number} emailed to ${result.emailedTo}`);
+        invalidateApiCache("/invoices");
+        void reload();
+      } catch (ex) {
+        setSendErr(ex instanceof Error ? ex.message : "Could not email invoice");
+      } finally {
+        setSendingId(null);
+      }
+    },
+    [token, reload]
+  );
+
   async function disconnectQuickBooks() {
     if (!window.confirm("Disconnect QuickBooks from Phoenix WMS?")) return;
     setQbBusy(true);
@@ -225,7 +275,9 @@ export default function BillingPage() {
       {
         key: "status",
         header: "Status",
-        render: (inv) => <Badge tone={statusTone(inv.status)}>{inv.status}</Badge>,
+        render: (inv) => (
+          <Badge tone={statusTone(inv.status)}>{statusLabel(inv.status)}</Badge>
+        ),
       },
       {
         key: "total",
@@ -263,8 +315,29 @@ export default function BillingPage() {
         },
       }
     );
+    if (isStaff) {
+      cols.push({
+        key: "actions",
+        header: "Email",
+        render: (inv) => (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            icon={<Mail className="h-3.5 w-3.5" />}
+            loading={sendingId === inv._id}
+            onClick={(e) => {
+              e.stopPropagation();
+              void sendInvoice(inv);
+            }}
+          >
+            Email invoice
+          </Button>
+        ),
+      });
+    }
     return cols;
-  }, [isStaff]);
+  }, [isStaff, sendingId, sendInvoice]);
 
   function clearFilters() {
     setFromDate("");
@@ -284,7 +357,7 @@ export default function BillingPage() {
         icon={<FileText className="h-5 w-5" />}
         description={
           isStaff
-            ? "Invoice register from QuickBooks — billed vs still owed"
+            ? "WMS creates invoices → QuickBooks · Sync pulls payment status back"
             : "Invoice total = billed · Balance due = still owed"
         }
         actions={
@@ -310,7 +383,16 @@ export default function BillingPage() {
                       loading={qbBusy}
                       onClick={() => void syncQuickBooks()}
                     >
-                      Sync invoices
+                      Sync from QB
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      loading={qbBusy}
+                      onClick={() => void pushPendingToQuickBooks()}
+                    >
+                      Push pending to QB
                     </Button>
                     <Button
                       type="button"
@@ -374,6 +456,33 @@ export default function BillingPage() {
         <Alert tone="danger" className="mb-4">
           {qbErr}
         </Alert>
+      ) : null}
+      {sendMsg ? (
+        <Alert tone="success" className="mb-4">
+          {sendMsg}
+        </Alert>
+      ) : null}
+      {sendErr ? (
+        <Alert tone="danger" className="mb-4">
+          {sendErr}
+        </Alert>
+      ) : null}
+
+      {!isStaff ? (
+        <Card className="mb-5">
+          <CardBody>
+            <h2 className="font-display m-0 text-[13px] font-semibold tracking-[0.04em] text-navy uppercase">
+              Pay now
+            </h2>
+            <p className="mt-2 mb-0 text-sm leading-relaxed text-muted">
+              Pay by <strong className="text-navy">Zelle</strong> to the Phoenix Cross Dock business
+              account listed in your invoice email, and include the invoice number in the memo so we
+              can match your payment. Online card payment (Stripe) is coming soon once keys are
+              configured — invoices will show a &ldquo;Pay with card&rdquo; button here when it&apos;s
+              live.
+            </p>
+          </CardBody>
+        </Card>
       ) : null}
 
       <Alert tone="info" className="mb-4">

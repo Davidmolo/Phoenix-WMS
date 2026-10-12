@@ -30,6 +30,12 @@ export const BOOKING_SERVICE_TYPES = [
     durationMinutes: 45,
     dockUnits: 1,
   },
+  {
+    id: "pickup",
+    label: "Pick-up",
+    durationMinutes: 45,
+    dockUnits: 1,
+  },
 ] as const;
 
 export type BookingServiceTypeId = (typeof BOOKING_SERVICE_TYPES)[number]["id"];

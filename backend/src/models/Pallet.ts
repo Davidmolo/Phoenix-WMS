@@ -6,6 +6,11 @@ const palletSchema = new Schema(
     warehouseId: { type: Schema.Types.ObjectId, ref: "Warehouse", required: true, index: true },
     customerId: { type: Schema.Types.ObjectId, ref: "Customer", required: true, index: true },
     locationId: { type: Schema.Types.ObjectId, ref: "Location", default: null },
+    /** Second adjacent slot when footprint exceeds 48×48 (Cesar oversized putaway). */
+    secondaryLocationId: { type: Schema.Types.ObjectId, ref: "Location", default: null },
+    /** Snapshot codes for labels (survive populate gaps / UI reprint). */
+    locationCode: { type: String, default: "" },
+    secondaryLocationCode: { type: String, default: "" },
     externalId: { type: String, required: true }, // human-readable e.g. PLT-20001
     status: {
       type: String,

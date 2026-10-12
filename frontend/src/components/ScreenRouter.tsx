@@ -6,6 +6,7 @@ import { ScreenActiveProvider } from "@/lib/screenActive";
 import DashboardScreen from "@/screens/DashboardScreen";
 import OperationsScreen from "@/screens/OperationsScreen";
 import ShipmentsScreen from "@/screens/ShipmentsScreen";
+import ShipmentDetailScreen from "@/screens/ShipmentDetailScreen";
 import ExpectedScreen from "@/screens/ExpectedScreen";
 import CustomersScreen from "@/screens/CustomersScreen";
 import CustomerDetailScreen from "@/screens/CustomerDetailScreen";
@@ -23,6 +24,7 @@ import { useAuth } from "@/lib/auth";
 
 function screenKey(path: string) {
   if (path.startsWith("/customers/") && path !== "/customers") return "customer-detail";
+  if (path.startsWith("/shipments/") && path !== "/shipments") return "shipment-detail";
   if (path === "/" || path === "/dashboard") return "dashboard";
   return path.replace(/^\//, "") || "dashboard";
 }
@@ -52,9 +54,15 @@ export function ScreenRouter() {
   const active = screenKey(path);
   const [mounted, setMounted] = useState<Set<string>>(() => new Set([active]));
   const [detailIds, setDetailIds] = useState<Set<string>>(() => new Set());
+  const [shipmentDetailIds, setShipmentDetailIds] = useState<Set<string>>(() => new Set());
 
   const customerId = useMemo(() => {
     if (!path.startsWith("/customers/") || path === "/customers") return null;
+    return path.split("/")[2] || null;
+  }, [path]);
+
+  const shipmentId = useMemo(() => {
+    if (!path.startsWith("/shipments/") || path === "/shipments") return null;
     return path.split("/")[2] || null;
   }, [path]);
 
@@ -77,6 +85,16 @@ export function ScreenRouter() {
     });
   }, [customerId]);
 
+  useEffect(() => {
+    if (!shipmentId) return;
+    setShipmentDetailIds((prev) => {
+      if (prev.has(shipmentId)) return prev;
+      const next = new Set(prev);
+      next.add(shipmentId);
+      return next;
+    });
+  }, [shipmentId]);
+
   return (
     <>
       {mounted.has("dashboard") ? (
@@ -94,6 +112,11 @@ export function ScreenRouter() {
           <ShipmentsScreen />
         </ScreenPane>
       ) : null}
+      {[...shipmentDetailIds].map((id) => (
+        <ScreenPane key={id} active={active === "shipment-detail" && shipmentId === id}>
+          <ShipmentDetailScreen shipmentId={id} />
+        </ScreenPane>
+      ))}
       {mounted.has("expected") ? (
         <ScreenPane active={active === "expected"}>
           <ExpectedScreen />

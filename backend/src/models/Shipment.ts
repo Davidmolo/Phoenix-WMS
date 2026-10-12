@@ -11,9 +11,25 @@ const shipmentSchema = new Schema(
       enum: ["expected", "arrived", "in_progress", "completed", "cancelled"],
       default: "expected",
     },
+    /**
+     * Appointment / job flavor (Cesar): drop_and_store | crossdock | trailer_rework | pickup.
+     * Crossdock/rework do not hit long-term inventory the same way as drop & store.
+     */
+    serviceType: {
+      type: String,
+      enum: ["drop_and_store", "crossdock", "trailer_rework", "pickup", ""],
+      default: "drop_and_store",
+    },
     carrier: { type: String, default: "" },
     trailerNumber: { type: String, default: "" },
     bolNumber: { type: String, default: "" },
+    sealNumber: { type: String, default: "" },
+    scac: { type: String, default: "" },
+    shipFrom: { type: String, default: "" },
+    shipTo: { type: String, default: "" },
+    thirdParty: { type: String, default: "" },
+    /** Total weight for BOL (sum of pallet weights or declared). */
+    weightLbs: { type: Number, default: null },
     freightClass: { type: String, default: "" },
     equipment: { type: String, default: "" },
     /** When true, bill FTL flat instead of per-pallet handling (SBA option). */

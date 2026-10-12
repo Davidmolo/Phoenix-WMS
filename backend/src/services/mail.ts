@@ -68,6 +68,42 @@ export async function sendPortalInviteEmail(opts: {
   return info;
 }
 
+export async function sendInvoiceEmail(opts: {
+  to: string;
+  name: string;
+  invoiceNumber: string;
+  total: number;
+  portalUrl: string;
+  zelleHint?: string;
+}) {
+  const contact = opts.name || opts.to;
+  const totalLabel = `$${Number(opts.total || 0).toFixed(2)}`;
+  const info = await transporter().sendMail({
+    from: env.mailFrom,
+    to: opts.to,
+    subject: `Invoice ${opts.invoiceNumber} — Phoenix Cross Dock`,
+    text: [
+      `Hi ${contact},`,
+      "",
+      `Your invoice ${opts.invoiceNumber} for ${totalLabel} is ready.`,
+      `View and pay in the portal: ${opts.portalUrl}`,
+      opts.zelleHint ? `\nZelle: ${opts.zelleHint}` : "",
+      "",
+      "Thank you,",
+      "Phoenix Cross Dock",
+    ].join("\n"),
+    html: `
+      <p>Hi ${escapeHtml(contact)},</p>
+      <p>Your invoice <strong>${escapeHtml(opts.invoiceNumber)}</strong> for <strong>${escapeHtml(totalLabel)}</strong> is ready.</p>
+      <p><a href="${opts.portalUrl}" style="display:inline-block;padding:10px 16px;background:#E6A030;color:#0b1f33;text-decoration:none;border-radius:8px;font-weight:700">View &amp; pay</a></p>
+      ${opts.zelleHint ? `<p style="color:#555;font-size:13px">Zelle: ${escapeHtml(opts.zelleHint)}</p>` : ""}
+      <p>Thank you,<br/>Phoenix Cross Dock</p>
+    `,
+  });
+  console.info(`[mail] invoice ${opts.invoiceNumber} → ${opts.to} messageId=${info.messageId}`);
+  return info;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")

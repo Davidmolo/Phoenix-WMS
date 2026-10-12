@@ -1,16 +1,20 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Forklift } from "lucide-react";
+import { Forklift, X } from "lucide-react";
 import {
   Alert,
   Badge,
   Button,
+  Card,
+  CardBody,
+  CardTitle,
   DataTable,
   Field,
   FormGrid,
   FormSection,
   Input,
+  NumberInput,
   PageHeader,
   SearchableSelect,
   Select,
@@ -41,6 +45,116 @@ type YardJob = {
   createdAt?: string;
 };
 
+/** Edit truck in/out, notes, pallet count — Cesar modify. `PATCH /yard-jobs/:id` already accepts these. */
+function EditYardJobModal({
+  job,
+  token,
+  onClose,
+  onSaved,
+}: {
+  job: YardJob;
+  token: string | null;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [truckNumberIn, setTruckNumberIn] = useState(job.truckNumberIn || "");
+  const [truckNumberOut, setTruckNumberOut] = useState(job.truckNumberOut || "");
+  const [palletCountStr, setPalletCountStr] = useState(String(job.palletCount ?? 0));
+  const [notes, setNotes] = useState(job.notes || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api(`/yard-jobs/${job._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          truckNumberIn,
+          truckNumberOut,
+          palletCount: Number(palletCountStr) || 0,
+          notes,
+        }),
+      });
+      invalidateApiCache();
+      onSaved("Job updated");
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not update job");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-navy-deep/50 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-label="Edit yard job"
+    >
+      <Card className="w-full max-w-lg" lift={false}>
+        <CardBody>
+          <div className="flex items-start justify-between gap-2">
+            <CardTitle icon={<Forklift className="h-4 w-4" />}>
+              Edit {statusLabel(job.type)} job
+            </CardTitle>
+            <button
+              type="button"
+              className="rounded-lg border border-border p-1.5 text-muted hover:bg-surface-2 hover:text-navy"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <Alert>{err}</Alert>
+          <form onSubmit={onSave} className="mt-2 space-y-4">
+            <FormGrid cols={job.type === "crossdock" ? 2 : 1}>
+              <Field label={job.type === "crossdock" ? "Incoming truck #" : "Truck #"}>
+                <Input value={truckNumberIn} onChange={(e) => setTruckNumberIn(e.target.value)} />
+              </Field>
+              {job.type === "crossdock" ? (
+                <Field label="Outgoing truck #">
+                  <Input value={truckNumberOut} onChange={(e) => setTruckNumberOut(e.target.value)} />
+                </Field>
+              ) : null}
+            </FormGrid>
+            <Field label="Pallet count" hint="Used for crossdock fee math.">
+              <NumberInput
+                decimal={false}
+                value={palletCountStr}
+                onValueChange={setPalletCountStr}
+              />
+            </Field>
+            <Field label="Notes">
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit" loading={busy}>
+                Save changes
+              </Button>
+              <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+                Close
+              </Button>
+            </div>
+          </form>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
 export default function YardJobsPage() {
   const { token } = useAuth();
   const [page, setPage] = useState(1);
@@ -62,11 +176,13 @@ export default function YardJobsPage() {
   const [expectedShipmentId, setExpectedShipmentId] = useState("");
   const [truckNumberIn, setTruckNumberIn] = useState("");
   const [truckNumberOut, setTruckNumberOut] = useState("");
-  const [palletCount, setPalletCount] = useState(0);
+  const [palletCountStr, setPalletCountStr] = useState("0");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [editingJob, setEditingJob] = useState<YardJob | null>(null);
 
   useEffect(() => {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
@@ -101,7 +217,7 @@ export default function YardJobsPage() {
           expectedShipmentId: expectedShipmentId || undefined,
           truckNumberIn,
           truckNumberOut: type === "crossdock" ? truckNumberOut : "",
-          palletCount,
+          palletCount: Number(palletCountStr) || 0,
           notes,
           startNow: true,
         }),
@@ -148,6 +264,34 @@ export default function YardJobsPage() {
     }
   }
 
+  async function cancelJob(job: YardJob) {
+    if (!token) return;
+    if (!window.confirm(`Cancel this ${statusLabel(job.type)} job?`)) return;
+    setActionId(job._id);
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/yard-jobs/${job._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      setMsg("Job cancelled");
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not cancel job");
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  function onSavedEdit(message: string) {
+    setEditingJob(null);
+    setMsg(message);
+    void reload();
+  }
+
   const columns: Column<YardJob>[] = [
     {
       key: "type",
@@ -191,9 +335,23 @@ export default function YardJobsPage() {
       header: "",
       render: (j) =>
         j.status === "in_progress" || j.status === "open" ? (
-          <Button type="button" size="sm" loading={busy} onClick={() => void endJob(j._id)}>
-            End job
-          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            <Button type="button" size="sm" variant="secondary" onClick={() => setEditingJob(j)}>
+              Edit
+            </Button>
+            <Button type="button" size="sm" loading={busy} onClick={() => void endJob(j._id)}>
+              End job
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="danger"
+              loading={actionId === j._id}
+              onClick={() => void cancelJob(j)}
+            >
+              Cancel
+            </Button>
+          </div>
         ) : null,
     },
   ];
@@ -256,11 +414,10 @@ export default function YardJobsPage() {
               />
             </Field>
             <Field label="Pallet count" hint="Used for crossdock fee math.">
-              <Input
-                type="number"
-                min={0}
-                value={palletCount}
-                onChange={(e) => setPalletCount(Number(e.target.value))}
+              <NumberInput
+                decimal={false}
+                value={palletCountStr}
+                onValueChange={setPalletCountStr}
               />
             </Field>
           </FormGrid>
@@ -303,6 +460,15 @@ export default function YardJobsPage() {
         pagination={paginationFrom(data)}
         onPageChange={setPage}
       />
+
+      {editingJob ? (
+        <EditYardJobModal
+          job={editingJob}
+          token={token}
+          onClose={() => setEditingJob(null)}
+          onSaved={onSavedEdit}
+        />
+      ) : null}
     </>
   );
 }

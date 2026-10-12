@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { Mail, Pencil, Printer, Save, X } from "lucide-react";
 import {
   Alert,
   Badge,
@@ -9,13 +10,19 @@ import {
   CardBody,
   CardTitle,
   DataTable,
+  Field,
+  FormGrid,
+  Input,
+  NumberInput,
   KpiCard,
   KpiGrid,
   PageHeader,
+  Select,
+  statusLabel,
   statusTone,
   type Column,
 } from "@/components/ui";
-import { Mail, Printer } from "lucide-react";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
@@ -49,9 +56,51 @@ type DetailResponse = {
   invoices: Invoice[];
 };
 
+type EditForm = {
+  billingMethod: string;
+  contractFee: string;
+  contractSqft: string;
+  contractHandlingPerPallet: string;
+  contractFtlRate: string;
+  rateInside: string;
+  rateOutside: string;
+  unloadFee: string;
+  loadFee: string;
+  address: string;
+  contact: string;
+  phone: string;
+  email: string;
+};
+
+function formFromCustomer(c: Customer): EditForm {
+  return {
+    billingMethod: c.billingMethod || "pallet",
+    contractFee: c.contractFee != null ? String(c.contractFee) : "",
+    contractSqft: c.contractSqft != null ? String(c.contractSqft) : "",
+    contractHandlingPerPallet:
+      c.contractHandlingPerPallet != null ? String(c.contractHandlingPerPallet) : "",
+    contractFtlRate: c.contractFtlRate != null ? String(c.contractFtlRate) : "",
+    rateInside: c.rateInside != null ? String(c.rateInside) : "",
+    rateOutside: c.rateOutside != null ? String(c.rateOutside) : "",
+    unloadFee: c.unloadFee != null ? String(c.unloadFee) : "",
+    loadFee: c.loadFee != null ? String(c.loadFee) : "",
+    address: c.address || "",
+    contact: c.contact || "",
+    phone: c.phone || "",
+    email: c.email || "",
+  };
+}
+
+function numOrNull(v: string): number | null {
+  if (v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function CustomerDetailPage({ customerId }: { customerId: string }) {
   const { navigate } = useAppNav();
-  const { token } = useAuth();
+  const { user, token } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { data, error, loading, reload } = useApiQuery<DetailResponse>(
     customerId ? `/customers/${customerId}` : null
   );
@@ -73,6 +122,67 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
   const [inviteMsg, setInviteMsg] = useState("");
   const [inviteErr, setInviteErr] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<EditForm | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [saveErr, setSaveErr] = useState("");
+
+  useEffect(() => {
+    if (c && !editing) setForm(formFromCustomer(c));
+  }, [c, editing]);
+
+  function beginEdit() {
+    if (!c) return;
+    setForm(formFromCustomer(c));
+    setEditing(true);
+    setSaveMsg("");
+    setSaveErr("");
+  }
+
+  function cancelEdit() {
+    if (c) setForm(formFromCustomer(c));
+    setEditing(false);
+    setSaveErr("");
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !c || !form) return;
+    setSaveBusy(true);
+    setSaveErr("");
+    setSaveMsg("");
+    try {
+      await api(`/customers/${c._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          billingMethod: form.billingMethod,
+          contractFee: numOrNull(form.contractFee) ?? 0,
+          contractSqft: numOrNull(form.contractSqft) ?? 0,
+          contractHandlingPerPallet: numOrNull(form.contractHandlingPerPallet),
+          contractFtlRate: numOrNull(form.contractFtlRate),
+          rateInside: numOrNull(form.rateInside) ?? 0,
+          rateOutside: numOrNull(form.rateOutside) ?? 0,
+          unloadFee: numOrNull(form.unloadFee) ?? 0,
+          loadFee: numOrNull(form.loadFee) ?? 0,
+          address: form.address,
+          contact: form.contact,
+          phone: form.phone,
+          email: form.email,
+        }),
+      });
+      setSaveMsg("Account updated");
+      setEditing(false);
+      invalidateApiCache(`/customers/${c._id}`);
+      await reload();
+    } catch (ex) {
+      setSaveErr(ex instanceof Error ? ex.message : "Save failed");
+    } finally {
+      setSaveBusy(false);
+    }
+  }
 
   async function sendPortalInvite() {
     if (!token || !c) return;
@@ -144,6 +254,18 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
           description={c ? `${c.contact || "—"} · ${c.email || "—"}` : "Loading account detail"}
           actions={
             <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && !editing ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Pencil className="h-3.5 w-3.5" />}
+                  onClick={beginEdit}
+                  disabled={!c}
+                >
+                  Edit billing & account
+                </Button>
+              ) : null}
               {needsPortalInvite ? (
                 <Button
                   type="button"
@@ -178,8 +300,9 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
             </div>
           }
         />
-        <Alert>{error || inviteErr}</Alert>
+        <Alert>{error || inviteErr || saveErr}</Alert>
         {inviteMsg ? <Alert tone="info">{inviteMsg}</Alert> : null}
+        {saveMsg ? <Alert tone="success">{saveMsg}</Alert> : null}
         {inviteUrl ? (
           <Alert tone="info">
             Invite link:{" "}
@@ -231,33 +354,152 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
               <KpiCard label="Open requests" value={data?.summary.openRequests} />
             </KpiGrid>
 
-            <Card className="mb-5">
-              <CardBody>
-                <CardTitle>Account</CardTitle>
-                <div className="mt-2 grid gap-2 text-sm text-muted sm:grid-cols-2">
-                  <div>
-                    <span className="font-semibold text-text">Address: </span>
-                    {c.address || "—"}
+            {editing && form ? (
+              <Card className="mb-5">
+                <CardBody>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle>Edit billing & account (admin)</CardTitle>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-border p-1.5 text-muted hover:bg-surface-2 hover:text-navy"
+                      onClick={cancelEdit}
+                      aria-label="Cancel"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
-                  <div>
-                    <span className="font-semibold text-text">Phone: </span>
-                    {c.phone || "—"}
+                  <form onSubmit={saveEdit} className="mt-3 space-y-4">
+                    <FormGrid cols={3}>
+                      <Field label="Billing method">
+                        <Select
+                          value={form.billingMethod}
+                          onChange={(e) => setForm({ ...form, billingMethod: e.target.value })}
+                        >
+                          <option value="pallet">Pallet</option>
+                          <option value="sqft">Square feet</option>
+                          <option value="contract">Contract</option>
+                          <option value="crossdock">Crossdock</option>
+                        </Select>
+                      </Field>
+                      <Field label="Contract monthly fee">
+                        <NumberInput
+                          value={form.contractFee}
+                          onValueChange={(v) => setForm({ ...form, contractFee: v })}
+                        />
+                      </Field>
+                      <Field label="Contract SF">
+                        <NumberInput
+                          decimal={false}
+                          value={form.contractSqft}
+                          onValueChange={(v) => setForm({ ...form, contractSqft: v })}
+                        />
+                      </Field>
+                      <Field label="Handling / pallet" hint="Flat inbound+outbound handling">
+                        <NumberInput
+                          value={form.contractHandlingPerPallet}
+                          onValueChange={(v) =>
+                            setForm({ ...form, contractHandlingPerPallet: v })
+                          }
+                        />
+                      </Field>
+                      <Field label="FTL rate" hint="Flat rate in lieu of per-pallet handling">
+                        <NumberInput
+                          value={form.contractFtlRate}
+                          onValueChange={(v) => setForm({ ...form, contractFtlRate: v })}
+                        />
+                      </Field>
+                      <Field label="Rate inside (/pallet/mo)">
+                        <NumberInput
+                          value={form.rateInside}
+                          onValueChange={(v) => setForm({ ...form, rateInside: v })}
+                        />
+                      </Field>
+                      <Field label="Rate outside (/pallet/mo)">
+                        <NumberInput
+                          value={form.rateOutside}
+                          onValueChange={(v) => setForm({ ...form, rateOutside: v })}
+                        />
+                      </Field>
+                      <Field label="Unload fee">
+                        <NumberInput
+                          value={form.unloadFee}
+                          onValueChange={(v) => setForm({ ...form, unloadFee: v })}
+                        />
+                      </Field>
+                      <Field label="Load fee">
+                        <NumberInput
+                          value={form.loadFee}
+                          onValueChange={(v) => setForm({ ...form, loadFee: v })}
+                        />
+                      </Field>
+                    </FormGrid>
+                    <FormGrid cols={2}>
+                      <Field label="Contact name">
+                        <Input
+                          value={form.contact}
+                          onChange={(e) => setForm({ ...form, contact: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Phone">
+                        <Input
+                          value={form.phone}
+                          onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Email">
+                        <Input
+                          type="email"
+                          value={form.email}
+                          onChange={(e) => setForm({ ...form, email: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Address">
+                        <AddressAutocomplete
+                          value={form.address}
+                          onChange={(address) => setForm({ ...form, address })}
+                        />
+                      </Field>
+                    </FormGrid>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="submit" loading={saveBusy} icon={<Save className="h-4 w-4" />}>
+                        Save changes
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={cancelEdit} disabled={saveBusy}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                </CardBody>
+              </Card>
+            ) : (
+              <Card className="mb-5">
+                <CardBody>
+                  <CardTitle>Account</CardTitle>
+                  <div className="mt-2 grid gap-2 text-sm text-muted sm:grid-cols-2">
+                    <div>
+                      <span className="font-semibold text-text">Address: </span>
+                      {c.address || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-text">Phone: </span>
+                      {c.phone || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-text">No dwell in dedicated SF: </span>
+                      {c.contractNoDwellInside ? "Yes (per contract)" : "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-text">Portal: </span>
+                      {c.portalActivated
+                        ? "Onboarded (active login)"
+                        : data?.portal?.invitePending
+                          ? "Invite sent — waiting for password"
+                          : "Not onboarded"}
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-semibold text-text">No dwell in dedicated SF: </span>
-                    {c.contractNoDwellInside ? "Yes (per contract)" : "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold text-text">Portal: </span>
-                    {c.portalActivated
-                      ? "Onboarded (active login)"
-                      : data?.portal?.invitePending
-                        ? "Invite sent — waiting for password"
-                        : "Not onboarded"}
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+                </CardBody>
+              </Card>
+            )}
 
             <div className="mb-5">
               <PageHeader title="Pallets" />
@@ -312,7 +554,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                     key: "status",
                     header: "Status",
                     render: (inv: Invoice) => (
-                      <Badge tone={statusTone(inv.status)}>{inv.status}</Badge>
+                      <Badge tone={statusTone(inv.status)}>{statusLabel(inv.status)}</Badge>
                     ),
                   },
                   {

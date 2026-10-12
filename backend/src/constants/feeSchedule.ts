@@ -16,6 +16,8 @@ export const DEFAULT_FEE_SCHEDULE = {
   accountMinimumMonthlyFee: 300,
   longTermStorageCapPct: 45,
   sortRelabelPerHour: 65,
+  /** Cesar: trailer rework bills at least 1 hour @ sortRelabelPerHour. */
+  trailerReworkMinimumHours: 1,
   sortRelabelPerCase: 2,
   afterHoursSurchargePct: 35,
   noShowFee: 100,

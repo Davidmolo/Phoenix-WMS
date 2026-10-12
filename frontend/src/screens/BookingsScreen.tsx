@@ -92,6 +92,9 @@ export default function BookingsScreen() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
+  const [notesEdit, setNotesEdit] = useState("");
+  const [notesBusy, setNotesBusy] = useState(false);
+  const [reschedulingId, setReschedulingId] = useState<string | null>(null);
 
   const calPath = `/bookings/calendar?year=${cursor.year}&month=${cursor.month}&serviceType=${encodeURIComponent(serviceType)}&source=${encodeURIComponent(sourceFilter)}`;
   const { data: cal, loading: calLoading, reload: reloadCal } = useApiQuery<CalendarResponse>(calPath);
@@ -148,18 +151,73 @@ export default function BookingsScreen() {
   useEffect(() => {
     setFocusBookingId(null);
     setPhoneLogSlot(null);
+    setReschedulingId(null);
   }, [selectedDate, serviceType, sourceFilter]);
 
+  useEffect(() => {
+    setNotesEdit(focused?.notes || "");
+  }, [focused?._id, focused?.notes]);
+
+  async function doReschedule(slot: DaySlot) {
+    if (!token || !reschedulingId) return;
+    setActionId(reschedulingId);
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/bookings/${reschedulingId}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ startsAt: slot.startIso }),
+      });
+      setMsg(`Appointment moved to ${slot.label}`);
+      setFocusBookingId(reschedulingId);
+      setReschedulingId(null);
+      invalidateApiCache("/bookings");
+      await Promise.all([reloadCal(), reloadSlots(), reloadList(), reloadUpcoming()]);
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not reschedule appointment");
+    } finally {
+      setActionId(null);
+    }
+  }
+
   function onSlotClick(slot: DaySlot) {
+    if (reschedulingId && slot.status === "available") {
+      void doReschedule(slot);
+      return;
+    }
     if (slot.status === "booked" && slot.bookings?.[0]?.id) {
       setPhoneLogSlot(null);
+      setReschedulingId(null);
       setFocusBookingId(slot.bookings[0].id);
       return;
     }
     if (slot.status === "available") {
       setFocusBookingId(null);
+      setReschedulingId(null);
       setPhoneLogSlot(slot);
       if (serviceType !== "all") setPhoneService(serviceType);
+    }
+  }
+
+  async function saveNotes() {
+    if (!token || !focused) return;
+    setNotesBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/bookings/${focused._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ notes: notesEdit }),
+      });
+      setMsg("Notes updated");
+      invalidateApiCache("/bookings");
+      await Promise.all([reloadCal(), reloadSlots(), reloadList(), reloadUpcoming()]);
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not update notes");
+    } finally {
+      setNotesBusy(false);
     }
   }
 
@@ -566,11 +624,38 @@ export default function BookingsScreen() {
                     {sourceLabel(focused.source)}
                   </div>
                 </div>
-                {focused.notes ? (
-                  <div>
-                    <div className="text-[11px] font-semibold tracking-wide text-muted uppercase">Notes</div>
-                    <p className="mt-0.5 mb-0 text-sm leading-relaxed text-muted">{focused.notes}</p>
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wide text-muted uppercase">Notes</div>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={notesEdit}
+                      onChange={(e) => setNotesEdit(e.target.value)}
+                      placeholder="Add a note…"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      loading={notesBusy}
+                      disabled={notesEdit === (focused.notes || "")}
+                      onClick={() => void saveNotes()}
+                    >
+                      Save
+                    </Button>
                   </div>
+                </div>
+
+                {reschedulingId === focused._id ? (
+                  <Alert tone="info" className="mb-0">
+                    Click an open slot on the grid above to move this appointment.{" "}
+                    <button
+                      type="button"
+                      className="font-semibold underline"
+                      onClick={() => setReschedulingId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </Alert>
                 ) : null}
 
                 <div className="rounded-lg border border-border bg-[var(--surface-2)] px-3 py-2 text-xs text-muted">
@@ -611,6 +696,18 @@ export default function BookingsScreen() {
                         Mark no-show
                       </Button>
                     </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="w-full justify-center"
+                      disabled={!!actionId}
+                      onClick={() =>
+                        setReschedulingId((id) => (id === focused._id ? null : focused._id))
+                      }
+                    >
+                      {reschedulingId === focused._id ? "Cancel reschedule" : "Reschedule — pick a new slot"}
+                    </Button>
                     <Button
                       type="button"
                       size="sm"

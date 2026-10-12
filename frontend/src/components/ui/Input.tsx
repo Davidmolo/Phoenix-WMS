@@ -5,6 +5,14 @@ type Props = InputHTMLAttributes<HTMLInputElement> & {
   icon?: ReactNode;
 };
 
+/** Shared field styles — number spinners hidden so staff can type values freely. */
+const baseInputClass =
+  "w-full rounded-[var(--radius)] border border-border bg-white text-[13px] text-text outline-none transition-all placeholder:text-faint " +
+  "hover:border-border-strong focus:border-accent focus:ring-2 focus:ring-accent-bg " +
+  "disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted " +
+  "read-only:bg-surface-2 read-only:text-navy " +
+  "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
 export function Input({ className, icon, ...props }: Props) {
   if (icon) {
     return (
@@ -12,30 +20,10 @@ export function Input({ className, icon, ...props }: Props) {
         <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint">
           {icon}
         </span>
-        <input
-          className={cn(
-            "w-full rounded-[var(--radius)] border border-border bg-white py-1.5 pr-3 pl-9 text-[13px] text-text outline-none transition-all placeholder:text-faint",
-            "hover:border-border-strong focus:border-accent focus:ring-2 focus:ring-accent-bg",
-            "disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted",
-            "read-only:bg-surface-2 read-only:text-navy",
-            className
-          )}
-          {...props}
-        />
+        <input className={cn(baseInputClass, "py-1.5 pr-3 pl-9", className)} {...props} />
       </div>
     );
   }
 
-  return (
-    <input
-      className={cn(
-        "w-full rounded-[var(--radius)] border border-border bg-white px-2.5 py-1.5 text-[13px] text-text outline-none transition-all placeholder:text-faint",
-        "hover:border-border-strong focus:border-accent focus:ring-2 focus:ring-accent-bg",
-        "disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted",
-        "read-only:bg-surface-2 read-only:text-navy",
-        className
-      )}
-      {...props}
-    />
-  );
+  return <input className={cn(baseInputClass, "px-2.5 py-1.5", className)} {...props} />;
 }

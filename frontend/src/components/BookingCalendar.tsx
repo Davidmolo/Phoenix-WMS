@@ -331,6 +331,7 @@ export const SERVICE_TYPE_OPTIONS = [
   { id: "crossdock", label: "Crossdock · 45 min" },
   { id: "trailer_rework", label: "Trailer Rework · 1 hour" },
   { id: "drop_and_store", label: "Drop and Store · 45 min" },
+  { id: "pickup", label: "Pick-up · 45 min" },
 ] as const;
 
 export const SERVICE_FILTER_OPTIONS = [

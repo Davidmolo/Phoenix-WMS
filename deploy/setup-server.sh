@@ -10,7 +10,7 @@ BRANCH="${BRANCH:-master}"
 echo "[phoenix-wms] bootstrap → ${APP_ROOT}"
 
 sudo mkdir -p "${APP_ROOT}" /var/www/phoenix-wms/logs
-sudo chown -R ubuntu:ubuntu /var/www/phoenix-wms
+sudo chown -R "${SUDO_USER:-$USER}:${SUDO_USER:-$USER}" /var/www/phoenix-wms
 
 if [[ ! -d "${APP_ROOT}/.git" ]]; then
   git clone --branch "${BRANCH}" --single-branch "${REPO_URL}" "${APP_ROOT}"
@@ -36,11 +36,11 @@ JWT_SECRET=REPLACE_ME_WITH_LONG_RANDOM_SECRET
 JWT_EXPIRES_IN=7d
 CORS_ORIGIN=https://PHOENIX_WMS_DOMAIN
 APP_URL=https://PHOENIX_WMS_DOMAIN
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASS=
-MAIL_FROM=Phoenix Cross Dock <notifications@phoenixcrossdocks.com>
+MAIL_FROM=Phoenix Cross Dock <noreply@example.com>
 EOF
   echo "[phoenix-wms] wrote backend/.env template — fill secrets before first start"
 fi

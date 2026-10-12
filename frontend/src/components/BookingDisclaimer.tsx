@@ -13,7 +13,7 @@ export function BookingDisclaimer({
 }) {
   return (
     <p className={`m-0 text-xs leading-relaxed text-muted ${className ?? ""}`}>
-      Warehouse hours {hours}. Per Cesar / Darya: Crossdock and Drop &amp; Store are{" "}
+      Warehouse hours {hours}. Per Cesar / Darya: Crossdock, Drop &amp; Store, and Pick-up are{" "}
       <strong className="text-navy">45 minutes</strong>; Trailer Rework is{" "}
       <strong className="text-navy">1 hour</strong>. Please allow about {bufferMinutes} minutes
       early or late for traffic. Crossdock uses both doors; trailer rework and drop &amp; store use

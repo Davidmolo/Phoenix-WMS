@@ -13,6 +13,7 @@ import publicBookingRoutes from "./publicBookings";
 import docsRoutes from "./docs";
 import quickbooksRoutes from "./quickbooks";
 import yardJobRoutes from "./yardJobs";
+import geoRoutes from "./geo";
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.use("/lpns", lpnRoutes);
 router.use("/shipments", shipmentRoutes);
 router.use("/yard-jobs", yardJobRoutes);
 router.use("/bookings", bookingRoutes);
+router.use("/geo", geoRoutes);
 router.use("/", opsRoutes);
 
 export default router;

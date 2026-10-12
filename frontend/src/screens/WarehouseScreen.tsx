@@ -141,8 +141,47 @@ export default function WarehousePage() {
 
   async function saveLayout() {
     if (!token || !warehouse) return;
-    setBusy(true);
     setErr("");
+
+    // Defensive: two different slots can never share one cell. The click/swap logic above
+    // shouldn't allow this, but catch it client-side before it ever reaches the server.
+    const cellOwner = new Map<string, string>(); // "row:col" -> locationId
+    const collisions = new Set<string>();
+    for (const p of placements) {
+      const key = `${p.row}:${p.col}`;
+      const owner = cellOwner.get(key);
+      if (owner && owner !== p.locationId) {
+        const a = locById.get(owner)?.code || owner;
+        const b = locById.get(p.locationId)?.code || p.locationId;
+        collisions.add(`${a} / ${b} → cell ${key}`);
+      }
+      cellOwner.set(key, p.locationId);
+    }
+    if (collisions.size > 0) {
+      setErr(
+        `Two slots are placed on the same cell — move one before saving: ${[...collisions].join(", ")}`
+      );
+      return;
+    }
+
+    // Non-blocking heads-up: sequential "W-N" floor codes stay fixed when you move a slot,
+    // so a gap usually means a slot was removed by shrinking the grid earlier.
+    const wNumbers = (data?.locations ?? [])
+      .map((l) => {
+        const m = String(l.code).match(/^W-(\d+)$/);
+        return m ? Number(m[1]) : null;
+      })
+      .filter((n): n is number => n != null)
+      .sort((a, b) => a - b);
+    let gapNote = "";
+    for (let i = 1; i < wNumbers.length; i++) {
+      if (wNumbers[i] !== wNumbers[i - 1] + 1) {
+        gapNote = ` Note: floor codes skip from W-${wNumbers[i - 1]} to W-${wNumbers[i]} — numbers stay fixed when slots move, so this clears up as you expand.`;
+        break;
+      }
+    }
+
+    setBusy(true);
     setMsg("");
     try {
       await api("/locations/map-layout", {
@@ -155,7 +194,7 @@ export default function WarehousePage() {
           placements,
         }),
       });
-      setMsg(`Saved ${rows}×${cols} floor map`);
+      setMsg(`Saved ${rows}×${cols} floor map.${gapNote}`);
       setEditing(false);
       setSelectedId(null);
       invalidateApiCache();

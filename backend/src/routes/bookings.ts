@@ -278,6 +278,32 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
     if (req.body.phone !== undefined) booking.phone = req.body.phone;
     if (req.body.email !== undefined) booking.email = req.body.email;
     if (req.body.companyName !== undefined) booking.companyName = req.body.companyName;
+
+    // Reschedule to a new slot start (same service duration)
+    if (req.body.startsAt !== undefined) {
+      const startsAt = new Date(req.body.startsAt);
+      if (Number.isNaN(startsAt.getTime())) {
+        res.status(400).json({ error: "startsAt must be a valid ISO datetime" });
+        return;
+      }
+      const dateKey = toDateKey(startsAt);
+      const dayBookings = await loadDayBookings(
+        req.auth!.companyId,
+        dateKey,
+        booking.warehouseId ? String(booking.warehouseId) : undefined
+      ).then((rows) => rows.filter((b) => String(b._id) !== String(booking._id)));
+      const slots = buildDaySlots(dateKey, booking.serviceType, dayBookings);
+      const check = assertSlotOpen(slots, startsAt.toISOString());
+      if (!check.ok) {
+        res.status(409).json({ error: check.error });
+        return;
+      }
+      const durationMinutes = booking.durationMinutes || durationForService(booking.serviceType);
+      booking.startsAt = startsAt;
+      booking.endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
+      booking.durationMinutes = durationMinutes;
+    }
+
     await booking.save();
 
     if (booking.requestId && req.body.status === "cancelled") {

@@ -19,12 +19,36 @@ const feeScheduleSchema = new Schema(
     accountMinimumMonthlyFee: { type: Number, default: 300 },
     longTermStorageCapPct: { type: Number, default: 45 },
     sortRelabelPerHour: { type: Number, default: 65 },
+    /** Trailer rework: bill at least this many hours (Cesar: 1 hr min @ $65/hr). */
+    trailerReworkMinimumHours: { type: Number, default: 1 },
     sortRelabelPerCase: { type: Number, default: 2 },
     afterHoursSurchargePct: { type: Number, default: 35 },
     noShowFee: { type: Number, default: 100 },
     detentionPerHour: { type: Number, default: 90 },
     detentionFreeHours: { type: Number, default: 2 },
     notes: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+/**
+ * Map WMS fee/line types → QuickBooks Item Id (preferred) or Item Name.
+ * Cesar: handling, storage, overage, re-wrap, crossdock, detention, etc.
+ */
+const quickbooksItemMapSchema = new Schema(
+  {
+    handling: { type: String, default: "" },
+    storage: { type: String, default: "" },
+    overage: { type: String, default: "" },
+    rewrap: { type: String, default: "" },
+    crossdock: { type: String, default: "" },
+    detention: { type: String, default: "" },
+    ftl: { type: String, default: "" },
+    dwell: { type: String, default: "" },
+    accessorial: { type: String, default: "" },
+    other: { type: String, default: "" },
+    /** Fallback QBO Item Id/Name when a type is unmapped (default Services). */
+    defaultItem: { type: String, default: "Services" },
   },
   { _id: false }
 );
@@ -36,6 +60,7 @@ const companySchema = new Schema(
     city: { type: String, default: "Phoenix, AZ" },
     address: { type: String, default: "" },
     feeSchedule: { type: feeScheduleSchema, default: null },
+    quickbooksItemMap: { type: quickbooksItemMapSchema, default: () => ({}) },
     active: { type: Boolean, default: true },
   },
   { timestamps: true }

@@ -8,6 +8,8 @@ import {
   Users,
   MapPin,
   Maximize2,
+  TrendingUp,
+  CalendarRange,
 } from "lucide-react";
 import {
   Alert,
@@ -20,17 +22,20 @@ import {
   type Column,
 } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useAppNav } from "@/lib/appNav";
 import { useAuth } from "@/lib/auth";
-import { dateLabel } from "@/lib/format";
+import { dateLabel, money } from "@/lib/format";
 import type { DashboardKpis, Shipment } from "@/types";
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { navigate } = useAppNav();
   const { data, error, loading } = useApiQuery<{
     kpis: DashboardKpis;
     recentShipments: Shipment[];
   }>("/dashboard");
   const kpis = data?.kpis;
+  const isStaff = user?.role !== "customer";
 
   const shipColumns: Column<Shipment>[] = [
     {
@@ -75,26 +80,30 @@ export default function DashboardPage() {
             value={kpis?.activePallets}
             loading={loading}
             icon={<Package className="h-5 w-5" />}
+            onClick={() => navigate("/inventory")}
           />
           <KpiCard
             label="Pending requests"
             value={kpis?.pendingRequests}
             loading={loading}
             icon={<Inbox className="h-5 w-5" />}
+            onClick={() => navigate("/requests")}
           />
           <KpiCard
             label="Draft invoices"
             value={kpis?.draftInvoices}
             loading={loading}
             icon={<FileText className="h-5 w-5" />}
+            onClick={() => navigate("/billing")}
           />
-          {user?.role !== "customer" ? (
+          {isStaff ? (
             <>
               <KpiCard
                 label="Customers"
                 value={kpis?.customers}
                 loading={loading}
                 icon={<Users className="h-5 w-5" />}
+                onClick={() => navigate("/customers")}
               />
               <KpiCard
                 label="Open charges"
@@ -107,6 +116,7 @@ export default function DashboardPage() {
                 value={kpis?.locationsAvailable}
                 loading={loading}
                 icon={<MapPin className="h-5 w-5" />}
+                onClick={() => navigate("/warehouse")}
               />
               <KpiCard
                 label="Available SF"
@@ -119,11 +129,25 @@ export default function DashboardPage() {
                     : undefined
                 }
               />
+              <KpiCard
+                label="Current month revenue"
+                value={money(kpis?.revenueMtd)}
+                loading={loading}
+                icon={<TrendingUp className="h-5 w-5" />}
+                onClick={() => navigate("/billing")}
+              />
+              <KpiCard
+                label="Last month revenue"
+                value={money(kpis?.revenueLastMonth)}
+                loading={loading}
+                icon={<CalendarRange className="h-5 w-5" />}
+                onClick={() => navigate("/billing")}
+              />
             </>
           ) : null}
         </KpiGrid>
 
-        {user?.role !== "customer" ? (
+        {isStaff ? (
           <div className="mb-5">
             <PageHeader title="Recent shipments" className="mb-4" />
             <DataTable
@@ -131,6 +155,7 @@ export default function DashboardPage() {
               rows={data?.recentShipments ?? []}
               rowKey={(s) => s._id}
               loading={loading}
+              onRowClick={(s) => navigate(`/shipments/${s._id}`)}
               emptyTitle="No shipments yet"
               emptyDescription="Use Receive / Ship to post the first inbound load."
             />

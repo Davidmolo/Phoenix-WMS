@@ -66,7 +66,7 @@ router.get("/fee-schedule", async (req, res, next) => {
   }
 });
 
-router.patch("/fee-schedule", requireRole("admin", "staff"), async (req, res, next) => {
+router.patch("/fee-schedule", requireRole("admin"), async (req, res, next) => {
   try {
     const company = await resolveCompany(req.auth);
     if (!company) {

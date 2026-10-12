@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { Printer, Search, Users } from "lucide-react";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import {
   Alert,
@@ -45,6 +46,7 @@ export default function CustomersPage() {
   const [contact, setContact] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -160,7 +162,7 @@ export default function CustomersPage() {
       header: "Source",
       className: "w-[1%] whitespace-nowrap",
       render: (c) =>
-        c.quickbooksCustomerId ? (
+        (c.source === "quickbooks" || c.quickbooksCustomerId) ? (
           <span className="text-[11px] text-muted">QuickBooks</span>
         ) : (
           <span className="text-[11px] text-muted">WMS</span>
@@ -196,7 +198,7 @@ export default function CustomersPage() {
       const result = await api<{ customer: Customer; message?: string }>("/customers", {
         method: "POST",
         token,
-        body: JSON.stringify({ name, contact, email, phone }),
+        body: JSON.stringify({ name, contact, email, phone, address }),
       });
       setMsg(
         result.message ||
@@ -206,6 +208,7 @@ export default function CustomersPage() {
       setContact("");
       setEmail("");
       setPhone("");
+      setAddress("");
       invalidateApiCache("/customers");
       await reload();
     } catch (ex) {
@@ -248,6 +251,13 @@ export default function CustomersPage() {
             </Field>
             <Field label="Phone">
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </Field>
+            <Field label="Address" className="sm:col-span-2">
+              <AddressAutocomplete
+                value={address}
+                onChange={setAddress}
+                placeholder="Street, city, state, ZIP"
+              />
             </Field>
           </FormGrid>
           <Button type="submit" loading={busy} disabled={!name.trim() || !email.trim()}>
