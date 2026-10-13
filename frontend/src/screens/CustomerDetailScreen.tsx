@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Mail, Pencil, Printer, Save, X } from "lucide-react";
+import { Mail, Pencil, Printer, Save } from "lucide-react";
 import {
   Alert,
   Badge,
@@ -13,6 +13,7 @@ import {
   Field,
   FormGrid,
   Input,
+  Modal,
   NumberInput,
   KpiCard,
   KpiGrid,
@@ -365,166 +366,168 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
               <KpiCard label="Open requests" value={data?.summary.openRequests} />
             </KpiGrid>
 
-            {editing && form ? (
-              <Card className="mb-5">
-                <CardBody>
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle>Edit billing & account (admin)</CardTitle>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-border p-1.5 text-muted hover:bg-surface-2 hover:text-navy"
-                      onClick={cancelEdit}
-                      aria-label="Cancel"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+            <Card className="mb-5">
+              <CardBody>
+                <CardTitle>Account</CardTitle>
+                <div className="mt-2 grid gap-2 text-sm text-muted sm:grid-cols-2">
+                  <div>
+                    <span className="font-semibold text-text">Address: </span>
+                    {c.address || "—"}
                   </div>
-                  <form onSubmit={saveEdit} className="mt-3 space-y-4">
-                    <FormGrid cols={3}>
-                      <Field label="Billing method">
-                        <Select
-                          value={form.billingMethod}
-                          onChange={(e) => setForm({ ...form, billingMethod: e.target.value })}
-                        >
-                          <option value="pallet">Pallet</option>
-                          <option value="sqft">Square feet</option>
-                          <option value="contract">Contract</option>
-                          <option value="crossdock">Crossdock</option>
-                        </Select>
-                      </Field>
-                      <Field
-                        label="Test account"
-                        hint="Skip QuickBooks push — use for audit / throwaway customers"
+                  <div>
+                    <span className="font-semibold text-text">Phone: </span>
+                    {c.phone || "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-text">No dwell in dedicated SF: </span>
+                    {c.contractNoDwellInside ? "Yes (per contract)" : "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-text">Portal: </span>
+                    {c.portalActivated
+                      ? "Onboarded (active login)"
+                      : data?.portal?.invitePending
+                        ? "Invite sent — waiting for password"
+                        : "Not onboarded"}
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Modal
+              open={Boolean(editing && form)}
+              onClose={() => {
+                if (!saveBusy) cancelEdit();
+              }}
+              title="Edit billing & account"
+              description="Admin — billing method, test/live QB push, rates, and contact."
+              size="xl"
+              footer={
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button type="button" variant="secondary" onClick={cancelEdit} disabled={saveBusy}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    form="customer-edit-account"
+                    loading={saveBusy}
+                    icon={<Save className="h-4 w-4" />}
+                  >
+                    Save changes
+                  </Button>
+                </div>
+              }
+            >
+              {form ? (
+                <form id="customer-edit-account" onSubmit={saveEdit} className="space-y-4">
+                  <FormGrid cols={3}>
+                    <Field label="Billing method">
+                      <Select
+                        value={form.billingMethod}
+                        onChange={(e) => setForm({ ...form, billingMethod: e.target.value })}
                       >
-                        <Select
-                          value={form.testAccount ? "yes" : "no"}
-                          onChange={(e) =>
-                            setForm({ ...form, testAccount: e.target.value === "yes" })
-                          }
-                        >
-                          <option value="no">No — push to QuickBooks</option>
-                          <option value="yes">Yes — WMS only</option>
-                        </Select>
-                      </Field>
-                      <Field label="Contract monthly fee">
-                        <NumberInput
-                          value={form.contractFee}
-                          onValueChange={(v) => setForm({ ...form, contractFee: v })}
-                        />
-                      </Field>
-                      <Field label="Contract SF">
-                        <NumberInput
-                          decimal={false}
-                          value={form.contractSqft}
-                          onValueChange={(v) => setForm({ ...form, contractSqft: v })}
-                        />
-                      </Field>
-                      <Field label="Handling / pallet" hint="Flat inbound+outbound handling">
-                        <NumberInput
-                          value={form.contractHandlingPerPallet}
-                          onValueChange={(v) =>
-                            setForm({ ...form, contractHandlingPerPallet: v })
-                          }
-                        />
-                      </Field>
-                      <Field label="FTL rate" hint="Flat rate in lieu of per-pallet handling">
-                        <NumberInput
-                          value={form.contractFtlRate}
-                          onValueChange={(v) => setForm({ ...form, contractFtlRate: v })}
-                        />
-                      </Field>
-                      <Field label="Rate inside (/pallet/mo)">
-                        <NumberInput
-                          value={form.rateInside}
-                          onValueChange={(v) => setForm({ ...form, rateInside: v })}
-                        />
-                      </Field>
-                      <Field label="Rate outside (/pallet/mo)">
-                        <NumberInput
-                          value={form.rateOutside}
-                          onValueChange={(v) => setForm({ ...form, rateOutside: v })}
-                        />
-                      </Field>
-                      <Field label="Unload fee">
-                        <NumberInput
-                          value={form.unloadFee}
-                          onValueChange={(v) => setForm({ ...form, unloadFee: v })}
-                        />
-                      </Field>
-                      <Field label="Load fee">
-                        <NumberInput
-                          value={form.loadFee}
-                          onValueChange={(v) => setForm({ ...form, loadFee: v })}
-                        />
-                      </Field>
-                    </FormGrid>
-                    <FormGrid cols={2}>
-                      <Field label="Contact name">
-                        <Input
-                          value={form.contact}
-                          onChange={(e) => setForm({ ...form, contact: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="Phone">
-                        <Input
-                          value={form.phone}
-                          onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="Email">
-                        <Input
-                          type="email"
-                          value={form.email}
-                          onChange={(e) => setForm({ ...form, email: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="Address">
-                        <AddressAutocomplete
-                          value={form.address}
-                          onChange={(address) => setForm({ ...form, address })}
-                        />
-                      </Field>
-                    </FormGrid>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="submit" loading={saveBusy} icon={<Save className="h-4 w-4" />}>
-                        Save changes
-                      </Button>
-                      <Button type="button" variant="secondary" onClick={cancelEdit} disabled={saveBusy}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
-                </CardBody>
-              </Card>
-            ) : (
-              <Card className="mb-5">
-                <CardBody>
-                  <CardTitle>Account</CardTitle>
-                  <div className="mt-2 grid gap-2 text-sm text-muted sm:grid-cols-2">
-                    <div>
-                      <span className="font-semibold text-text">Address: </span>
-                      {c.address || "—"}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-text">Phone: </span>
-                      {c.phone || "—"}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-text">No dwell in dedicated SF: </span>
-                      {c.contractNoDwellInside ? "Yes (per contract)" : "—"}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-text">Portal: </span>
-                      {c.portalActivated
-                        ? "Onboarded (active login)"
-                        : data?.portal?.invitePending
-                          ? "Invite sent — waiting for password"
-                          : "Not onboarded"}
-                    </div>
-                  </div>
-                </CardBody>
-              </Card>
-            )}
+                        <option value="pallet">Pallet</option>
+                        <option value="sqft">Square feet</option>
+                        <option value="contract">Contract</option>
+                        <option value="crossdock">Crossdock</option>
+                      </Select>
+                    </Field>
+                    <Field
+                      label="Test account"
+                      hint="Skip QuickBooks push — use for audit / throwaway customers"
+                    >
+                      <Select
+                        value={form.testAccount ? "yes" : "no"}
+                        onChange={(e) =>
+                          setForm({ ...form, testAccount: e.target.value === "yes" })
+                        }
+                      >
+                        <option value="no">No — push to QuickBooks</option>
+                        <option value="yes">Yes — WMS only</option>
+                      </Select>
+                    </Field>
+                    <Field label="Contract monthly fee">
+                      <NumberInput
+                        value={form.contractFee}
+                        onValueChange={(v) => setForm({ ...form, contractFee: v })}
+                      />
+                    </Field>
+                    <Field label="Contract SF">
+                      <NumberInput
+                        decimal={false}
+                        value={form.contractSqft}
+                        onValueChange={(v) => setForm({ ...form, contractSqft: v })}
+                      />
+                    </Field>
+                    <Field label="Handling / pallet" hint="Flat inbound+outbound handling">
+                      <NumberInput
+                        value={form.contractHandlingPerPallet}
+                        onValueChange={(v) =>
+                          setForm({ ...form, contractHandlingPerPallet: v })
+                        }
+                      />
+                    </Field>
+                    <Field label="FTL rate" hint="Flat rate in lieu of per-pallet handling">
+                      <NumberInput
+                        value={form.contractFtlRate}
+                        onValueChange={(v) => setForm({ ...form, contractFtlRate: v })}
+                      />
+                    </Field>
+                    <Field label="Rate inside (/pallet/mo)">
+                      <NumberInput
+                        value={form.rateInside}
+                        onValueChange={(v) => setForm({ ...form, rateInside: v })}
+                      />
+                    </Field>
+                    <Field label="Rate outside (/pallet/mo)">
+                      <NumberInput
+                        value={form.rateOutside}
+                        onValueChange={(v) => setForm({ ...form, rateOutside: v })}
+                      />
+                    </Field>
+                    <Field label="Unload fee">
+                      <NumberInput
+                        value={form.unloadFee}
+                        onValueChange={(v) => setForm({ ...form, unloadFee: v })}
+                      />
+                    </Field>
+                    <Field label="Load fee">
+                      <NumberInput
+                        value={form.loadFee}
+                        onValueChange={(v) => setForm({ ...form, loadFee: v })}
+                      />
+                    </Field>
+                  </FormGrid>
+                  <FormGrid cols={2}>
+                    <Field label="Contact name">
+                      <Input
+                        value={form.contact}
+                        onChange={(e) => setForm({ ...form, contact: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Phone">
+                      <Input
+                        value={form.phone}
+                        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <Input
+                        type="email"
+                        value={form.email}
+                        onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Address">
+                      <AddressAutocomplete
+                        value={form.address}
+                        onChange={(address) => setForm({ ...form, address })}
+                      />
+                    </Field>
+                  </FormGrid>
+                </form>
+              ) : null}
+            </Modal>
 
             <div className="mb-5">
               <PageHeader title="Pallets" />
