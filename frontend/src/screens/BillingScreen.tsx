@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Link2, Mail, Pencil, Printer, RefreshCw, Search, Unlink, X } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
@@ -96,6 +96,7 @@ export default function BillingPage() {
   const [editBusy, setEditBusy] = useState(false);
   const [editErr, setEditErr] = useState("");
   const [editMsg, setEditMsg] = useState("");
+  const editPanelRef = useRef<HTMLDivElement>(null);
 
   const { data: qbStatus, reload: reloadQb } = useApiQuery<QbStatus>("/quickbooks/status", {
     enabled: isStaff,
@@ -232,6 +233,11 @@ export default function BillingPage() {
     setEditErr("");
     setEditMsg("");
   }
+
+  useEffect(() => {
+    if (!editInv) return;
+    editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editInv]);
 
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
@@ -399,6 +405,7 @@ export default function BillingPage() {
                 variant="secondary"
                 icon={<Pencil className="h-3.5 w-3.5" />}
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   openEdit(inv);
                 }}
@@ -542,59 +549,6 @@ export default function BillingPage() {
         </Alert>
       ) : null}
 
-      {editInv && isAdmin ? (
-        <Card className="mb-4">
-          <CardBody>
-            <div className="mb-3 flex items-start justify-between gap-2">
-              <CardTitle>Edit invoice {editInv.number} (admin)</CardTitle>
-              <button
-                type="button"
-                className="rounded-lg border border-border p-1.5 text-muted hover:bg-surface-2"
-                onClick={() => setEditInv(null)}
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mb-3 text-xs text-muted">
-              Cesar override — change status/amount when a customer needs to pay now. WMS updates
-              immediately; sync or edit QuickBooks if the books still show the old figure.
-            </p>
-            <Alert>{editErr}</Alert>
-            {editMsg ? <Alert tone="success">{editMsg}</Alert> : null}
-            <form onSubmit={saveEdit} className="space-y-3">
-              <FormGrid cols={3}>
-                <Field label="Status">
-                  <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-                    <option value="draft">Draft</option>
-                    <option value="unpaid">Unpaid</option>
-                    <option value="past_due">Past due</option>
-                    <option value="paid">Paid</option>
-                    <option value="void">Void</option>
-                    <option value="sent">Sent</option>
-                  </Select>
-                </Field>
-                <Field label="Invoice total">
-                  <NumberInput value={editTotal} onValueChange={setEditTotal} />
-                </Field>
-                <Field label="Balance due">
-                  <NumberInput value={editBalance} onValueChange={setEditBalance} />
-                </Field>
-                <Field label="Due date">
-                  <Input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
-                </Field>
-                <Field label="Notes" className="sm:col-span-2">
-                  <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
-                </Field>
-              </FormGrid>
-              <Button type="submit" loading={editBusy} icon={<Pencil className="h-4 w-4" />}>
-                Save invoice
-              </Button>
-            </form>
-          </CardBody>
-        </Card>
-      ) : null}
-
       {!isStaff ? (
         <Card className="mb-5">
           <CardBody>
@@ -702,6 +656,62 @@ export default function BillingPage() {
       </Card>
 
       <Alert>{error}</Alert>
+
+      {editInv && isAdmin ? (
+        <div ref={editPanelRef} className="mb-4 scroll-mt-4">
+          <Card>
+            <CardBody>
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <CardTitle>Edit invoice {editInv.number} (admin)</CardTitle>
+                <button
+                  type="button"
+                  className="rounded-lg border border-border p-1.5 text-muted hover:bg-surface-2"
+                  onClick={() => setEditInv(null)}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mb-3 text-xs text-muted">
+                Cesar override — change status/amount when a customer needs to pay now. WMS updates
+                immediately; sync or edit QuickBooks if the books still show the old figure.
+              </p>
+              <Alert>{editErr}</Alert>
+              {editMsg ? <Alert tone="success">{editMsg}</Alert> : null}
+              <form onSubmit={saveEdit} className="space-y-3">
+                <FormGrid cols={3}>
+                  <Field label="Status">
+                    <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                      <option value="draft">Draft</option>
+                      <option value="unpaid">Unpaid</option>
+                      <option value="past_due">Past due</option>
+                      <option value="paid">Paid</option>
+                      <option value="void">Void</option>
+                      <option value="sent">Sent</option>
+                    </Select>
+                  </Field>
+                  <Field label="Invoice total">
+                    <NumberInput value={editTotal} onValueChange={setEditTotal} />
+                  </Field>
+                  <Field label="Balance due">
+                    <NumberInput value={editBalance} onValueChange={setEditBalance} />
+                  </Field>
+                  <Field label="Due date">
+                    <Input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
+                  </Field>
+                  <Field label="Notes" className="sm:col-span-2">
+                    <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                  </Field>
+                </FormGrid>
+                <Button type="submit" loading={editBusy} icon={<Pencil className="h-4 w-4" />}>
+                  Save invoice
+                </Button>
+              </form>
+            </CardBody>
+          </Card>
+        </div>
+      ) : null}
+
       <DataTable
         columns={columns}
         rows={invoices}

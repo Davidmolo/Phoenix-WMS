@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -115,6 +115,95 @@ function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split
   return "dashboard";
 }
 
+function navItemActive(path: string, href: string) {
+  return path === href || (href !== "/dashboard" && path.startsWith(`${href}/`));
+}
+
+/** Stable (module-level) so the nav DOM is not remounted on every route change — preserves scroll. */
+function SidebarNav({
+  path,
+  isPortal,
+  onNavigate,
+}: {
+  path: string;
+  isPortal: boolean;
+  onNavigate?: () => void;
+}) {
+  const { navigate } = useAppNav();
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const root = navRef.current;
+    if (!root) return;
+    const active = root.querySelector<HTMLElement>("[data-nav-active='true']");
+    active?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [path]);
+
+  function renderLink(item: NavItem) {
+    const active = navItemActive(path, item.href);
+    const Icon = item.icon;
+    return (
+      <button
+        key={item.href}
+        type="button"
+        data-nav-active={active ? "true" : undefined}
+        onClick={() => {
+          onNavigate?.();
+          navigate(item.href);
+        }}
+        className={cn(
+          "sidebar-link flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all duration-200",
+          active && "sidebar-link-active",
+          !active && "hover:translate-x-0.5"
+        )}
+      >
+        <Icon
+          className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
+          strokeWidth={2.25}
+        />
+        <span className="truncate">{item.label}</span>
+        {active ? (
+          <span
+            className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: "var(--accent)" }}
+          />
+        ) : null}
+      </button>
+    );
+  }
+
+  if (isPortal) {
+    return (
+      <nav
+        ref={navRef}
+        className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3 sm:px-3"
+        aria-label="Main"
+      >
+        {PORTAL_NAV.map((item) => renderLink(item))}
+      </nav>
+    );
+  }
+
+  return (
+    <nav
+      ref={navRef}
+      className="flex flex-1 flex-col gap-3 overflow-y-auto px-2.5 py-3 sm:px-3"
+      aria-label="Main"
+    >
+      {STAFF_NAV_GROUPS.map((group) => (
+        <div key={group.label || group.items[0]?.href} className="flex flex-col gap-0.5">
+          {group.label ? (
+            <div className="sidebar-muted px-2.5 pb-0.5 pt-1 text-[9px] font-bold tracking-[0.12em] uppercase">
+              {group.label}
+            </div>
+          ) : null}
+          {group.items.map((item) => renderLink(item))}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, loading, logout, token } = useAuth();
   const router = useRouter();
@@ -164,64 +253,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const isPortal = user.role === "customer";
 
-  function renderLink(item: NavItem, onNavigate?: () => void) {
-    const active =
-      path === item.href ||
-      (item.href !== "/dashboard" && path.startsWith(`${item.href}/`));
-    const Icon = item.icon;
-    return (
-      <button
-        key={item.href}
-        type="button"
-        onClick={() => {
-          onNavigate?.();
-          navigate(item.href);
-        }}
-        className={cn(
-          "sidebar-link flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all duration-200",
-          active && "sidebar-link-active",
-          !active && "hover:translate-x-0.5"
-        )}
-      >
-        <Icon
-          className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
-          strokeWidth={2.25}
-        />
-        <span className="truncate">{item.label}</span>
-        {active ? (
-          <span
-            className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ background: "var(--accent)" }}
-          />
-        ) : null}
-      </button>
-    );
-  }
-
-  function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
-    if (isPortal) {
-      return (
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3 sm:px-3" aria-label="Main">
-          {PORTAL_NAV.map((item) => renderLink(item, onNavigate))}
-        </nav>
-      );
-    }
-    return (
-      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2.5 py-3 sm:px-3" aria-label="Main">
-        {STAFF_NAV_GROUPS.map((group) => (
-          <div key={group.label || group.items[0]?.href} className="flex flex-col gap-0.5">
-            {group.label ? (
-              <div className="sidebar-muted px-2.5 pb-0.5 pt-1 text-[9px] font-bold tracking-[0.12em] uppercase">
-                {group.label}
-              </div>
-            ) : null}
-            {group.items.map((item) => renderLink(item, onNavigate))}
-          </div>
-        ))}
-      </nav>
-    );
-  }
-
   return (
     <div className="flex min-h-screen bg-bg">
       <aside
@@ -255,7 +286,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </button>
         </div>
-        <NavLinks />
+        <SidebarNav path={path} isPortal={isPortal} />
         <div className="mt-auto border-t border-[rgba(255,255,255,0.14)] p-2.5 sm:p-3">
           <div className="mb-2 px-1">
             <div className="truncate text-[12px] font-semibold">{user.name}</div>
@@ -317,7 +348,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <NavLinks onNavigate={() => setMobileOpen(false)} />
+            <SidebarNav path={path} isPortal={isPortal} onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       ) : null}
