@@ -27,6 +27,13 @@ import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAppNav } from "@/lib/appNav";
 import { useAuth } from "@/lib/auth";
 import { dateLabel, dateTimeLabel, titleCase } from "@/lib/format";
+import {
+  assessBolCompleteness,
+  confirmBolDocumentAction,
+  consumeBolFocusIntent,
+  scrollToBolSection,
+  setBolFocusIntent,
+} from "@/lib/bolGate";
 import { openHtmlForPrint } from "@/lib/print";
 import type { Pallet, Shipment } from "@/types";
 
@@ -140,8 +147,20 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setRefInboundBol(shipment.bol?.refInboundBol || "");
   }, [shipment]);
 
-  async function printBol() {
-    if (!shipmentId) return;
+  async function printBol(opts?: { skipScroll?: boolean }) {
+    if (!shipmentId || !shipment) return;
+    if (!opts?.skipScroll) {
+      scrollToBolSection();
+    }
+    const completeness = assessBolCompleteness(shipment);
+    if (
+      !confirmBolDocumentAction({
+        action: "print",
+        completeness,
+      })
+    ) {
+      return;
+    }
     setPrintBusy(true);
     setPrintErr("");
     try {
@@ -156,6 +175,27 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
       setPrintBusy(false);
     }
   }
+
+  // Ops / list: Print BOL or Close BOL → land on Bill of Lading section (+ optional print gate)
+  useEffect(() => {
+    if (!shipment || !shipmentId) return;
+    const intent = consumeBolFocusIntent(shipmentId);
+    if (!intent) return;
+    let ran = false;
+    const t = window.setTimeout(() => {
+      ran = true;
+      scrollToBolSection();
+      if (intent.print) {
+        void printBol({ skipScroll: true });
+      }
+    }, 180);
+    return () => {
+      window.clearTimeout(t);
+      // React Strict Mode remount — put the intent back if we never ran
+      if (!ran) setBolFocusIntent(intent);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per shipment load with pending intent
+  }, [shipment?._id, shipmentId]);
 
   async function saveBolFields() {
     if (!token || !shipmentId) return;
@@ -447,6 +487,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
           </Card>
 
           {isStaff ? (
+            <div id="bol-section" className="mb-5 scroll-mt-4">
             <FormSection
               title="Bill of Lading"
               description={
@@ -455,8 +496,8 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                   : "Verify count, capture signatures, attach exception photos, then Close BOL to invoice."
               }
               icon={<FilePenLine className="h-4 w-4" />}
-              className="mb-5"
             >
+
               <Alert>{bolErr}</Alert>
               {bolMsg ? <Alert tone="success">{bolMsg}</Alert> : null}
               {shipment.direction === "outbound" ? (
@@ -597,8 +638,10 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                 </div>
               )}
             </FormSection>
+            </div>
           ) : (
-            <Card className="mb-5">
+            <div id="bol-section" className="mb-5 scroll-mt-4">
+            <Card>
               <CardBody>
                 <CardTitle>Bill of Lading</CardTitle>
                 <p className="mt-2 text-sm text-muted">
@@ -618,6 +661,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                 )}
               </CardBody>
             </Card>
+            </div>
           )}
 
           {isStaff ? (

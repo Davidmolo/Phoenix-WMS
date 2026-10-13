@@ -30,12 +30,12 @@ import {
   statusTone,
   type Column,
 } from "@/components/ui";
-import { api, apiFetchHtml } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useAppNav } from "@/lib/appNav";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel, money } from "@/lib/format";
-import { openHtmlForPrint } from "@/lib/print";
+import { setBolFocusIntent } from "@/lib/bolGate";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import { sqftFromInches } from "@/lib/palletSpace";
 import { customerIdOfShipment, expectedPalletCountOf } from "@/lib/expectedPrefill";
@@ -250,14 +250,14 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
 
   const availableLocations = locData?.locations ?? [];
 
-  async function printBol(shipmentId: string) {
-    setError("");
-    try {
-      const html = await apiFetchHtml(`/shipments/${shipmentId}/bol`, token);
-      openHtmlForPrint(html);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open BOL");
-    }
+  /** Open shipment Bill of Lading section; optional print runs the incomplete-info confirm there. */
+  function goToBol(shipmentId: string, opts?: { print?: boolean }) {
+    setBolFocusIntent({
+      shipmentId,
+      focus: true,
+      print: Boolean(opts?.print),
+    });
+    navigate(`/shipments/${shipmentId}`);
   }
 
   async function onReceive(e: FormEvent) {
@@ -521,15 +521,11 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
               size="sm"
               variant="secondary"
               icon={<Printer className="h-3.5 w-3.5" />}
-              onClick={() => printBol(bolInfo.id)}
+              onClick={() => goToBol(bolInfo.id, { print: true })}
             >
               Print BOL draft
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => navigate(`/shipments/${bolInfo.id}`)}
-            >
+            <Button type="button" size="sm" onClick={() => goToBol(bolInfo.id)}>
               Close BOL →
             </Button>
           </div>
