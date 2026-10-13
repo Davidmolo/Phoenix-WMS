@@ -240,7 +240,11 @@ export default function BillingPage() {
     setEditErr("");
     setEditMsg("");
     try {
-      const result = await api<{ invoice: InvoiceRow; hint?: string }>(`/invoices/${editInv._id}`, {
+      const result = await api<{
+        invoice: InvoiceRow;
+        hint?: string;
+        qbSync?: { synced?: boolean; error?: string };
+      }>(`/invoices/${editInv._id}`, {
         method: "PATCH",
         token,
         body: JSON.stringify({
@@ -251,11 +255,17 @@ export default function BillingPage() {
           notes: editNotes,
         }),
       });
-      setEditMsg(result.hint || "Invoice updated");
+      const hint = result.hint || "Invoice updated";
       invalidateApiCache("/invoices");
       await reload();
       setEditInv(null);
-      setSendMsg(`Updated ${result.invoice?.number || "invoice"}`);
+      if (result.qbSync?.error) {
+        setSendErr(hint);
+        setSendMsg("");
+      } else {
+        setSendMsg(hint);
+        setSendErr("");
+      }
     } catch (ex) {
       setEditErr(ex instanceof Error ? ex.message : "Could not update invoice");
     } finally {
@@ -672,7 +682,7 @@ export default function BillingPage() {
           if (!editBusy) setEditInv(null);
         }}
         title={editInv ? `Edit invoice ${editInv.number}` : "Edit invoice"}
-        description="Admin override — WMS updates immediately. Sync or edit QuickBooks if the books still show the old figure."
+        description="Admin override — saves in WMS and syncs the linked QuickBooks invoice (amount, due date, paid/void)."
         size="lg"
         footer={
           <div className="flex flex-wrap justify-end gap-2">

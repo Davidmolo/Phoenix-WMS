@@ -355,15 +355,44 @@ router.patch("/invoices/:id", requireRole("admin"), async (req, res, next) => {
       : editNote;
 
     await invoice.save();
+
+    // Cesar: WMS edit → QuickBooks (amount / due / notes; paid → Payment; void → void)
+    let qbSync: {
+      synced: boolean;
+      skipped?: string;
+      voided?: boolean;
+      paymentCreated?: boolean;
+      error?: string;
+    } | null = null;
+    if (invoice.quickbooksId) {
+      const { updateInvoiceInQuickBooks } = await import("../services/quickbooks");
+      qbSync = await updateInvoiceInQuickBooks(String(invoice._id));
+    }
+
     const populated = await Invoice.findById(invoice._id).populate(
       "customerId",
       "name billingMethod email"
     );
+
+    let hint = "WMS updated.";
+    if (!invoice.quickbooksId) {
+      hint = "WMS updated (not in QuickBooks yet).";
+    } else if (qbSync?.synced) {
+      hint = qbSync.voided
+        ? "WMS + QuickBooks updated (invoice voided in QB)."
+        : qbSync.paymentCreated
+          ? "WMS + QuickBooks updated (payment recorded in QB)."
+          : "WMS + QuickBooks updated.";
+    } else if (qbSync?.skipped === "test_account" || qbSync?.skipped === "push_disabled") {
+      hint = "WMS updated (QB push skipped for this account / setting).";
+    } else if (qbSync?.error) {
+      hint = `WMS updated, but QuickBooks sync failed: ${qbSync.error}`;
+    }
+
     res.json({
       invoice: populated,
-      hint: invoice.quickbooksId
-        ? "WMS updated. If QuickBooks still shows the old amount/status, edit or receive payment there too — bank match / Sync will refresh WMS."
-        : "WMS updated.",
+      qbSync,
+      hint,
     });
   } catch (err) {
     next(err);

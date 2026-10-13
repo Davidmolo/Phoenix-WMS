@@ -254,6 +254,7 @@ async function resolveCustomer(
 
 type QbInvoice = {
   Id?: string;
+  SyncToken?: string;
   DocNumber?: string;
   TxnDate?: string;
   DueDate?: string;
@@ -268,12 +269,214 @@ type QbInvoice = {
     Amount?: number;
     Description?: string;
     DetailType?: string;
-    SalesItemLineDetail?: { Qty?: number; UnitPrice?: number };
+    SalesItemLineDetail?: {
+      Qty?: number;
+      UnitPrice?: number;
+      ItemRef?: { value?: string; name?: string };
+    };
     SubTotalLineDetail?: Record<string, unknown>;
     DiscountLineDetail?: Record<string, unknown>;
     DescriptionOnly?: Record<string, unknown>;
   }>;
 };
+
+export type UpdateInvoiceInQbResult = {
+  synced: boolean;
+  skipped?: string;
+  voided?: boolean;
+  paymentCreated?: boolean;
+  error?: string;
+};
+
+/**
+ * Cesar: after admin edits an invoice in WMS, push DueDate / amount / notes to QBO.
+ * Paid → create a Payment for remaining Balance; void → void the QBO invoice.
+ */
+export async function updateInvoiceInQuickBooks(invoiceId: string): Promise<UpdateInvoiceInQbResult> {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) throw new Error("Invoice not found");
+  const companyId = String(invoice.companyId);
+  const qbId = String(invoice.quickbooksId || "");
+  if (!qbId) {
+    return { synced: false, skipped: "not_in_quickbooks" };
+  }
+  if (!env.quickbooksPushEnabled) {
+    return { synced: false, skipped: "push_disabled" };
+  }
+  const cust = await Customer.findById(invoice.customerId).select("testAccount email");
+  if (cust?.testAccount) {
+    return { synced: false, skipped: "test_account" };
+  }
+  if (!quickbooksConfigured()) {
+    return { synced: false, skipped: "not_configured" };
+  }
+
+  try {
+    const raw = await qbGet<{ Invoice?: QbInvoice }>(
+      companyId,
+      `invoice/${qbId}?minorversion=65`
+    );
+    const qbInv = raw.Invoice;
+    if (!qbInv?.Id || qbInv.SyncToken == null) {
+      throw new Error(`QuickBooks invoice ${qbId} not found or missing SyncToken`);
+    }
+
+    // Void in QB
+    if (invoice.status === "void") {
+      await qbPost(companyId, "invoice?operation=void&minorversion=65", {
+        Id: qbInv.Id,
+        SyncToken: qbInv.SyncToken,
+      });
+      invoice.quickbooksPushError = "";
+      await invoice.save();
+      return { synced: true, voided: true };
+    }
+
+    const company = await Company.findById(companyId);
+    const salesLines: Array<Record<string, unknown>> = [];
+    const wmsLines = (invoice.lines || []).filter((l) => Number(l.amount) > 0);
+
+    if (wmsLines.length > 0) {
+      for (const line of wmsLines) {
+        const amount = Number(line.amount) || 0;
+        const qty = Number(line.qty) || 1;
+        const unit = Number(line.unitAmount) || amount / qty;
+        const itemId = await itemIdForLineType(
+          companyId,
+          String(line.type || "other"),
+          company?.quickbooksItemMap as ItemMap | undefined
+        );
+        salesLines.push({
+          DetailType: "SalesItemLineDetail",
+          Amount: Math.round(amount * 100) / 100,
+          Description: String(line.description || "WMS charge").slice(0, 4000),
+          SalesItemLineDetail: {
+            ItemRef: { value: itemId },
+            Qty: qty,
+            UnitPrice: Math.round(unit * 100) / 100,
+          },
+        });
+      }
+    } else {
+      // No WMS lines — scale / replace existing QB sales lines to match WMS total
+      const existingSales = (qbInv.Line || []).filter((l) => l.DetailType === "SalesItemLineDetail");
+      const targetTotal = Math.round(Number(invoice.total) * 100) / 100;
+      if (existingSales.length === 1) {
+        const old = existingSales[0];
+        const qty = Number(old.SalesItemLineDetail?.Qty ?? 1) || 1;
+        salesLines.push({
+          Id: old.Id,
+          DetailType: "SalesItemLineDetail",
+          Amount: targetTotal,
+          Description: old.Description || invoice.number,
+          SalesItemLineDetail: {
+            ItemRef: old.SalesItemLineDetail?.ItemRef || {
+              value: await itemIdForLineType(companyId, "other", company?.quickbooksItemMap as ItemMap),
+            },
+            Qty: qty,
+            UnitPrice: Math.round((targetTotal / qty) * 100) / 100,
+          },
+        });
+      } else if (existingSales.length > 1 && targetTotal >= 0) {
+        const oldSum =
+          existingSales.reduce((s, l) => s + (Number(l.Amount) || 0), 0) || targetTotal || 1;
+        for (const old of existingSales) {
+          const share = (Number(old.Amount) || 0) / oldSum;
+          const amount = Math.round(targetTotal * share * 100) / 100;
+          const qty = Number(old.SalesItemLineDetail?.Qty ?? 1) || 1;
+          salesLines.push({
+            Id: old.Id,
+            DetailType: "SalesItemLineDetail",
+            Amount: amount,
+            Description: old.Description || "WMS charge",
+            SalesItemLineDetail: {
+              ItemRef: old.SalesItemLineDetail?.ItemRef || {
+                value: await itemIdForLineType(companyId, "other", company?.quickbooksItemMap as ItemMap),
+              },
+              Qty: qty,
+              UnitPrice: Math.round((amount / qty) * 100) / 100,
+            },
+          });
+        }
+      } else {
+        const itemId = await itemIdForLineType(
+          companyId,
+          "other",
+          company?.quickbooksItemMap as ItemMap | undefined
+        );
+        salesLines.push({
+          DetailType: "SalesItemLineDetail",
+          Amount: targetTotal,
+          Description: `Phoenix WMS · ${invoice.number}`,
+          SalesItemLineDetail: {
+            ItemRef: { value: itemId },
+            Qty: 1,
+            UnitPrice: targetTotal,
+          },
+        });
+      }
+    }
+
+    const payload: Record<string, unknown> = {
+      Id: qbInv.Id,
+      SyncToken: qbInv.SyncToken,
+      sparse: true,
+      Line: salesLines,
+      PrivateNote: String(invoice.notes || "").slice(0, 4000),
+    };
+    if (invoice.dueDate) {
+      payload.DueDate = ymd(invoice.dueDate instanceof Date ? invoice.dueDate : new Date(invoice.dueDate));
+    }
+
+    const updated = await qbPost<{ Invoice?: QbInvoice }>(
+      companyId,
+      "invoice?minorversion=65",
+      payload
+    );
+    let paymentCreated = false;
+    const after = updated.Invoice || qbInv;
+    const balanceAfter = Number(after.Balance ?? updated.Invoice?.Balance);
+    // Re-fetch balance if needed
+    let balance = Number.isFinite(balanceAfter) ? balanceAfter : Number(qbInv.Balance) || 0;
+    if (invoice.status === "paid" || Number(invoice.balanceDue) === 0) {
+      const fresh = await qbGet<{ Invoice?: QbInvoice }>(
+        companyId,
+        `invoice/${qbId}?minorversion=65`
+      );
+      balance = Number(fresh.Invoice?.Balance) || 0;
+      if (balance > 0.009) {
+        const customerRef = String(fresh.Invoice?.CustomerRef?.value || qbInv.CustomerRef?.value || "");
+        if (!customerRef) throw new Error("QuickBooks invoice missing CustomerRef for payment");
+        await qbPost(companyId, "payment?minorversion=65", {
+          CustomerRef: { value: customerRef },
+          TotalAmt: Math.round(balance * 100) / 100,
+          Line: [
+            {
+              Amount: Math.round(balance * 100) / 100,
+              LinkedTxn: [{ TxnId: qbId, TxnType: "Invoice" }],
+            },
+          ],
+        });
+        paymentCreated = true;
+      }
+    }
+
+    invoice.quickbooksPushError = "";
+    await invoice.save();
+    // Pull QB totals/status back into WMS
+    try {
+      await syncInvoiceByQuickBooksId(companyId, qbId);
+    } catch {
+      /* edit already saved locally */
+    }
+    return { synced: true, paymentCreated };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    invoice.quickbooksPushError = `QB sync after edit failed: ${message}`.slice(0, 500);
+    await invoice.save();
+    return { synced: false, error: message };
+  }
+}
 
 export async function syncInvoicesFromQuickBooks(companyId: string) {
   const company = await Company.findById(companyId);
