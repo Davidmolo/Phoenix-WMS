@@ -3,6 +3,7 @@ import { Accessorial } from "../models/Accessorial";
 import { Customer } from "../models/Customer";
 import { Company } from "../models/Company";
 import { DEFAULT_FEE_SCHEDULE } from "../constants/feeSchedule";
+import { env } from "../config/env";
 import { pushInvoiceToQuickBooks, requireCustomerEmail } from "./quickbooks";
 
 export type InvoiceLineInput = {
@@ -71,11 +72,27 @@ export async function createAndPushInvoice(opts: {
   if (!customer) throw new Error("Customer not found");
   requireCustomerEmail(customer.email);
 
+  /** Skip QBO when globally disabled or this is a test customer (Cesar audit). */
+  const skipQb =
+    !env.quickbooksPushEnabled || Boolean((customer as { testAccount?: boolean }).testAccount);
+
   const existing = await Invoice.findOne({
     companyId: opts.companyId,
     wmsJobKey: opts.wmsJobKey,
   });
   if (existing) {
+    if (skipQb) {
+      return {
+        invoice: existing,
+        push: {
+          invoiceId: String(existing._id),
+          quickbooksId: null,
+          pushed: false,
+          skipped: "test_or_push_disabled" as const,
+        },
+        created: false,
+      };
+    }
     const push = await pushExisting(existing);
     return { invoice: existing, push, created: false };
   }
@@ -117,7 +134,12 @@ export async function createAndPushInvoice(opts: {
           balanceDue: total,
           dueDate,
           termsDays,
-          notes: opts.notes || "",
+          notes: [
+            opts.notes || "",
+            skipQb ? "TEST / not pushed to QuickBooks" : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
           wmsJobKey: opts.wmsJobKey,
           sourceType: opts.sourceType,
           sourceId: opts.sourceId,
@@ -158,6 +180,27 @@ export async function createAndPushInvoice(opts: {
     );
   }
 
+  if (skipQb) {
+    // Keep as unpaid in WMS so portal/ops can still see balance; do not touch QBO
+    invoice.status = "unpaid";
+    invoice.quickbooksPushError = skipQb
+      ? (customer as { testAccount?: boolean }).testAccount
+        ? "Skipped: test customer (testAccount)"
+        : "Skipped: QUICKBOOKS_PUSH_ENABLED=false"
+      : "";
+    await invoice.save();
+    return {
+      invoice,
+      push: {
+        invoiceId: String(invoice._id),
+        quickbooksId: null,
+        pushed: false,
+        skipped: "test_or_push_disabled" as const,
+      },
+      created: true,
+    };
+  }
+
   const push = await pushInvoiceToQuickBooks(String(invoice._id));
   if (push.pushed && push.quickbooksId) {
     // Open balance before due date → unpaid (not "sent")
@@ -166,6 +209,88 @@ export async function createAndPushInvoice(opts: {
   }
 
   return { invoice, push, created: true };
+}
+
+/**
+ * Cesar: Pallet / sqft cadence — invoice unload/handling when inbound BOL closes.
+ * Uses open accessorials from receive, or builds fee-schedule / customer unload rate lines.
+ */
+export async function invoiceInboundShipment(opts: {
+  companyId: string;
+  customerId: string;
+  shipmentId: string;
+  palletCount: number;
+  carrier?: string;
+  completedAt?: Date;
+}) {
+  const customer = await Customer.findOne({
+    _id: opts.customerId,
+    companyId: opts.companyId,
+  });
+  if (!customer) return { invoice: null, push: null, created: false, skipped: "no_customer" as const };
+
+  const company = await Company.findById(opts.companyId);
+  const fees = { ...DEFAULT_FEE_SCHEDULE, ...(company?.feeSchedule || {}) };
+  const when = opts.completedAt || new Date();
+  const lines: InvoiceLineInput[] = [];
+  const accessorialIds: string[] = [];
+
+  const openAcc = await Accessorial.find({
+    companyId: opts.companyId,
+    shipmentId: opts.shipmentId,
+    invoiceId: null,
+  });
+  for (const a of openAcc) {
+    lines.push({
+      description: a.description,
+      qty: 1,
+      unitAmount: a.amount,
+      amount: a.amount,
+      type: (["handling", "ftl", "crossdock", "dwell", "storage", "accessorial"].includes(a.type)
+        ? a.type
+        : "accessorial") as InvoiceLineInput["type"],
+      shipmentId: opts.shipmentId,
+      palletId: a.palletId ? String(a.palletId) : null,
+    });
+    accessorialIds.push(String(a._id));
+  }
+
+  // If receive didn't post accessorials (legacy), build pallet unload now
+  if (lines.length === 0 && customer.billingMethod !== "contract") {
+    const per =
+      customer.billingMethod === "crossdock"
+        ? Number(fees.crossDockPerPallet ?? 25)
+        : Number(customer.unloadFee || fees.unloadLoadPerPallet || 14);
+    const qty = Math.max(1, opts.palletCount);
+    let amount = Math.round(per * qty * 100) / 100;
+    if (customer.billingMethod !== "crossdock") {
+      amount = Math.max(Number(fees.unloadLoadMinimum ?? 125), amount);
+    }
+    lines.push({
+      description: `Inbound unload / handling — ${qty} pallet(s)${
+        opts.carrier ? ` · ${opts.carrier}` : ""
+      }`,
+      qty,
+      unitAmount: per,
+      amount,
+      type: customer.billingMethod === "crossdock" ? "crossdock" : "handling",
+      shipmentId: opts.shipmentId,
+    });
+  }
+
+  return createAndPushInvoice({
+    companyId: opts.companyId,
+    customerId: opts.customerId,
+    wmsJobKey: `bol:${opts.shipmentId}`,
+    sourceType: "shipment",
+    sourceId: opts.shipmentId,
+    lines,
+    periodStart: when,
+    periodEnd: when,
+    notes: `Inbound BOL close · shipment ${opts.shipmentId}`,
+    termsDays: 30,
+    accessorialIds,
+  });
 }
 
 /** Outbound ship invoice — Cesar: if something is leaving, they need to pay (SBA exception). */

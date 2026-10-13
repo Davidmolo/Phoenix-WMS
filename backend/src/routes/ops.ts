@@ -255,6 +255,122 @@ router.get("/stats/overview", requireRole("admin", "staff"), async (req, res, ne
 });
 
 /**
+ * Cesar Oct 12: admin-only invoice edit (override amount/status when ops need a customer to pay now).
+ * Updates WMS; if linked to QB, best-effort SyncToken update of DocNumber notes / PrivateNote only
+ * for status/amount — full line sync is manual in QB when needed.
+ */
+router.patch("/invoices/:id", requireRole("admin"), async (req, res, next) => {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      companyId: req.auth!.companyId,
+    });
+    if (!invoice) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+
+    const {
+      status,
+      notes,
+      dueDate,
+      termsDays,
+      total,
+      balanceDue,
+      lines,
+    } = req.body;
+
+    if (status !== undefined) {
+      const allowed = ["draft", "sent", "unpaid", "paid", "void", "past_due"];
+      if (!allowed.includes(String(status))) {
+        res.status(400).json({ error: `status must be one of ${allowed.join(", ")}` });
+        return;
+      }
+      invoice.status = status;
+      if (status === "paid") {
+        invoice.balanceDue = 0;
+      }
+    }
+    if (notes !== undefined) invoice.notes = String(notes ?? "");
+    if (dueDate !== undefined) {
+      invoice.dueDate = dueDate ? new Date(dueDate) : null;
+    }
+    if (termsDays !== undefined) {
+      invoice.termsDays = Number(termsDays);
+    }
+    if (Array.isArray(lines) && lines.length > 0) {
+      invoice.lines = lines.map(
+        (l: {
+          description?: string;
+          qty?: number;
+          unitAmount?: number;
+          amount?: number;
+          type?: string;
+        }) => {
+          const qty = Number(l.qty) || 1;
+          const unitAmount = Number(l.unitAmount ?? l.amount) || 0;
+          const amount =
+            l.amount != null ? Number(l.amount) : Math.round(qty * unitAmount * 100) / 100;
+          return {
+            description: String(l.description || "Line").slice(0, 500),
+            qty,
+            unitAmount,
+            amount,
+            type: l.type || "other",
+            palletId: null,
+            shipmentId: null,
+          };
+        }
+      ) as typeof invoice.lines;
+      const sum = Math.round(invoice.lines.reduce((s, l) => s + Number(l.amount || 0), 0) * 100) / 100;
+      invoice.subtotal = sum;
+      invoice.total = sum;
+      if (invoice.status !== "paid") {
+        invoice.balanceDue = sum;
+      }
+    } else {
+      if (total !== undefined) {
+        const t = Number(total);
+        if (!Number.isFinite(t) || t < 0) {
+          res.status(400).json({ error: "total must be a non-negative number" });
+          return;
+        }
+        invoice.total = t;
+        invoice.subtotal = t;
+      }
+      if (balanceDue !== undefined) {
+        const b = Number(balanceDue);
+        if (!Number.isFinite(b) || b < 0) {
+          res.status(400).json({ error: "balanceDue must be a non-negative number" });
+          return;
+        }
+        invoice.balanceDue = b;
+        if (b === 0 && invoice.status !== "void") invoice.status = "paid";
+      }
+    }
+
+    const editNote = `Edited by ${req.auth!.email || "admin"} ${new Date().toISOString()}`;
+    invoice.notes = invoice.notes
+      ? `${invoice.notes}\n${editNote}`
+      : editNote;
+
+    await invoice.save();
+    const populated = await Invoice.findById(invoice._id).populate(
+      "customerId",
+      "name billingMethod email"
+    );
+    res.json({
+      invoice: populated,
+      hint: invoice.quickbooksId
+        ? "WMS updated. If QuickBooks still shows the old amount/status, edit or receive payment there too — bank match / Sync will refresh WMS."
+        : "WMS updated.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Email invoice to customer.
  * Prefer QuickBooks send (includes QB Pay Now when enabled); fall back to WMS SMTP + portal/Zelle.
  */
@@ -263,12 +379,16 @@ router.post("/invoices/:id/send", requireRole("admin", "staff"), async (req, res
     const invoice = await Invoice.findOne({
       _id: req.params.id,
       companyId: req.auth!.companyId,
-    }).populate("customerId", "name email");
+    }).populate("customerId", "name email testAccount");
     if (!invoice) {
       res.status(404).json({ error: "Invoice not found" });
       return;
     }
-    const customer = invoice.customerId as unknown as { name?: string; email?: string } | null;
+    const customer = invoice.customerId as unknown as {
+      name?: string;
+      email?: string;
+      testAccount?: boolean;
+    } | null;
     const to = String(req.body.email || customer?.email || "").trim();
     if (!to || !to.includes("@")) {
       res.status(400).json({
@@ -277,7 +397,8 @@ router.post("/invoices/:id/send", requireRole("admin", "staff"), async (req, res
       return;
     }
 
-    // Cesar: QB emails the invoice (pay link). Push first if not yet in QB.
+    const { env } = await import("../config/env");
+    // Cesar: live customers → QB create + QB email (Pay Now). Test / no QB → SMTP + Zelle.
     const {
       pushInvoiceToQuickBooks,
       sendInvoiceEmailViaQuickBooks,
@@ -286,43 +407,48 @@ router.post("/invoices/:id/send", requireRole("admin", "staff"), async (req, res
     const { QuickBooksConnection } = await import("../models/QuickBooksConnection");
     const companyId = String(req.auth!.companyId);
     const qbConnected = Boolean(await QuickBooksConnection.findOne({ companyId }));
+    const allowQbPay =
+      env.quickbooksPushEnabled && !customer?.testAccount && quickbooksConfigured() && qbConnected;
 
-    if (quickbooksConfigured() && qbConnected) {
+    if (allowQbPay) {
       if (!invoice.quickbooksId) {
         const pushed = await pushInvoiceToQuickBooks(String(invoice._id));
-        if (!pushed.quickbooksId) {
+        if (pushed.quickbooksId) {
+          invoice.quickbooksId = pushed.quickbooksId;
+        } else if (pushed.skipped !== "test_account" && pushed.skipped !== "push_disabled") {
           res.status(502).json({
             error: pushed.error || "Could not create invoice in QuickBooks before emailing",
           });
           return;
         }
-        invoice.quickbooksId = pushed.quickbooksId;
       }
-      await sendInvoiceEmailViaQuickBooks({
-        companyId,
-        quickbooksInvoiceId: String(invoice.quickbooksId),
-        sendTo: to,
-      });
-      if (invoice.status === "draft") {
-        invoice.status = "unpaid";
-        await invoice.save();
+      if (invoice.quickbooksId) {
+        await sendInvoiceEmailViaQuickBooks({
+          companyId,
+          quickbooksInvoiceId: String(invoice.quickbooksId),
+          sendTo: to,
+        });
+        if (invoice.status === "draft") {
+          invoice.status = "unpaid";
+          await invoice.save();
+        }
+        const fresh = await Invoice.findById(invoice._id);
+        res.json({
+          ok: true,
+          via: "quickbooks",
+          invoice: fresh,
+          emailedTo: to,
+          payHint: "Customer should use Pay Now in the QuickBooks email (card/ACH when enabled).",
+        });
+        return;
       }
-      const fresh = await Invoice.findById(invoice._id);
-      res.json({
-        ok: true,
-        via: "quickbooks",
-        invoice: fresh,
-        emailedTo: to,
-      });
-      return;
     }
 
     const { sendInvoiceEmail } = await import("../services/mail");
-    const { env } = await import("../config/env");
     const portalUrl = `${env.appUrl.replace(/\/$/, "")}/billing`;
     const zelleHint =
       process.env.ZELLE_PAY_HINT ||
-      "Pay via Zelle to the Phoenix Cross Dock business account listed in your welcome email.";
+      "Pay via Zelle to the Phoenix Cross Dock business account listed in your welcome email. Include the invoice number in the memo.";
     await sendInvoiceEmail({
       to,
       name: customer?.name || to,
@@ -335,7 +461,13 @@ router.post("/invoices/:id/send", requireRole("admin", "staff"), async (req, res
       invoice.status = "unpaid";
       await invoice.save();
     }
-    res.json({ ok: true, via: "wms_smtp", invoice, emailedTo: to });
+    res.json({
+      ok: true,
+      via: "wms_smtp",
+      invoice,
+      emailedTo: to,
+      payHint: "Zelle (and portal). QuickBooks Pay Now is used when the invoice is in QBO.",
+    });
   } catch (err) {
     next(err);
   }

@@ -130,7 +130,7 @@ export default function FeeSchedulePage() {
           icon={<Receipt className="h-5 w-5" />}
           description={
             data?.companyName
-              ? `${data.companyName} published rates — ad hoc / overflow (non-contract)`
+              ? `${data.companyName} — fallback rates when customer unload/load is blank. Cadence: Pallet = BOL close (in/out); Crossdock/Rework job = instant; Contract = monthly.`
               : "Company published rate card"
           }
           actions={

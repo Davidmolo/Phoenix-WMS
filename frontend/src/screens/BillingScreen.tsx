@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Link2, Mail, Printer, RefreshCw, Search, Unlink } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, Link2, Mail, Pencil, Printer, RefreshCw, Search, Unlink, X } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
 import {
@@ -10,12 +10,15 @@ import {
   Button,
   Card,
   CardBody,
+  CardTitle,
   DataTable,
   Field,
   FormGrid,
   Input,
+  NumberInput,
   PageHeader,
   SearchableSelect,
+  Select,
   statusLabel,
   statusTone,
   type Column,
@@ -70,6 +73,7 @@ function paidSoFar(inv: InvoiceRow): number | null {
 export default function BillingPage() {
   const { user, token } = useAuth();
   const isStaff = user?.role !== "customer";
+  const isAdmin = user?.role === "admin";
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [customerId, setCustomerId] = useState("");
@@ -83,6 +87,15 @@ export default function BillingPage() {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sendMsg, setSendMsg] = useState("");
   const [sendErr, setSendErr] = useState("");
+  const [editInv, setEditInv] = useState<InvoiceRow | null>(null);
+  const [editStatus, setEditStatus] = useState("unpaid");
+  const [editTotal, setEditTotal] = useState("");
+  const [editBalance, setEditBalance] = useState("");
+  const [editDue, setEditDue] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState("");
+  const [editMsg, setEditMsg] = useState("");
 
   const { data: qbStatus, reload: reloadQb } = useApiQuery<QbStatus>("/quickbooks/status", {
     enabled: isStaff,
@@ -189,11 +202,15 @@ export default function BillingPage() {
       setSendErr("");
       setSendMsg("");
       try {
-        const result = await api<{ emailedTo: string }>(`/invoices/${inv._id}/send`, {
+        const result = await api<{ emailedTo: string; via?: string }>(`/invoices/${inv._id}/send`, {
           method: "POST",
           token,
         });
-        setSendMsg(`Invoice ${inv.number} emailed to ${result.emailedTo}`);
+        setSendMsg(
+          result.via === "quickbooks"
+            ? `Invoice ${inv.number} emailed via QuickBooks to ${result.emailedTo} (Pay Now when enabled)`
+            : `Invoice ${inv.number} emailed to ${result.emailedTo}`
+        );
         invalidateApiCache("/invoices");
         void reload();
       } catch (ex) {
@@ -204,6 +221,47 @@ export default function BillingPage() {
     },
     [token, reload]
   );
+
+  function openEdit(inv: InvoiceRow) {
+    setEditInv(inv);
+    setEditStatus(inv.status || "unpaid");
+    setEditTotal(String(inv.total ?? ""));
+    setEditBalance(inv.balanceDue != null ? String(inv.balanceDue) : String(inv.total ?? ""));
+    setEditDue(inv.dueDate ? String(inv.dueDate).slice(0, 10) : "");
+    setEditNotes(inv.notes || "");
+    setEditErr("");
+    setEditMsg("");
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !editInv) return;
+    setEditBusy(true);
+    setEditErr("");
+    setEditMsg("");
+    try {
+      const result = await api<{ invoice: InvoiceRow; hint?: string }>(`/invoices/${editInv._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          status: editStatus,
+          total: editTotal === "" ? undefined : Number(editTotal),
+          balanceDue: editBalance === "" ? undefined : Number(editBalance),
+          dueDate: editDue || null,
+          notes: editNotes,
+        }),
+      });
+      setEditMsg(result.hint || "Invoice updated");
+      invalidateApiCache("/invoices");
+      await reload();
+      setEditInv(null);
+      setSendMsg(`Updated ${result.invoice?.number || "invoice"}`);
+    } catch (ex) {
+      setEditErr(ex instanceof Error ? ex.message : "Could not update invoice");
+    } finally {
+      setEditBusy(false);
+    }
+  }
 
   async function disconnectQuickBooks() {
     if (!window.confirm("Disconnect QuickBooks from Phoenix WMS?")) return;
@@ -318,26 +376,42 @@ export default function BillingPage() {
     if (isStaff) {
       cols.push({
         key: "actions",
-        header: "Email",
+        header: "Actions",
         render: (inv) => (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            icon={<Mail className="h-3.5 w-3.5" />}
-            loading={sendingId === inv._id}
-            onClick={(e) => {
-              e.stopPropagation();
-              void sendInvoice(inv);
-            }}
-          >
-            Email invoice
-          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              icon={<Mail className="h-3.5 w-3.5" />}
+              loading={sendingId === inv._id}
+              onClick={(e) => {
+                e.stopPropagation();
+                void sendInvoice(inv);
+              }}
+            >
+              Email Pay Now
+            </Button>
+            {isAdmin ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Pencil className="h-3.5 w-3.5" />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEdit(inv);
+                }}
+              >
+                Edit
+              </Button>
+            ) : null}
+          </div>
         ),
       });
     }
     return cols;
-  }, [isStaff, sendingId, sendInvoice]);
+  }, [isStaff, isAdmin, sendingId, sendInvoice]);
 
   function clearFilters() {
     setFromDate("");
@@ -357,8 +431,8 @@ export default function BillingPage() {
         icon={<FileText className="h-5 w-5" />}
         description={
           isStaff
-            ? "WMS creates invoices → QuickBooks · Sync pulls payment status back"
-            : "Invoice total = billed · Balance due = still owed"
+            ? "WMS → QuickBooks → customer gets Pay Now email · Sync/webhook pulls paid status back"
+            : "Pay via Pay Now in your QuickBooks invoice email, or Zelle with the invoice # in the memo"
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -468,22 +542,83 @@ export default function BillingPage() {
         </Alert>
       ) : null}
 
+      {editInv && isAdmin ? (
+        <Card className="mb-4">
+          <CardBody>
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <CardTitle>Edit invoice {editInv.number} (admin)</CardTitle>
+              <button
+                type="button"
+                className="rounded-lg border border-border p-1.5 text-muted hover:bg-surface-2"
+                onClick={() => setEditInv(null)}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-muted">
+              Cesar override — change status/amount when a customer needs to pay now. WMS updates
+              immediately; sync or edit QuickBooks if the books still show the old figure.
+            </p>
+            <Alert>{editErr}</Alert>
+            {editMsg ? <Alert tone="success">{editMsg}</Alert> : null}
+            <form onSubmit={saveEdit} className="space-y-3">
+              <FormGrid cols={3}>
+                <Field label="Status">
+                  <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                    <option value="draft">Draft</option>
+                    <option value="unpaid">Unpaid</option>
+                    <option value="past_due">Past due</option>
+                    <option value="paid">Paid</option>
+                    <option value="void">Void</option>
+                    <option value="sent">Sent</option>
+                  </Select>
+                </Field>
+                <Field label="Invoice total">
+                  <NumberInput value={editTotal} onValueChange={setEditTotal} />
+                </Field>
+                <Field label="Balance due">
+                  <NumberInput value={editBalance} onValueChange={setEditBalance} />
+                </Field>
+                <Field label="Due date">
+                  <Input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
+                </Field>
+                <Field label="Notes" className="sm:col-span-2">
+                  <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                </Field>
+              </FormGrid>
+              <Button type="submit" loading={editBusy} icon={<Pencil className="h-4 w-4" />}>
+                Save invoice
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+      ) : null}
+
       {!isStaff ? (
         <Card className="mb-5">
           <CardBody>
             <h2 className="font-display m-0 text-[13px] font-semibold tracking-[0.04em] text-navy uppercase">
-              Pay now
+              How to pay
             </h2>
             <p className="mt-2 mb-0 text-sm leading-relaxed text-muted">
-              Pay by <strong className="text-navy">Zelle</strong> to the Phoenix Cross Dock business
-              account listed in your invoice email, and include the invoice number in the memo so we
-              can match your payment. Online card payment (Stripe) is coming soon once keys are
-              configured — invoices will show a &ldquo;Pay with card&rdquo; button here when it&apos;s
-              live.
+              <strong className="text-navy">1. QuickBooks Pay Now</strong> — open the invoice email
+              from QuickBooks and use <strong>Pay Now</strong> for card or ACH when available.{" "}
+              <strong className="text-navy">2. Zelle</strong> — pay the Phoenix Cross Dock business
+              account listed in your email/welcome packet and put the <strong>invoice number</strong>{" "}
+              in the memo so we can match it. Balance due below updates after QuickBooks records the
+              payment.
             </p>
           </CardBody>
         </Card>
-      ) : null}
+      ) : (
+        <Alert tone="info" className="mb-4">
+          <strong>Pay path (Cesar):</strong> Email uses QuickBooks so the customer gets{" "}
+          <strong>Pay Now</strong>. Payments land in QB; Sync / webhook refresh balance due here.
+          Test customers stay WMS-only (SMTP + Zelle). Admin <strong>Edit</strong> overrides status
+          when someone needs to pay now.
+        </Alert>
+      )}
 
       <Alert tone="info" className="mb-4">
         <strong>Invoice total</strong> is the full amount billed.{" "}

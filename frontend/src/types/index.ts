@@ -34,6 +34,8 @@ export type Customer = {
   quickbooksCustomerId?: string | null;
   /** Origin of the customer record — not cleared when QB is disconnected. */
   source?: "wms" | "quickbooks";
+  /** When true, WMS invoices create but are not pushed to QuickBooks. */
+  testAccount?: boolean;
 };
 
 export type PalletLocation = {
@@ -96,6 +98,7 @@ export type Invoice = {
   periodStart: string;
   periodEnd: string;
   dueDate?: string | null;
+  notes?: string;
   quickbooksId?: string | null;
   customerId?: string | { _id: string; name?: string; billingMethod?: string };
   lines?: Array<{ description: string; amount: number; type: string; qty?: number }>;
@@ -147,6 +150,34 @@ export type Lpn = {
   customerId: string;
 };
 
+export type BolSignature = {
+  role: "driver" | "warehouse";
+  name: string;
+  imageDataUrl?: string;
+  signedAt?: string;
+};
+
+export type ShipmentBol = {
+  status?: "draft" | "open" | "closed";
+  driverName?: string;
+  truckNumber?: string;
+  countVerified?: boolean | null;
+  actualCount?: number | null;
+  rewrapBanding?: boolean | null;
+  condition?: string;
+  exceptionNotes?: string;
+  billingFlags?: string[];
+  declaredValue?: string;
+  refInboundBol?: string;
+  timeReceived?: string | null;
+  timeReleased?: string | null;
+  signatures?: BolSignature[];
+  exceptionPhotoPaths?: string[];
+  closedAt?: string | null;
+  documentPath?: string;
+  invoiceId?: string | null;
+};
+
 export type Shipment = {
   _id: string;
   direction: "inbound" | "outbound";
@@ -172,6 +203,9 @@ export type Shipment = {
   requestId?: string | null;
   jobName?: string;
   poNumber?: string;
+  /** Planned count on expected appointments (Booking → Expected → ops). */
+  expectedPalletCount?: number | null;
+  bol?: ShipmentBol;
 };
 
 export type Booking = {

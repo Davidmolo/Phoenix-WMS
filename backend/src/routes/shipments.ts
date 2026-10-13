@@ -9,15 +9,22 @@ import { Lpn } from "../models/Lpn";
 import { nextPalletExternalId, nextLpnCode } from "../services/ids";
 import { splitClientReference } from "../services/palletSpace";
 import { assignLocationGroups, slotsPerPallet } from "../services/locationAssign";
-import { buildBolDocument, bolHtml, generateBolNumber } from "../services/bol";
+import { generateBolNumber } from "../services/bol";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
-import { invoiceOutboundShipment } from "../services/billingInvoice";
+import {
+  buildShipmentBolDocument,
+  customerHasLienHold,
+  isBolClosed,
+  resolveInboundBolRefs,
+} from "../services/bolWorkflow";
+import shipmentBolRoutes from "./shipmentBol";
 
 const SERVICE_TYPES = ["drop_and_store", "crossdock", "trailer_rework", "pickup"] as const;
 
 const router = Router();
 router.use(requireAuth);
+router.use(shipmentBolRoutes);
 
 router.get("/", async (req, res, next) => {
   try {
@@ -82,6 +89,7 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
 
     const refs = splitClientReference(poOrJob || poNumber || jobName);
 
+    const planned = Math.max(1, Math.min(200, Number(palletCount) || 1));
     const shipment = await Shipment.create({
       companyId: req.auth!.companyId,
       warehouseId,
@@ -96,7 +104,8 @@ router.post("/expected", requireRole("admin", "staff"), async (req, res, next) =
       jobName: refs.jobName,
       poNumber: refs.poNumber,
       weightLbs: weightLbs != null && weightLbs !== "" ? Number(weightLbs) : null,
-      notes: notes || `Expected ${st.replace(/_/g, " ")} · ${palletCount} pallet(s)`,
+      expectedPalletCount: planned,
+      notes: notes || `Expected ${st.replace(/_/g, " ")} · ${planned} pallet(s)`,
       palletIds: [],
     });
 
@@ -213,6 +222,26 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
       billAsFtl,
     } = req.body;
 
+    // Cesar: signed BOL is immutable — freight/party fields locked after close (use amendment)
+    if (isBolClosed(shipment)) {
+      const locked =
+        carrier !== undefined ||
+        trailerNumber !== undefined ||
+        sealNumber !== undefined ||
+        scac !== undefined ||
+        shipFrom !== undefined ||
+        shipTo !== undefined ||
+        thirdParty !== undefined ||
+        weightLbs !== undefined;
+      if (locked) {
+        res.status(400).json({
+          error: "Signed BOL is immutable — create a BOL amendment to correct freight details",
+          code: "BOL_LOCKED",
+        });
+        return;
+      }
+    }
+
     if (carrier !== undefined) shipment.carrier = String(carrier);
     if (trailerNumber !== undefined) shipment.trailerNumber = String(trailerNumber);
     if (sealNumber !== undefined) shipment.sealNumber = String(sealNumber);
@@ -262,7 +291,7 @@ router.get("/:id", async (req, res, next) => {
     const shipment = await Shipment.findOne({
       _id: req.params.id,
       companyId: req.auth!.companyId,
-    }).populate("customerId", "name email phone address contact");
+    }).populate("customerId", "name email phone address contact quickbooksCustomerId");
     if (!shipment) {
       res.status(404).json({ error: "Shipment not found" });
       return;
@@ -303,70 +332,20 @@ router.get("/:id", async (req, res, next) => {
       if (dirty) await p.save();
     }
 
-    const customer = shipment.customerId as unknown as { name?: string } | null;
+    const customer = shipment.customerId as unknown as {
+      name?: string;
+      _id?: unknown;
+      quickbooksCustomerId?: string | null;
+    } | null;
     const bol =
       shipment.bolNumber || pallets.length
-        ? buildBolDocument({
-            bolNumber: shipment.bolNumber || "(pending)",
-            direction: shipment.direction,
-            carrier: shipment.carrier,
-            trailerNumber: shipment.trailerNumber,
-            sealNumber: shipment.sealNumber,
-            scac: shipment.scac,
-            shipFrom: shipment.shipFrom,
-            shipTo: shipment.shipTo || customer?.name || "",
-            thirdParty: shipment.thirdParty,
-            customerName: customer?.name || "",
-            notes: shipment.notes,
-            pallets,
-          })
+        ? await buildShipmentBolDocument(shipment, pallets, customer)
         : null;
-    res.json({ shipment, pallets, bol });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/** Printable Bill of Lading HTML for a completed (or in-progress) shipment. */
-router.get("/:id/bol", requireRole("admin", "staff", "customer"), async (req, res, next) => {
-  try {
-    const shipment = await Shipment.findOne({
-      _id: req.params.id,
-      companyId: req.auth!.companyId,
-    }).populate("customerId", "name");
-    if (!shipment) {
-      res.status(404).json({ error: "Shipment not found" });
-      return;
-    }
-    if (
-      req.auth!.role === "customer" &&
-      String((shipment.customerId as { _id?: unknown })?._id || shipment.customerId) !==
-        String(req.auth!.customerId)
-    ) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const pallets = await Pallet.find({ _id: { $in: shipment.palletIds } });
-    const customer = shipment.customerId as unknown as { name?: string } | null;
-    if (!shipment.bolNumber) {
-      shipment.bolNumber = generateBolNumber();
-      await shipment.save();
-    }
-    const doc = buildBolDocument({
-      bolNumber: shipment.bolNumber,
-      direction: shipment.direction,
-      carrier: shipment.carrier,
-      trailerNumber: shipment.trailerNumber,
-      sealNumber: shipment.sealNumber,
-      scac: shipment.scac,
-      shipFrom: shipment.shipFrom || "Phoenix Cross Dock",
-      shipTo: shipment.shipTo || customer?.name || "",
-      thirdParty: shipment.thirdParty,
-      customerName: customer?.name || "",
-      notes: shipment.notes,
-      pallets,
-    });
-    res.type("html").send(bolHtml(doc));
+    const lien =
+      customer?._id
+        ? await customerHasLienHold(String(shipment.companyId), String(customer._id))
+        : null;
+    res.json({ shipment, pallets, bol, lien });
   } catch (err) {
     next(err);
   }
@@ -574,7 +553,13 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       shipment.palletIds.push(pallet._id);
     }
 
-    // Billing: SBA contract handling or FTL
+    // Billing accruals (invoiced when BOL closes — Cesar cadence)
+    const companyDoc = await (await import("../models/Company")).Company.findById(companyId);
+    const fees = {
+      ...(await import("../constants/feeSchedule")).DEFAULT_FEE_SCHEDULE,
+      ...(companyDoc?.feeSchedule || {}),
+    };
+
     if (customer.billingMethod === "contract") {
       if (billAsFtl && customer.contractFtlRate) {
         shipment.ftlRateApplied = customer.contractFtlRate;
@@ -603,9 +588,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         }
       }
     } else if (customer.billingMethod === "crossdock") {
-      // Company fee schedule applied on invoice generation; post placeholder crossdock charge
-      const company = await (await import("../models/Company")).Company.findById(companyId);
-      const rate = company?.feeSchedule?.crossDockPerPallet ?? 25;
+      const rate = fees.crossDockPerPallet ?? 25;
       for (const p of createdPallets) {
         await Accessorial.create({
           companyId,
@@ -618,17 +601,41 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
           date: new Date(),
         });
       }
+    } else {
+      // Pallet / sqft — unload at customer rate or fee-schedule fallback (audit: was inert)
+      // Invoiced when inbound BOL closes. $125 minimum applies to the receipt total.
+      const per = Number(customer.unloadFee || fees.unloadLoadPerPallet || 14);
+      const minimum = Number(fees.unloadLoadMinimum ?? 125);
+      const amount = Math.max(minimum, Math.round(per * count * 100) / 100);
+      await Accessorial.create({
+        companyId,
+        customerId,
+        shipmentId: shipment._id,
+        type: "handling",
+        description: `Inbound unload / handling — ${count} pallet(s) @ $${per}/plt (min $${minimum})`,
+        amount,
+        date: new Date(),
+      });
     }
 
     shipment.status = "completed";
     shipment.completedAt = new Date();
+    if (!shipment.bolNumber) shipment.bolNumber = generateBolNumber();
+    if (!shipment.bol) shipment.set("bol", {});
+    shipment.bol.status = shipment.bol.status === "closed" ? "closed" : "open";
+    shipment.bol.timeReceived = shipment.bol.timeReceived || new Date();
     await shipment.save();
 
     const pallets = await Pallet.find({ _id: { $in: createdPallets.map((p) => p._id) } })
       .populate({ path: "locationId", select: "code aisle type" })
       .populate({ path: "secondaryLocationId", select: "code aisle type" });
 
-    res.status(201).json({ shipment, pallets, slotsPerPallet: slotsEach });
+    res.status(201).json({
+      shipment,
+      pallets,
+      slotsPerPallet: slotsEach,
+      nextStep: "Close BOL (signatures + count verify) to finalize and invoice open charges",
+    });
   } catch (err) {
     next(err);
   }
@@ -658,6 +665,7 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       thirdParty = "",
       weightLbs = null,
       notes = "",
+      expectedShipmentId = null,
     } = req.body;
 
     let palletIds: string[] = Array.isArray(bodyPalletIds) ? [...bodyPalletIds] : [];
@@ -710,6 +718,17 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       return;
     }
 
+    // Cesar: warehouseman's lien — block release when QB past_due sync says account not current
+    const lien = await customerHasLienHold(String(companyId), String(customerId));
+    if (lien.hold) {
+      res.status(402).json({
+        error: `Account past due ($${lien.balanceDue.toFixed(2)}) — cannot release freight until current`,
+        code: "LIEN_HOLD",
+        ...lien,
+      });
+      return;
+    }
+
     const pallets = foundAny.filter((p) => String(p.customerId) === String(customerId));
 
     const customer = await Customer.findOne({ _id: customerId, companyId });
@@ -717,6 +736,12 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       weightLbs != null && weightLbs !== ""
         ? Number(weightLbs)
         : pallets.reduce((s, p) => s + (Number(p.weightLbs) || 0), 0) || null;
+
+    const inboundRefs = await resolveInboundBolRefs({
+      companyId: String(companyId),
+      customerId: String(customerId),
+      palletIds: pallets.map((p) => p._id),
+    });
 
     const shipment = await Shipment.create({
       companyId,
@@ -737,6 +762,12 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       billAsFtl: Boolean(billAsFtl),
       palletIds: pallets.map((p) => p._id),
       notes: notes || (lpnId ? `Shipped via LPN ${lpnId}` : ""),
+      bol: {
+        status: "open",
+        refInboundBol: inboundRefs.refInboundBol,
+        refInboundShipmentIds: inboundRefs.refInboundShipmentIds,
+        timeReleased: new Date(),
+      },
     });
 
     for (const p of pallets) {
@@ -788,51 +819,38 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
 
     shipment.status = "completed";
     shipment.completedAt = new Date();
+    if (!shipment.bol) shipment.set("bol", { status: "open" });
+    shipment.bol.status = shipment.bol.status === "closed" ? "closed" : "open";
+    shipment.bol.timeReleased = shipment.bol.timeReleased || new Date();
     await shipment.save();
 
-    // Cesar: outbound ship → invoice in WMS + push to QuickBooks (SBA skips if IN+OUT already billed)
-    let billing = null;
-    try {
-      billing = await invoiceOutboundShipment({
-        companyId: String(companyId),
-        customerId: String(customerId),
-        shipmentId: String(shipment._id),
-        palletCount: pallets.length,
-        carrier: carrier || "",
-        billAsFtl: Boolean(billAsFtl),
-        completedAt: shipment.completedAt || new Date(),
+    // Cesar audit: consuming Expected Outbound closes the appointment (like inbound receive)
+    if (expectedShipmentId) {
+      const expected = await Shipment.findOne({
+        _id: expectedShipmentId,
+        companyId,
+        direction: "outbound",
+        status: "expected",
       });
-      if (billing.invoice?.number) {
-        shipment.notes = `${shipment.notes || ""}${shipment.notes ? " · " : ""}Invoice ${
-          billing.invoice.number
-        }`.trim();
-        await shipment.save();
+      if (expected && String(expected.customerId) === String(customerId)) {
+        expected.status = "completed";
+        expected.completedAt = new Date();
+        expected.notes = `${expected.notes || ""}${expected.notes ? " · " : ""}Shipped as ${shipment.bolNumber || shipment._id}`.trim();
+        await expected.save();
       }
-    } catch (billErr) {
-      console.error("[ship] invoice/QB push failed:", billErr);
     }
 
-    const bol = buildBolDocument({
-      bolNumber: shipment.bolNumber,
-      direction: shipment.direction,
-      carrier: shipment.carrier,
-      trailerNumber: shipment.trailerNumber,
-      sealNumber: shipment.sealNumber,
-      scac: shipment.scac,
-      shipFrom: shipment.shipFrom,
-      shipTo: shipment.shipTo,
-      thirdParty: shipment.thirdParty,
-      customerName: customer?.name || "",
-      notes: shipment.notes,
-      pallets,
-    });
+    // Cesar: invoice is created when BOL is closed (POST /shipments/:id/bol/close), not on ship alone
+    const bol = await buildShipmentBolDocument(shipment, pallets, customer);
 
     res.status(201).json({
       shipment,
       pallets,
       bol,
-      invoice: billing?.invoice || null,
-      quickbooks: billing?.push || null,
+      invoice: null,
+      quickbooks: null,
+      nextStep: "Close BOL (signatures + count verify) to create the QuickBooks invoice",
+      lien,
     });
   } catch (err) {
     next(err);

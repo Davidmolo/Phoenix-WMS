@@ -39,6 +39,7 @@ import { dateLabel, money } from "@/lib/format";
 import { openHtmlForPrint } from "@/lib/print";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import { sqftFromInches } from "@/lib/palletSpace";
+import { customerIdOfShipment, expectedPalletCountOf } from "@/lib/expectedPrefill";
 import type { Customer, DashboardKpis, Location, Pallet, Shipment, Warehouse } from "@/types";
 
 /** Pallet.customerId comes back as a plain id string from most endpoints, but can be
@@ -54,9 +55,30 @@ function locationCodeOf(loc?: Pallet["locationId"] | null, fallback = ""): strin
   return "—";
 }
 
-export default function OperationsPage() {
+export type OpsMode = "all" | "receive" | "store" | "ship";
+
+export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const { token } = useAuth();
   const { navigate } = useAppNav();
+  const showReceive = mode === "all" || mode === "receive";
+  const showStore = mode === "all" || mode === "store";
+  const showShip = mode === "all" || mode === "ship";
+  const title =
+    mode === "receive"
+      ? "Receive inbound"
+      : mode === "store"
+        ? "Store / Putaway"
+        : mode === "ship"
+          ? "Ship outbound"
+          : "Receive / Store / Ship";
+  const pageDescription =
+    mode === "receive"
+      ? "From Expected or manual — location on barcode, then Close BOL to invoice unload."
+      : mode === "store"
+        ? "Scan pallet barcode, then scan storage location. Hands-free Enter between fields."
+        : mode === "ship"
+          ? "From Expected outbound or select pallets — pick list, ship, then Close BOL to invoice load."
+          : "Receive → assign location → print label → Store scan → Ship. Close BOL to invoice.";
   const [shipPage, setShipPage] = useState(1);
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
@@ -76,6 +98,13 @@ export default function OperationsPage() {
   const { data: expectedData, reload: reloadExpected } = useApiQuery<
     { shipments: Shipment[] } & PaginationMeta
   >(expectedPath);
+  const expectedOutPath = useMemo(
+    () => listQuery("/shipments", { limit: 50, params: { status: "expected", direction: "outbound" } }),
+    []
+  );
+  const { data: expectedOutData, reload: reloadExpectedOut } = useApiQuery<
+    { shipments: Shipment[] } & PaginationMeta
+  >(expectedOutPath);
 
   const warehouse = whData?.warehouses?.[0];
   const customers = custData?.customers ?? [];
@@ -117,6 +146,7 @@ export default function OperationsPage() {
   const [shipSealNumber, setShipSealNumber] = useState("");
   const [shipTo, setShipTo] = useState("");
   const [shipWeightLbs, setShipWeightLbs] = useState("");
+  const [expectedOutboundId, setExpectedOutboundId] = useState("");
 
   const selectedCustomer = useMemo(
     () => customers.find((c) => c._id === customerId),
@@ -138,17 +168,38 @@ export default function OperationsPage() {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
   }, [customers, customerId]);
 
+  // Cesar audit: selecting Expected must pre-fill every field it has data for
   useEffect(() => {
     if (!expectedShipmentId) return;
     const exp = (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId);
     if (!exp) return;
-    if (exp.customerId) {
-      const cid = typeof exp.customerId === "string" ? exp.customerId : (exp.customerId as { _id?: string })._id;
-      if (cid) setCustomerId(cid);
-    }
+    const cid = customerIdOfShipment(exp);
+    if (cid) setCustomerId(cid);
     if (exp.carrier) setCarrier(exp.carrier);
     if (exp.poNumber || exp.jobName) setPoOrJob(exp.jobName || exp.poNumber || "");
+    const planned = expectedPalletCountOf(exp);
+    if (planned != null) setPalletCountStr(String(planned));
+    if (exp.weightLbs != null && exp.weightLbs !== undefined) {
+      const each = planned && planned > 0 ? Number(exp.weightLbs) / planned : Number(exp.weightLbs);
+      if (Number.isFinite(each) && each > 0) setWeightLbsEach(String(Math.round(each * 100) / 100));
+    }
+    if (exp.notes) setRef(exp.notes);
+    if (exp.billAsFtl) setBillAsFtl(true);
   }, [expectedShipmentId, expectedData]);
+
+  // Cesar audit: Expected Outbound → Ship pre-fill (selector was missing entirely)
+  useEffect(() => {
+    if (!expectedOutboundId) return;
+    const exp = (expectedOutData?.shipments ?? []).find((s) => s._id === expectedOutboundId);
+    if (!exp) return;
+    const cid = customerIdOfShipment(exp);
+    if (cid) setCustomerId(cid);
+    if (exp.carrier) setShipCarrier(exp.carrier);
+    if (exp.trailerNumber) setShipTrailerNumber(exp.trailerNumber);
+    if (exp.sealNumber) setShipSealNumber(exp.sealNumber);
+    if (exp.shipTo) setShipTo(exp.shipTo);
+    if (exp.weightLbs != null) setShipWeightLbs(String(exp.weightLbs));
+  }, [expectedOutboundId, expectedOutData]);
 
   const activePallets = useMemo(
     () =>
@@ -248,7 +299,7 @@ export default function OperationsPage() {
         0
       );
       setMessage(
-        `Received ${result.pallets.length} pallet(s) · Staged for Store · ${labelCount} individual barcode label(s) ready — use Print all, then Store scan to put away`
+        `Received ${result.pallets.length} pallet(s) · Staged for Store · ${labelCount} barcode label(s) — print labels, then open shipment to Close BOL (signatures → invoice)`
       );
       if (result.shipment?.bolNumber) {
         setBolInfo({ id: result.shipment._id, bolNumber: result.shipment.bolNumber });
@@ -305,30 +356,44 @@ export default function OperationsPage() {
   async function onShip(e: FormEvent) {
     e.preventDefault();
     if (!token || !warehouse || selectedShipIds.length === 0) return;
+    const staged = shipPallets.filter(
+      (p) => selectedShipIds.includes(p._id) && p.status === "staged_for_store"
+    );
+    if (staged.length > 0) {
+      const ok = window.confirm(
+        `${staged.length} selected pallet(s) are still Staged for Store (never putaway-confirmed).\n\nShip them anyway? (Same-day turn / informal cross-dock.)`
+      );
+      if (!ok) return;
+    }
+
     setBusy(true);
     setError("");
     setMessage("");
     setBolInfo(null);
     try {
-      const result = await api<{ shipment: Shipment }>("/shipments/ship", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          warehouseId: warehouse._id,
-          customerId: customerId || undefined,
-          palletIds: selectedShipIds,
-          billAsFtl,
-          carrier: shipCarrier,
-          trailerNumber: shipTrailerNumber,
-          sealNumber: shipSealNumber,
-          shipTo: shipTo || undefined,
-          weightLbs: shipWeightLbs === "" ? undefined : Number(shipWeightLbs),
-        }),
-      });
+      const result = await api<{ shipment: Shipment; nextStep?: string }>(
+        "/shipments/ship",
+        {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            warehouseId: warehouse._id,
+            customerId: customerId || undefined,
+            palletIds: selectedShipIds,
+            billAsFtl,
+            carrier: shipCarrier,
+            trailerNumber: shipTrailerNumber,
+            sealNumber: shipSealNumber,
+            shipTo: shipTo || undefined,
+            weightLbs: shipWeightLbs === "" ? undefined : Number(shipWeightLbs),
+            expectedShipmentId: expectedOutboundId || undefined,
+          }),
+        }
+      );
       setMessage(
         `Shipped ${selectedShipIds.length} pallet(s) — ${result.shipment._id.slice(-6)}${
           result.shipment.bolNumber ? ` · BOL ${result.shipment.bolNumber}` : ""
-        }`
+        }. Close BOL on the shipment to create the QuickBooks invoice.`
       );
       if (result.shipment?.bolNumber) {
         setBolInfo({ id: result.shipment._id, bolNumber: result.shipment.bolNumber });
@@ -339,8 +404,15 @@ export default function OperationsPage() {
       setShipSealNumber("");
       setShipTo("");
       setShipWeightLbs("");
+      setExpectedOutboundId("");
       invalidateApiCache();
-      await Promise.all([reloadShipments(), reloadPallets(), reloadLocs(), reloadDash()]);
+      await Promise.all([
+        reloadShipments(),
+        reloadPallets(),
+        reloadLocs(),
+        reloadDash(),
+        reloadExpectedOut(),
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ship failed");
     } finally {
@@ -419,9 +491,9 @@ export default function OperationsPage() {
   return (
     <>
       <PageHeader
-        title="Receive / Ship"
+        title={title}
         icon={<ArrowLeftRight className="h-5 w-5" />}
-        description="Receive → assign location → print label (Staged for Store) → scan Store + location to put away"
+        description={pageDescription}
       />
       <Alert>{error}</Alert>
       {message ? <Alert tone="info">{message}</Alert> : null}
@@ -429,7 +501,8 @@ export default function OperationsPage() {
         <Alert tone="success">
           <div className="flex flex-wrap items-center gap-3">
             <span>
-              BOL <strong>{bolInfo.bolNumber}</strong> ready.
+              BOL <strong>{bolInfo.bolNumber}</strong> opened — sign &amp; close on shipment detail
+              to invoice.
             </span>
             <Button
               type="button"
@@ -438,38 +511,54 @@ export default function OperationsPage() {
               icon={<Printer className="h-3.5 w-3.5" />}
               onClick={() => printBol(bolInfo.id)}
             >
-              Print BOL
+              Print BOL draft
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => navigate(`/shipments/${bolInfo.id}`)}
+            >
+              Close BOL →
             </Button>
           </div>
         </Alert>
       ) : null}
-      {spaceTight ? (
+      {showReceive && spaceTight ? (
         <Alert>
           This receipt needs ~{neededSqft} SF but only {availableSqft} SF is available in the
           warehouse. You can still receive, but capacity is tight.
         </Alert>
       ) : null}
 
-      <div className="mb-5 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
-        <MiniStat
-          label="Capacity"
-          value={kpis?.capacitySqft != null ? `${kpis.capacitySqft.toLocaleString()} SF` : "…"}
-        />
-        <MiniStat
-          label="Occupied"
-          value={kpis?.occupiedSqft != null ? `${kpis.occupiedSqft.toLocaleString()} SF` : "…"}
-        />
-        <MiniStat
-          label="Available"
-          value={kpis?.availableSqft != null ? `${kpis.availableSqft.toLocaleString()} SF` : "…"}
-        />
-        <MiniStat label="Open slots" value={availableLocations.length} />
-      </div>
+      {(showReceive || showStore) ? (
+        <div className="mb-5 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+          <MiniStat
+            label="Capacity"
+            value={kpis?.capacitySqft != null ? `${kpis.capacitySqft.toLocaleString()} SF` : "…"}
+          />
+          <MiniStat
+            label="Occupied"
+            value={kpis?.occupiedSqft != null ? `${kpis.occupiedSqft.toLocaleString()} SF` : "…"}
+          />
+          <MiniStat
+            label="Available"
+            value={kpis?.availableSqft != null ? `${kpis.availableSqft.toLocaleString()} SF` : "…"}
+          />
+          <MiniStat label="Open slots" value={availableLocations.length} />
+        </div>
+      ) : null}
 
-      <div className="mb-6 grid gap-4 sm:gap-5 lg:grid-cols-2">
+      <div
+        className={
+          mode === "all"
+            ? "mb-6 grid gap-4 sm:gap-5 lg:grid-cols-2"
+            : "mb-6 grid max-w-3xl gap-4 sm:gap-5"
+        }
+      >
+        {showReceive ? (
         <FormSection
-          title="1. Receive inbound"
-          description="From Expected or manual. Location goes on the barcode; status stays Staged for Store until putaway."
+          title="Receive inbound"
+          description="From Expected or manual. Location goes on the barcode; status stays Staged for Store until putaway. Unload invoices when you Close BOL."
           icon={<PackagePlus className="h-4 w-4" />}
         >
           <form onSubmit={onReceive} className="space-y-4">
@@ -482,10 +571,11 @@ export default function OperationsPage() {
                     s.customerId && typeof s.customerId === "object"
                       ? s.customerId.name || ""
                       : "";
+                  const planned = expectedPalletCountOf(s);
                   const ref = (s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 40);
                   return {
                     value: s._id,
-                    label: `${cust ? `${cust} · ` : ""}${ref} · ${dateLabel(s.scheduledAt || s.createdAt)}`,
+                    label: `${cust ? `${cust} · ` : ""}${ref}${planned ? ` · ${planned} plt` : ""} · ${dateLabel(s.scheduledAt || s.createdAt)}`,
                     keywords: `${cust} ${s.carrier || ""} ${s.trailerNumber || ""}`,
                   };
                 })}
@@ -652,10 +742,13 @@ export default function OperationsPage() {
             </Button>
           </form>
         </FormSection>
+        ) : null}
 
+        {(showStore || showShip) ? (
         <div className="space-y-4 sm:space-y-5">
+          {showStore ? (
           <FormSection
-            title="2. Store (putaway)"
+            title="Store (putaway)"
             description="Scan the pallet barcode, then scan the storage location. Job done."
             icon={<ScanBarcode className="h-4 w-4" />}
           >
@@ -716,13 +809,41 @@ export default function OperationsPage() {
               ) : null}
             </form>
           </FormSection>
+          ) : null}
 
+          {showShip ? (
           <FormSection
             title="Ship outbound"
-            description="Select pallets, generate a pick list, then ship."
+            description="From Expected outbound or select pallets, generate a pick list, then ship. Load invoices when you Close BOL."
             icon={<Truck className="h-4 w-4" />}
           >
             <form onSubmit={onShip} className="space-y-4">
+              <Field
+                label="From Expected outbound"
+                hint="Optional — pre-fills customer / carrier / trailer / weight and closes the appointment on ship."
+              >
+                <SearchableSelect
+                  value={expectedOutboundId}
+                  onChange={setExpectedOutboundId}
+                  options={(expectedOutData?.shipments ?? []).map((s) => {
+                    const cust =
+                      s.customerId && typeof s.customerId === "object"
+                        ? s.customerId.name || ""
+                        : "";
+                    const planned = expectedPalletCountOf(s);
+                    const ref = (s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 40);
+                    return {
+                      value: s._id,
+                      label: `${cust ? `${cust} · ` : ""}${ref}${planned ? ` · ${planned} plt` : ""} · ${dateLabel(s.scheduledAt || s.createdAt)}`,
+                      keywords: `${cust} ${s.carrier || ""} ${s.trailerNumber || ""}`,
+                    };
+                  })}
+                  allowEmpty
+                  emptyOptionLabel="Manual ship (no Expected)"
+                  placeholder="Search Expected outbound…"
+                  searchPlaceholder="Search PO, job, notes…"
+                />
+              </Field>
               {customerId ? (
                 <p className="m-0 text-xs text-muted">
                   Showing <strong className="text-navy">{selectedCustomer?.name || "selected customer"}</strong>
@@ -826,21 +947,27 @@ export default function OperationsPage() {
               </div>
             </form>
           </FormSection>
+          ) : null}
         </div>
+        ) : null}
       </div>
 
-      <PageHeader title="Recent shipments" className="mb-4" />
-      <DataTable
-        columns={shipColumns}
-        rows={shipData?.shipments ?? []}
-        rowKey={(s) => s._id}
-        loading={shipsLoading}
-        onRowClick={(s) => navigate(`/shipments/${s._id}`)}
-        emptyTitle="No shipments yet"
-        emptyDescription="Receive your first inbound load above."
-        pagination={paginationFrom(shipData)}
-        onPageChange={setShipPage}
-      />
+      {showShip ? (
+        <>
+          <PageHeader title="Recent shipments" className="mb-4" />
+          <DataTable
+            columns={shipColumns}
+            rows={shipData?.shipments ?? []}
+            rowKey={(s) => s._id}
+            loading={shipsLoading}
+            onRowClick={(s) => navigate(`/shipments/${s._id}`)}
+            emptyTitle="No shipments yet"
+            emptyDescription="Receive your first inbound load above."
+            pagination={paginationFrom(shipData)}
+            onPageChange={setShipPage}
+          />
+        </>
+      ) : null}
 
       {labelPallets ? (
         <PalletLabelPreview pallets={labelPallets} onClose={() => setLabelPallets(null)} />

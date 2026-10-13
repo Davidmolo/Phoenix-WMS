@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+import fs from "fs";
 import { env } from "./config/env";
 import { connectDb } from "./config/db";
 import routes from "./routes";
@@ -8,6 +10,9 @@ import { startQuickBooksSyncCron } from "./jobs/quickbooksSync";
 
 async function main() {
   await connectDb();
+
+  const uploadsRoot = path.resolve(env.uploadsDir);
+  fs.mkdirSync(uploadsRoot, { recursive: true });
 
   const app = express();
   app.use(
@@ -18,7 +23,8 @@ async function main() {
   );
   app.use(
     express.json({
-      limit: "2mb",
+      // BOL exception photos as data URLs
+      limit: "12mb",
       // Preserve raw body for Intuit webhook signature verification
       verify: (req, _res, buf) => {
         const r = req as express.Request & { rawBody?: Buffer; originalUrl?: string };
@@ -30,6 +36,8 @@ async function main() {
     })
   );
   app.use("/api", routes);
+  // Signed BOL HTML + exception photos (paths under uploads/)
+  app.use("/uploads", express.static(uploadsRoot));
   app.use(errorHandler);
 
   app.listen(env.port, () => {

@@ -58,6 +58,11 @@ const customerSchema = new Schema(
       default: "wms",
       index: true,
     },
+    /**
+     * Cesar audit: test / throwaway accounts — WMS invoices still create,
+     * but QuickBooks push is skipped so production QBO stays clean.
+     */
+    testAccount: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

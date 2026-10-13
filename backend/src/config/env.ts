@@ -15,6 +15,25 @@ export const env = {
   smtpUser: process.env.SMTP_USER || "",
   smtpPass: process.env.SMTP_PASS || "",
   mailFrom: process.env.MAIL_FROM || process.env.SMTP_USER || "Phoenix Cross Dock <noreply@phoenixcrossdock.com>",
+  /**
+   * Ops alert when a new dock booking is created from the public website or customer portal.
+   * Cesar: always notified so the dock can prep.
+   */
+  bookingNotifyEmail:
+    process.env.BOOKING_NOTIFY_EMAIL || "cesar@phoenixcrossdocks.com",
+  /**
+   * Cesar/Darya Oct 12: public website must NOT confirm dock bookings until warehouse is ready.
+   * Default off — use Request for info instead. Set PUBLIC_BOOKING_ENABLED=true to re-open.
+   */
+  publicBookingEnabled: process.env.PUBLIC_BOOKING_ENABLED === "true",
+  /** Local disk for BOL documents + exception photos (relative to process cwd unless absolute). */
+  uploadsDir: process.env.UPLOADS_DIR || "uploads",
+  /**
+   * When false, never push invoices to QuickBooks (local WMS register only).
+   * Use with sandbox testing or while production QBO must stay untouched.
+   * Individual customers with testAccount=true are also never pushed.
+   */
+  quickbooksPushEnabled: process.env.QUICKBOOKS_PUSH_ENABLED !== "false",
   /** QuickBooks Online — Development (sandbox) first; Production later */
   quickbooksClientId: process.env.QUICKBOOKS_CLIENT_ID || "",
   quickbooksClientSecret: process.env.QUICKBOOKS_CLIENT_SECRET || "",

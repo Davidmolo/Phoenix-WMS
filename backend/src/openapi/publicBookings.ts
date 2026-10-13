@@ -6,7 +6,11 @@ export const publicBookingsOpenApi = {
     version: "1.0.0",
     description:
       "Public endpoints for the phoenixcrossdocks.com website (and other Phoenix marketing sites). " +
-      "No authentication required. Use these to show open vs reserved slots and create website bookings.\n\n" +
+      "No authentication required.\n\n" +
+      "**Oct 12 / Cesar:** Confirmed dock booking (`POST /public/bookings`) is **disabled by default** " +
+      "until the warehouse is ready (`PUBLIC_BOOKING_ENABLED=true` to re-open). " +
+      "Use **`POST /public/bookings/inquiry`** for Request for information — emails Cesar " +
+      "(`BOOKING_NOTIFY_EMAIL`). When booking is re-enabled, `POST /public/bookings` also emails Cesar.\n\n" +
       "**Service types:** `crossdock` (45 min, both doors), `drop_and_store` (45 min, one door), " +
       "`trailer_rework` (1 hour, one door).\n\n" +
       "**Hours:** 8:00 AM – 6:00 PM America/Phoenix. Slot status: `available` | `booked` | `held` | `blocked` | `past`.",
@@ -38,7 +42,8 @@ export const publicBookingsOpenApi = {
       get: {
         tags: ["Public bookings"],
         summary: "Company + service types + hours",
-        description: "Call once on page load to render service chips and warehouse hours.",
+        description:
+          "Call once on page load. Includes `publicBookingEnabled` — if false, show Request for info and call `/inquiry` instead of creating a booking.",
         responses: {
           "200": {
             description: "Config payload",
@@ -126,11 +131,55 @@ export const publicBookingsOpenApi = {
         },
       },
     },
+    "/public/bookings/inquiry": {
+      post: {
+        tags: ["Public bookings"],
+        summary: "Request for information (emails Cesar)",
+        description:
+          "Primary website form while dock booking is paused. Does **not** create a Booking or reserve a slot. " +
+          "Sends an email to Cesar / ops (`BOOKING_NOTIFY_EMAIL`). Use this from Darya’s marketing site.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/InquiryBody" },
+              example: {
+                companyName: "Summit Freight",
+                contactName: "Jordan Lee",
+                phone: "(623) 555-0100",
+                email: "jordan@example.com",
+                serviceInterest: "crossdock",
+                palletCount: 12,
+                origin: "Los Angeles, CA",
+                destination: "Phoenix, AZ",
+                message: "Need dock space next week",
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Inquiry accepted; Cesar notified by email",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/InquiryResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing company, contact, phone, or email",
+          },
+        },
+      },
+    },
     "/public/bookings/": {
       post: {
         tags: ["Public bookings"],
-        summary: "Create a website booking",
-        description: "Confirm a slot after the user picks an `available` `startsAt` from `/slots`.",
+        summary: "Create a website booking (disabled by default)",
+        description:
+          "Confirm a slot after the user picks an `available` `startsAt` from `/slots`. " +
+          "Returns **403** when `PUBLIC_BOOKING_ENABLED` is not true — use `/inquiry` instead. " +
+          "When enabled, creates a booking and emails Cesar.",
         requestBody: {
           required: true,
           content: {
@@ -151,12 +200,15 @@ export const publicBookingsOpenApi = {
         },
         responses: {
           "201": {
-            description: "Booking confirmed",
+            description: "Booking confirmed; Cesar notified by email",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/CreateBookingResponse" },
               },
             },
+          },
+          "403": {
+            description: "Public booking disabled — use POST /public/bookings/inquiry",
           },
           "409": {
             description: "Slot no longer available",
@@ -167,9 +219,39 @@ export const publicBookingsOpenApi = {
   },
   components: {
     schemas: {
+      InquiryBody: {
+        type: "object",
+        required: ["companyName", "contactName", "phone", "email"],
+        properties: {
+          companyName: { type: "string" },
+          contactName: { type: "string" },
+          phone: { type: "string" },
+          email: { type: "string", format: "email" },
+          serviceInterest: {
+            type: "string",
+            description: "e.g. crossdock | trailer_rework | drop_and_store",
+          },
+          palletCount: { type: "number", nullable: true },
+          origin: { type: "string" },
+          destination: { type: "string" },
+          message: { type: "string" },
+          notes: { type: "string", description: "Alias for message" },
+        },
+      },
+      InquiryResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          message: { type: "string" },
+        },
+      },
       ConfigResponse: {
         type: "object",
         properties: {
+          publicBookingEnabled: {
+            type: "boolean",
+            description: "If false, use POST /inquiry only (no confirmed slots).",
+          },
           company: {
             type: "object",
             properties: {

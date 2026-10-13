@@ -27,6 +27,7 @@ import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateTimeLabel, money } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
+import { customerIdOfShipment, expectedPalletCountOf } from "@/lib/expectedPrefill";
 import type { Customer, Shipment, Warehouse } from "@/types";
 
 type YardJob = {
@@ -188,17 +189,31 @@ export default function YardJobsPage() {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
   }, [customers, customerId]);
 
+  // Cesar audit: Expected → Crossdock/Rework must pre-fill pallet count, trucks, notes
   useEffect(() => {
     if (!expectedShipmentId) return;
     const exp = (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId);
     if (!exp) return;
-    const cid =
-      typeof exp.customerId === "string"
-        ? exp.customerId
-        : (exp.customerId as { _id?: string } | undefined)?._id;
+    const cid = customerIdOfShipment(exp);
     if (cid) setCustomerId(cid);
     if (exp.trailerNumber) setTruckNumberIn(exp.trailerNumber);
+    if (exp.carrier && !exp.trailerNumber) setTruckNumberIn(exp.carrier);
+    const planned = expectedPalletCountOf(exp);
+    if (planned != null) setPalletCountStr(String(planned));
+    if (exp.notes) setNotes(exp.notes);
   }, [expectedShipmentId, expectedData]);
+
+  const filteredExpected = useMemo(() => {
+    const all = expectedData?.shipments ?? [];
+    // Prefer matching service type; still allow empty serviceType records
+    return all.filter((s) => {
+      const st = String(s.serviceType || "");
+      if (!st) return true;
+      if (type === "crossdock") return st === "crossdock";
+      if (type === "trailer_rework") return st === "trailer_rework";
+      return true;
+    });
+  }, [expectedData, type]);
 
   async function onStart(e: FormEvent) {
     e.preventDefault();
@@ -382,15 +397,28 @@ export default function YardJobsPage() {
                 <option value="trailer_rework">Trailer Rework</option>
               </Select>
             </Field>
-            <Field label="From Expected inbound" hint="Type to search Expected loads.">
+            <Field
+              label="From Expected inbound"
+              hint={
+                type === "crossdock"
+                  ? "Shows Crossdock appointments first — selecting pre-fills customer, pallets, truck, notes."
+                  : "Shows Trailer Rework appointments first — selecting pre-fills customer, pallets, truck, notes."
+              }
+            >
               <SearchableSelect
                 value={expectedShipmentId}
                 onChange={setExpectedShipmentId}
-                options={(expectedData?.shipments ?? []).map((s) => ({
-                  value: s._id,
-                  label: (s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 48),
-                  keywords: `${s.carrier || ""} ${s.trailerNumber || ""}`,
-                }))}
+                options={filteredExpected.map((s) => {
+                  const cust =
+                    s.customerId && typeof s.customerId === "object" ? s.customerId.name || "" : "";
+                  const planned = expectedPalletCountOf(s);
+                  const ref = (s.jobName || s.poNumber || s.notes || s._id.slice(-6)).slice(0, 40);
+                  return {
+                    value: s._id,
+                    label: `${cust ? `${cust} · ` : ""}${ref}${planned ? ` · ${planned} plt` : ""} · ${statusLabel(s.serviceType || "expected")}`,
+                    keywords: `${cust} ${s.carrier || ""} ${s.trailerNumber || ""} ${s.serviceType || ""}`,
+                  };
+                })}
                 allowEmpty
                 emptyOptionLabel="Manual (no Expected)"
                 placeholder="Search Expected…"

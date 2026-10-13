@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { Barcode, Printer, Save, Truck } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { Barcode, CheckCircle2, FilePenLine, Printer, Save, Truck } from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
@@ -36,10 +36,17 @@ type BolDoc = {
   packageCount: number;
 } | null;
 
+type LienInfo = {
+  hold: boolean;
+  balanceDue?: number;
+  count?: number;
+} | null;
+
 type DetailResponse = {
   shipment: Shipment;
   pallets: Pallet[];
   bol: BolDoc;
+  lien?: LienInfo;
 };
 
 const STATUS_OPTIONS = ["expected", "arrived", "in_progress", "completed", "cancelled"] as const;
@@ -93,6 +100,25 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
   const [editMsg, setEditMsg] = useState("");
   const [editErr, setEditErr] = useState("");
 
+  // BOL workflow (Cesar brief)
+  const [driverName, setDriverName] = useState("");
+  const [truckNumber, setTruckNumber] = useState("");
+  const [countVerified, setCountVerified] = useState(false);
+  const [actualCount, setActualCount] = useState("");
+  const [rewrapBanding, setRewrapBanding] = useState(false);
+  const [condition, setCondition] = useState("No exceptions");
+  const [exceptionNotes, setExceptionNotes] = useState("");
+  const [refInboundBol, setRefInboundBol] = useState("");
+  const [whName, setWhName] = useState("");
+  const [drvName, setDrvName] = useState("");
+  const [bolBusy, setBolBusy] = useState(false);
+  const [bolMsg, setBolMsg] = useState("");
+  const [bolErr, setBolErr] = useState("");
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const bolClosed = shipment?.bol?.status === "closed";
+  const lien = data?.lien;
+
   useEffect(() => {
     if (!shipment) return;
     setCarrier(shipment.carrier || "");
@@ -104,6 +130,14 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setNotes(shipment.notes || "");
     setWeightLbs(shipment.weightLbs != null ? String(shipment.weightLbs) : "");
     setStatus(shipment.status || "expected");
+    setDriverName(shipment.bol?.driverName || "");
+    setTruckNumber(shipment.bol?.truckNumber || "");
+    setCountVerified(Boolean(shipment.bol?.countVerified));
+    setActualCount(shipment.bol?.actualCount != null ? String(shipment.bol.actualCount) : "");
+    setRewrapBanding(Boolean(shipment.bol?.rewrapBanding));
+    setCondition(shipment.bol?.condition || "No exceptions");
+    setExceptionNotes(shipment.bol?.exceptionNotes || "");
+    setRefInboundBol(shipment.bol?.refInboundBol || "");
   }, [shipment]);
 
   async function printBol() {
@@ -111,12 +145,146 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setPrintBusy(true);
     setPrintErr("");
     try {
-      const html = await apiFetchHtml(`/shipments/${shipmentId}/bol`, token);
+      const path = bolClosed
+        ? `/shipments/${shipmentId}/bol/document`
+        : `/shipments/${shipmentId}/bol`;
+      const html = await apiFetchHtml(path, token);
       openHtmlForPrint(html);
     } catch (ex) {
       setPrintErr(ex instanceof Error ? ex.message : "Could not open BOL");
     } finally {
       setPrintBusy(false);
+    }
+  }
+
+  async function saveBolFields() {
+    if (!token || !shipmentId) return;
+    setBolBusy(true);
+    setBolErr("");
+    setBolMsg("");
+    try {
+      await api(`/shipments/${shipmentId}/bol`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          driverName,
+          truckNumber,
+          countVerified,
+          actualCount: actualCount === "" ? null : Number(actualCount),
+          rewrapBanding,
+          condition,
+          exceptionNotes,
+          refInboundBol,
+        }),
+      });
+      setBolMsg("BOL fields saved");
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setBolErr(ex instanceof Error ? ex.message : "Could not save BOL");
+    } finally {
+      setBolBusy(false);
+    }
+  }
+
+  async function signRole(role: "driver" | "warehouse") {
+    if (!token || !shipmentId) return;
+    const name = role === "driver" ? drvName || driverName : whName;
+    if (!name.trim()) {
+      setBolErr(`Enter ${role === "driver" ? "driver" : "warehouse"} printed name before signing`);
+      return;
+    }
+    setBolBusy(true);
+    setBolErr("");
+    setBolMsg("");
+    try {
+      await api(`/shipments/${shipmentId}/bol/sign`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ role, name: name.trim() }),
+      });
+      setBolMsg(`${role === "driver" ? "Driver" : "Warehouse"} signature captured`);
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setBolErr(ex instanceof Error ? ex.message : "Could not sign");
+    } finally {
+      setBolBusy(false);
+    }
+  }
+
+  async function onPhotosSelected(files: FileList | null) {
+    if (!files?.length || !token || !shipmentId) return;
+    setBolBusy(true);
+    setBolErr("");
+    setBolMsg("");
+    try {
+      const photos: string[] = [];
+      for (const file of Array.from(files)) {
+        const dataUrl = await readFileAsDataUrl(file);
+        photos.push(dataUrl);
+      }
+      await api(`/shipments/${shipmentId}/bol/photos`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ photos }),
+      });
+      setBolMsg(`${photos.length} exception photo(s) uploaded`);
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setBolErr(ex instanceof Error ? ex.message : "Could not upload photos");
+    } finally {
+      setBolBusy(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  }
+
+  async function closeBol() {
+    if (!token || !shipmentId) return;
+    setBolBusy(true);
+    setBolErr("");
+    setBolMsg("");
+    try {
+      const result = await api<{
+        invoice?: { number?: string } | null;
+        quickbooks?: { pushed?: boolean } | null;
+      }>(`/shipments/${shipmentId}/bol/close`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ createInvoice: true }),
+      });
+      const inv = result.invoice?.number ? ` · Invoice ${result.invoice.number}` : "";
+      setBolMsg(`BOL closed and locked${inv}`);
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setBolErr(ex instanceof Error ? ex.message : "Could not close BOL");
+    } finally {
+      setBolBusy(false);
+    }
+  }
+
+  async function startAmend() {
+    if (!token || !shipmentId) return;
+    const reason = window.prompt("Amendment reason (required):");
+    if (!reason?.trim()) return;
+    setBolBusy(true);
+    setBolErr("");
+    setBolMsg("");
+    try {
+      await api(`/shipments/${shipmentId}/bol/amend`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      setBolMsg("Amendment started — re-sign both parties, then Close BOL again");
+      invalidateApiCache();
+      await reload();
+    } catch (ex) {
+      setBolErr(ex instanceof Error ? ex.message : "Could not amend");
+    } finally {
+      setBolBusy(false);
     }
   }
 
@@ -208,7 +376,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
               loading={printBusy}
               disabled={!shipment}
             >
-              Print BOL
+              {bolClosed ? "Open signed BOL" : "Print BOL"}
             </Button>
             <button
               type="button"
@@ -221,6 +389,13 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
         }
       />
       <Alert>{error || printErr}</Alert>
+      {lien?.hold ? (
+        <Alert tone="danger">
+          Lien hold — account past due
+          {lien.balanceDue != null ? ` ($${Number(lien.balanceDue).toFixed(2)})` : ""}. Outbound
+          release / BOL close blocked until current.
+        </Alert>
+      ) : null}
 
       {shipment ? (
         <>
@@ -229,6 +404,10 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
             <Stat label="Status" value={statusLabel(shipment.status)} />
             <Stat label="Service type" value={statusLabel(shipment.serviceType) || "—"} />
             <Stat label="BOL #" value={shipment.bolNumber || "—"} />
+            <Stat
+              label="BOL status"
+              value={statusLabel(shipment.bol?.status || "draft")}
+            />
             <Stat label="Carrier" value={shipment.carrier || "—"} />
             <Stat label="Trailer #" value={shipment.trailerNumber || "—"} />
             <Stat label="Seal #" value={shipment.sealNumber || "—"} />
@@ -269,8 +448,186 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
 
           {isStaff ? (
             <FormSection
+              title="Bill of Lading"
+              description={
+                bolClosed
+                  ? "Signed BOL is locked. Use amendment for corrections. Invoice created on close."
+                  : "Verify count, capture signatures, attach exception photos, then Close BOL to invoice."
+              }
+              icon={<FilePenLine className="h-4 w-4" />}
+              className="mb-5"
+            >
+              <Alert>{bolErr}</Alert>
+              {bolMsg ? <Alert tone="success">{bolMsg}</Alert> : null}
+              {shipment.direction === "outbound" ? (
+                <p className="mb-3 text-sm text-muted">
+                  Ref inbound BOL:{" "}
+                  <strong className="text-text">{shipment.bol?.refInboundBol || refInboundBol || "—"}</strong>
+                </p>
+              ) : null}
+              <div className="mb-3 flex flex-wrap gap-2 text-xs">
+                {(shipment.bol?.signatures || []).map((s) => (
+                  <Badge key={s.role} tone="success">
+                    {s.role}: {s.name}
+                    {s.signedAt ? ` · ${dateTimeLabel(s.signedAt)}` : ""}
+                  </Badge>
+                ))}
+                {(shipment.bol?.exceptionPhotoPaths?.length || 0) > 0 ? (
+                  <Badge tone="accent">
+                    {shipment.bol?.exceptionPhotoPaths?.length} exception photo(s)
+                  </Badge>
+                ) : null}
+              </div>
+              {!bolClosed ? (
+                <>
+                  <FormGrid cols={3}>
+                    <Field label="Driver name">
+                      <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+                    </Field>
+                    <Field label="Truck #">
+                      <Input value={truckNumber} onChange={(e) => setTruckNumber(e.target.value)} />
+                    </Field>
+                    {shipment.direction === "outbound" ? (
+                      <Field label="Ref inbound BOL #">
+                        <Input
+                          value={refInboundBol}
+                          onChange={(e) => setRefInboundBol(e.target.value)}
+                          placeholder="Required on close"
+                        />
+                      </Field>
+                    ) : null}
+                    <Field label="Condition">
+                      <Select value={condition} onChange={(e) => setCondition(e.target.value)}>
+                        <option>No exceptions</option>
+                        <option>Damage</option>
+                        <option>Shortage</option>
+                        <option>Overage</option>
+                      </Select>
+                    </Field>
+                    <Field label="Actual count">
+                      <NumberInput value={actualCount} onValueChange={setActualCount} />
+                    </Field>
+                    <Field label="Exception notes">
+                      <Input
+                        value={exceptionNotes}
+                        onChange={(e) => setExceptionNotes(e.target.value)}
+                      />
+                    </Field>
+                  </FormGrid>
+                  <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={countVerified}
+                        onChange={(e) => setCountVerified(e.target.checked)}
+                      />
+                      Count verified
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={rewrapBanding}
+                        onChange={(e) => setRewrapBanding(e.target.checked)}
+                      />
+                      Re-wrap / banding
+                    </label>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary" loading={bolBusy} onClick={() => void saveBolFields()}>
+                      Save BOL fields
+                    </Button>
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => void onPhotosSelected(e.target.files)}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      loading={bolBusy}
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      Add exception photos
+                    </Button>
+                  </div>
+                  <FormGrid cols={2} className="mt-4">
+                    <Field label="Driver printed name (sign)">
+                      <div className="flex gap-2">
+                        <Input
+                          value={drvName || driverName}
+                          onChange={(e) => setDrvName(e.target.value)}
+                          placeholder="Driver"
+                        />
+                        <Button type="button" loading={bolBusy} onClick={() => void signRole("driver")}>
+                          Sign
+                        </Button>
+                      </div>
+                    </Field>
+                    <Field label="Warehouse printed name (sign)">
+                      <div className="flex gap-2">
+                        <Input value={whName} onChange={(e) => setWhName(e.target.value)} placeholder="Warehouse" />
+                        <Button type="button" loading={bolBusy} onClick={() => void signRole("warehouse")}>
+                          Sign
+                        </Button>
+                      </div>
+                    </Field>
+                  </FormGrid>
+                  <div className="mt-4">
+                    <Button
+                      type="button"
+                      loading={bolBusy}
+                      icon={<CheckCircle2 className="h-4 w-4" />}
+                      onClick={() => void closeBol()}
+                    >
+                      Close BOL → invoice
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" loading={bolBusy} onClick={() => void printBol()}>
+                    View signed document
+                  </Button>
+                  <Button type="button" variant="secondary" loading={bolBusy} onClick={() => void startAmend()}>
+                    Start amendment
+                  </Button>
+                </div>
+              )}
+            </FormSection>
+          ) : (
+            <Card className="mb-5">
+              <CardBody>
+                <CardTitle>Bill of Lading</CardTitle>
+                <p className="mt-2 text-sm text-muted">
+                  Status: <strong>{statusLabel(shipment.bol?.status || "draft")}</strong>
+                  {shipment.bol?.closedAt
+                    ? ` · Closed ${dateTimeLabel(shipment.bol.closedAt)}`
+                    : ""}
+                </p>
+                {bolClosed ? (
+                  <div className="mt-3">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void printBol()}>
+                      View / print signed BOL
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted">Signed copy appears here after warehouse closes the BOL.</p>
+                )}
+              </CardBody>
+            </Card>
+          )}
+
+          {isStaff ? (
+            <FormSection
               title="Edit shipment"
-              description="Carrier / trailer / seal, route, weight, and status — Cesar modify."
+              description={
+                bolClosed
+                  ? "Freight fields locked after BOL close — use amendment."
+                  : "Carrier / trailer / seal, route, weight, and status — Cesar modify."
+              }
               icon={<Save className="h-4 w-4" />}
               className="mb-5"
             >
@@ -360,4 +717,13 @@ function Stat({ label, value }: { label: string; value: string | number }) {
       </CardBody>
     </Card>
   );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image"));
+    reader.readAsDataURL(file);
+  });
 }

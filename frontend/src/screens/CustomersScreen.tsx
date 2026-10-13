@@ -15,6 +15,7 @@ import {
   FormSection,
   Input,
   PageHeader,
+  Select,
   type Column,
 } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -47,6 +48,7 @@ export default function CustomersPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [billingMethod, setBillingMethod] = useState("pallet");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -198,7 +200,7 @@ export default function CustomersPage() {
       const result = await api<{ customer: Customer; message?: string }>("/customers", {
         method: "POST",
         token,
-        body: JSON.stringify({ name, contact, email, phone, address }),
+        body: JSON.stringify({ name, contact, email, phone, address, billingMethod }),
       });
       setMsg(
         result.message ||
@@ -209,6 +211,7 @@ export default function CustomersPage() {
       setEmail("");
       setPhone("");
       setAddress("");
+      setBillingMethod("pallet");
       invalidateApiCache("/customers");
       await reload();
     } catch (ex) {
@@ -258,6 +261,17 @@ export default function CustomersPage() {
                 onChange={setAddress}
                 placeholder="Street, city, state, ZIP"
               />
+            </Field>
+            <Field
+              label="Billing method"
+              hint="Pallet = unload on inbound BOL close + load on outbound BOL close · Crossdock job = instant · Contract = monthly"
+            >
+              <Select value={billingMethod} onChange={(e) => setBillingMethod(e.target.value)}>
+                <option value="pallet">Pallet</option>
+                <option value="crossdock">Crossdock</option>
+                <option value="contract">Contract</option>
+                <option value="sqft">Square feet</option>
+              </Select>
             </Field>
           </FormGrid>
           <Button type="submit" loading={busy} disabled={!name.trim() || !email.trim()}>

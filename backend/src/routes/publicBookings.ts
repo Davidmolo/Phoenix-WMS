@@ -14,6 +14,8 @@ import {
   todayPhoenixKey,
   toDateKey,
 } from "../services/bookingAvailability";
+import { env } from "../config/env";
+import { sendBookingNotifyEmail, sendInquiryNotifyEmail } from "../services/mail";
 
 const router = Router();
 
@@ -32,8 +34,15 @@ router.get("/", (_req, res) => {
     service: "phoenix-wms-public-bookings",
     docs: "/api/docs",
     note: "No authentication. For phoenixcrossdocks.com (and related marketing sites).",
+    /** Cesar Oct 12: public confirmed booking off until warehouse ready */
+    publicBookingEnabled: env.publicBookingEnabled,
     endpoints: {
       config: { method: "GET", path: "/api/public/bookings/config" },
+      inquiry: {
+        method: "POST",
+        path: "/api/public/bookings/inquiry",
+        description: "Request for information — emails Cesar (use this while booking is disabled).",
+      },
       calendar: {
         method: "GET",
         path: "/api/public/bookings/calendar?year=2026&month=10&serviceType=crossdock",
@@ -46,6 +55,7 @@ router.get("/", (_req, res) => {
       create: {
         method: "POST",
         path: "/api/public/bookings",
+        description: "Disabled unless PUBLIC_BOOKING_ENABLED=true",
         body: {
           serviceType: "crossdock | trailer_rework | drop_and_store",
           startsAt: "ISO from slots[].startIso",
@@ -73,6 +83,7 @@ router.get("/config", async (_req, res, next) => {
       return;
     }
     res.json({
+      publicBookingEnabled: env.publicBookingEnabled,
       company: {
         name: company.name,
         address: company.address,
@@ -141,11 +152,68 @@ router.get("/slots", async (req, res, next) => {
 });
 
 /**
+ * Cesar/Darya Oct 12: Request for information (no confirmed dock slot).
+ * Emails Cesar — does not create a Booking.
+ */
+router.post("/inquiry", async (req, res, next) => {
+  try {
+    const companyName = String(req.body.companyName || "").trim();
+    const contactName = String(req.body.contactName || "").trim();
+    const phone = String(req.body.phone || "").trim();
+    const email = String(req.body.email || "").trim();
+    if (!companyName || !contactName || !phone || !email) {
+      res.status(400).json({ error: "Company, contact name, phone, and email are required" });
+      return;
+    }
+    if (!email.includes("@")) {
+      res.status(400).json({ error: "Valid email is required" });
+      return;
+    }
+
+    const serviceInterest = String(req.body.serviceInterest || req.body.serviceType || "").trim();
+    const palletCount = req.body.palletCount ?? req.body.freight?.palletCount ?? null;
+    const message = String(req.body.message || req.body.notes || "").trim();
+    const origin = String(req.body.origin || "").trim();
+    const destination = String(req.body.destination || "").trim();
+
+    await sendInquiryNotifyEmail({
+      companyName,
+      contactName,
+      phone,
+      email,
+      serviceInterest,
+      palletCount,
+      message,
+      origin,
+      destination,
+    });
+
+    res.status(201).json({
+      ok: true,
+      message:
+        "Thanks — we received your request. Cesar or the team will follow up by phone or email.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Website form booking — no auth.
- * Matches marketing form: company, contact, phone, email, service type, slot.
+ * Disabled by default (PUBLIC_BOOKING_ENABLED=true to re-open).
  */
 router.post("/", async (req, res, next) => {
   try {
+    if (!env.publicBookingEnabled) {
+      res.status(403).json({
+        error:
+          "Online dock booking is temporarily unavailable. Please submit a request for information or call us.",
+        code: "PUBLIC_BOOKING_DISABLED",
+        useInstead: "POST /api/public/bookings/inquiry",
+      });
+      return;
+    }
+
     const company = await resolveCompany();
     if (!company) {
       res.status(404).json({ error: "Company not found" });
@@ -215,6 +283,25 @@ router.post("/", async (req, res, next) => {
         details: req.body.freight?.details || "",
       },
     });
+
+    // Cesar: notify ops on every public website booking (non-blocking)
+    void sendBookingNotifyEmail({
+      bookingId: String(booking._id),
+      source: "web",
+      serviceLabel: svc.label,
+      startsAt,
+      endsAt,
+      companyName,
+      contactName,
+      phone,
+      email,
+      notes: booking.notes,
+      palletCount: booking.freight?.palletCount ?? null,
+      trailerNumber: booking.freight?.trailerNumber || "",
+      slotLabel: check.slot?.label,
+    }).catch((err) =>
+      console.error("[booking] notify email failed:", err instanceof Error ? err.message : err)
+    );
 
     res.status(201).json({
       booking: {

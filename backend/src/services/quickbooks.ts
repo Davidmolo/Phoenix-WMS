@@ -727,6 +727,29 @@ export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushIn
     };
   }
 
+  // Cesar: live customers only — test accounts and global kill-switch stay WMS-only
+  if (!env.quickbooksPushEnabled) {
+    invoice.quickbooksPushError = "Skipped: QUICKBOOKS_PUSH_ENABLED=false";
+    await invoice.save();
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: null,
+      pushed: false,
+      skipped: "push_disabled",
+    };
+  }
+  const custFlags = await Customer.findById(invoice.customerId).select("testAccount email");
+  if (custFlags?.testAccount) {
+    invoice.quickbooksPushError = "Skipped: test customer (testAccount)";
+    await invoice.save();
+    return {
+      invoiceId: String(invoice._id),
+      quickbooksId: null,
+      pushed: false,
+      skipped: "test_account",
+    };
+  }
+
   if (!quickbooksConfigured()) {
     return {
       invoiceId: String(invoice._id),
@@ -819,11 +842,30 @@ export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushIn
         invoice.quickbooksPushError = "";
         invoice.status = mapInvoiceStatus(Number(invoice.balanceDue ?? invoice.total), undefined, due);
         await invoice.save();
+        // Still try Pay Now email — customer may never have received the QB send
+        let emailed = false;
+        let emailedTo: string | undefined;
+        try {
+          const to = requireCustomerEmail(billEmail);
+          await sendInvoiceEmailViaQuickBooks({
+            companyId,
+            quickbooksInvoiceId: existingQbId,
+            sendTo: to,
+          });
+          emailed = true;
+          emailedTo = to;
+        } catch (mailErr) {
+          const mailMsg = mailErr instanceof Error ? mailErr.message : String(mailErr);
+          invoice.quickbooksPushError = `Recovered QB Id but email failed: ${mailMsg}`.slice(0, 500);
+          await invoice.save();
+        }
         return {
           invoiceId: String(invoice._id),
           quickbooksId: existingQbId,
           pushed: false,
           skipped: "recovered_existing_qb",
+          emailed,
+          emailedTo,
         };
       }
     }

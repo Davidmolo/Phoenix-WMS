@@ -8,3 +8,6 @@ dist/
 .DS_Store
 coverage/
 data/
+# Signed BOL HTML + exception photos
+uploads/
+backend/uploads/

@@ -217,6 +217,8 @@ router.post("/", requireRole("admin", "staff"), async (req, res, next) => {
       companyId: req.auth!.companyId,
       portalActivated: false,
       source: "wms",
+      // Invites are always real customers — test flag is only set on customer detail
+      testAccount: false,
     });
 
     try {
@@ -319,9 +321,15 @@ router.patch("/:id", async (req, res, next) => {
       customer.transportEnabled = Boolean(req.body.transportEnabled);
     }
 
-    // Billing / contract — admin only (Cesar)
-    const billingTouched =
-      req.body.billingMethod !== undefined ||
+    // Cesar audit: staff can set billing method; rate amounts stay admin-only
+    if (req.body.billingMethod !== undefined && (role === "admin" || role === "staff")) {
+      customer.billingMethod = req.body.billingMethod;
+    }
+    if (req.body.testAccount !== undefined && (role === "admin" || role === "staff")) {
+      customer.testAccount = Boolean(req.body.testAccount);
+    }
+
+    const ratesTouched =
       req.body.contractSqft !== undefined ||
       req.body.contractFee !== undefined ||
       req.body.contractHandlingPerPallet !== undefined ||
@@ -336,12 +344,11 @@ router.patch("/:id", async (req, res, next) => {
       req.body.transportInboundFee !== undefined ||
       req.body.transportOutboundFee !== undefined;
 
-    if (billingTouched) {
+    if (ratesTouched) {
       if (role !== "admin") {
-        res.status(403).json({ error: "Only admins can change billing method and rates" });
+        res.status(403).json({ error: "Only admins can change billing rates" });
         return;
       }
-      if (req.body.billingMethod !== undefined) customer.billingMethod = req.body.billingMethod;
       if (req.body.contractSqft !== undefined) customer.contractSqft = Number(req.body.contractSqft) || 0;
       if (req.body.contractFee !== undefined) customer.contractFee = Number(req.body.contractFee) || 0;
       if (req.body.contractHandlingPerPallet !== undefined) {

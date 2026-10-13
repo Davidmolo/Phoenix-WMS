@@ -104,7 +104,22 @@ export function ScreenRouter() {
       ) : null}
       {mounted.has("operations") ? (
         <ScreenPane active={active === "operations"}>
-          <OperationsScreen />
+          <OperationsScreen mode="all" />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("receive") ? (
+        <ScreenPane active={active === "receive"}>
+          <OperationsScreen mode="receive" />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("store") ? (
+        <ScreenPane active={active === "store"}>
+          <OperationsScreen mode="store" />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("ship") ? (
+        <ScreenPane active={active === "ship"}>
+          <OperationsScreen mode="ship" />
         </ScreenPane>
       ) : null}
       {mounted.has("shipments") ? (

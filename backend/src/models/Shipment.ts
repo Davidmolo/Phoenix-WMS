@@ -1,5 +1,52 @@
 import { Schema, model, type InferSchemaType, Types } from "mongoose";
 
+/** Working BOL capture on the shipment until closed (Cesar brief). */
+const bolSignatureSchema = new Schema(
+  {
+    role: { type: String, enum: ["driver", "warehouse"], required: true },
+    name: { type: String, required: true, trim: true },
+    imageDataUrl: { type: String, default: "" },
+    signedAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
+
+const bolWorkflowSchema = new Schema(
+  {
+    status: {
+      type: String,
+      enum: ["draft", "open", "closed"],
+      default: "draft",
+      index: true,
+    },
+    driverName: { type: String, default: "" },
+    truckNumber: { type: String, default: "" },
+    countVerified: { type: Boolean, default: null },
+    actualCount: { type: Number, default: null },
+    rewrapBanding: { type: Boolean, default: null },
+    /** "No exceptions" | "Damage" | "Shortage" | "Overage" */
+    condition: { type: String, default: "No exceptions" },
+    exceptionNotes: { type: String, default: "" },
+    billingFlags: { type: [String], default: [] },
+    declaredValue: { type: String, default: "" },
+    /** Outbound must reference inbound BOL(s) it pulls from */
+    refInboundBol: { type: String, default: "" },
+    refInboundShipmentIds: [{ type: Schema.Types.ObjectId, ref: "Shipment" }],
+    timeReceived: { type: Date, default: null },
+    timeReleased: { type: Date, default: null },
+    signatures: { type: [bolSignatureSchema], default: [] },
+    /** Relative paths under uploads/bol/... */
+    exceptionPhotoPaths: { type: [String], default: [] },
+    closedAt: { type: Date, default: null },
+    closedByUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    closedByEmail: { type: String, default: "" },
+    currentRecordId: { type: Schema.Types.ObjectId, ref: "BolRecord", default: null },
+    invoiceId: { type: Schema.Types.ObjectId, ref: "Invoice", default: null },
+    documentPath: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const shipmentSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: "Company", required: true, index: true },
@@ -43,6 +90,13 @@ const shipmentSchema = new Schema(
     notes: { type: String, default: "" },
     jobName: { type: String, default: "" },
     poNumber: { type: String, default: "" },
+    /**
+     * Planned pallet count for expected appointments (Booking → Expected → Receive/Ship).
+     * Distinct from palletIds.length (actual pallets once received/shipped).
+     */
+    expectedPalletCount: { type: Number, default: null },
+    /** Cesar BOL workflow — draft/open until signed close; then immutable via BolRecord */
+    bol: { type: bolWorkflowSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

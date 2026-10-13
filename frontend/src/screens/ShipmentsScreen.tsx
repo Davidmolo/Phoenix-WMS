@@ -44,6 +44,15 @@ export default function ShipmentsPage() {
       render: (s) => s.bolNumber || "—",
     },
     {
+      key: "bolStatus",
+      header: "BOL status",
+      render: (s) => (
+        <Badge tone={s.bol?.status === "closed" ? "success" : "accent"}>
+          {statusLabel(s.bol?.status || "draft")}
+        </Badge>
+      ),
+    },
+    {
       key: "carrier",
       header: "Carrier",
       render: (s) => s.carrier || "—",

@@ -112,6 +112,7 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
           status: "expected",
         });
         if (!already) {
+          const planned = Math.max(1, Number(existing.palletCount || existing.qty) || 1);
           expectedShipment = await Shipment.create({
             companyId,
             warehouseId: warehouse._id,
@@ -122,10 +123,11 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
             scheduledAt: existing.scheduledDate || null,
             jobName: existing.jobName || poJob,
             poNumber: existing.poNumber || poJob,
+            expectedPalletCount: planned,
             notes: [
               `From portal request ${existing.type}`,
               poJob ? `PO/Job: ${poJob}` : null,
-              `${existing.palletCount || existing.qty || 1} pallet(s)`,
+              `${planned} pallet(s)`,
               existing.abnormalPallets
                 ? `Abnormal size: ${existing.abnormalPalletSize || "yes"}`
                 : null,

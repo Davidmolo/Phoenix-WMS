@@ -18,6 +18,7 @@ import {
   toDateKey,
 } from "../services/bookingAvailability";
 import { paginationMeta, parsePagination } from "../utils/pagination";
+import { sendBookingNotifyEmail } from "../services/mail";
 
 const router = Router();
 
@@ -255,6 +256,27 @@ router.post("/", async (req, res, next) => {
         details: req.body.freight?.details || "",
       },
     });
+
+    // Cesar: notify ops when customer books via portal (or website source)
+    if (source === "portal" || source === "web") {
+      void sendBookingNotifyEmail({
+        bookingId: String(booking._id),
+        source,
+        serviceLabel: svc.label,
+        startsAt,
+        endsAt,
+        companyName,
+        contactName,
+        phone,
+        email,
+        notes: booking.notes,
+        palletCount: booking.freight?.palletCount ?? null,
+        trailerNumber: booking.freight?.trailerNumber || "",
+        slotLabel: check.slot?.label,
+      }).catch((err) =>
+        console.error("[booking] notify email failed:", err instanceof Error ? err.message : err)
+      );
+    }
 
     res.status(201).json({ booking, request: requestDoc, slot: check.slot });
   } catch (err) {

@@ -58,6 +58,7 @@ type DetailResponse = {
 
 type EditForm = {
   billingMethod: string;
+  testAccount: boolean;
   contractFee: string;
   contractSqft: string;
   contractHandlingPerPallet: string;
@@ -75,6 +76,7 @@ type EditForm = {
 function formFromCustomer(c: Customer): EditForm {
   return {
     billingMethod: c.billingMethod || "pallet",
+    testAccount: Boolean(c.testAccount),
     contractFee: c.contractFee != null ? String(c.contractFee) : "",
     contractSqft: c.contractSqft != null ? String(c.contractSqft) : "",
     contractHandlingPerPallet:
@@ -101,6 +103,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
   const { navigate } = useAppNav();
   const { user, token } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isStaff = user?.role === "admin" || user?.role === "staff";
   const { data, error, loading, reload } = useApiQuery<DetailResponse>(
     customerId ? `/customers/${customerId}` : null
   );
@@ -154,24 +157,28 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
     setSaveErr("");
     setSaveMsg("");
     try {
+      const payload: Record<string, unknown> = {
+        billingMethod: form.billingMethod,
+        testAccount: form.testAccount,
+        address: form.address,
+        contact: form.contact,
+        phone: form.phone,
+        email: form.email,
+      };
+      if (isAdmin) {
+        payload.contractFee = numOrNull(form.contractFee) ?? 0;
+        payload.contractSqft = numOrNull(form.contractSqft) ?? 0;
+        payload.contractHandlingPerPallet = numOrNull(form.contractHandlingPerPallet);
+        payload.contractFtlRate = numOrNull(form.contractFtlRate);
+        payload.rateInside = numOrNull(form.rateInside) ?? 0;
+        payload.rateOutside = numOrNull(form.rateOutside) ?? 0;
+        payload.unloadFee = numOrNull(form.unloadFee) ?? 0;
+        payload.loadFee = numOrNull(form.loadFee) ?? 0;
+      }
       await api(`/customers/${c._id}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({
-          billingMethod: form.billingMethod,
-          contractFee: numOrNull(form.contractFee) ?? 0,
-          contractSqft: numOrNull(form.contractSqft) ?? 0,
-          contractHandlingPerPallet: numOrNull(form.contractHandlingPerPallet),
-          contractFtlRate: numOrNull(form.contractFtlRate),
-          rateInside: numOrNull(form.rateInside) ?? 0,
-          rateOutside: numOrNull(form.rateOutside) ?? 0,
-          unloadFee: numOrNull(form.unloadFee) ?? 0,
-          loadFee: numOrNull(form.loadFee) ?? 0,
-          address: form.address,
-          contact: form.contact,
-          phone: form.phone,
-          email: form.email,
-        }),
+        body: JSON.stringify(payload),
       });
       setSaveMsg("Account updated");
       setEditing(false);
@@ -254,7 +261,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
           description={c ? `${c.contact || "—"} · ${c.email || "—"}` : "Loading account detail"}
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              {isAdmin && !editing ? (
+              {isStaff && !editing ? (
                 <Button
                   type="button"
                   size="sm"
@@ -324,6 +331,10 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
             <KpiGrid>
               <KpiCard label="Billing method" value={c.billingMethod} />
               <KpiCard
+                label="QB push"
+                value={c.testAccount ? "Test — WMS only" : "Live → QuickBooks"}
+              />
+              <KpiCard
                 label="Contract monthly fee"
                 value={c.billingMethod === "contract" ? money(c.contractFee) : "—"}
               />
@@ -379,6 +390,20 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                           <option value="sqft">Square feet</option>
                           <option value="contract">Contract</option>
                           <option value="crossdock">Crossdock</option>
+                        </Select>
+                      </Field>
+                      <Field
+                        label="Test account"
+                        hint="Skip QuickBooks push — use for audit / throwaway customers"
+                      >
+                        <Select
+                          value={form.testAccount ? "yes" : "no"}
+                          onChange={(e) =>
+                            setForm({ ...form, testAccount: e.target.value === "yes" })
+                          }
+                        >
+                          <option value="no">No — push to QuickBooks</option>
+                          <option value="yes">Yes — WMS only</option>
                         </Select>
                       </Field>
                       <Field label="Contract monthly fee">

@@ -30,26 +30,57 @@ import { useAuth } from "@/lib/auth";
 import { useAppNav } from "@/lib/appNav";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
+type NavGroup = { label: string; items: NavItem[] };
 
-const STAFF_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/operations", label: "Receive / Ship", icon: ArrowLeftRight },
-  { href: "/shipments", label: "Shipments", icon: Truck },
-  { href: "/expected", label: "Expected", icon: CalendarClock },
-  { href: "/bookings", label: "Bookings", icon: CalendarDays },
-  { href: "/customers", label: "Customers", icon: Users },
-  { href: "/fee-schedule", label: "Fee Schedule", icon: Receipt },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/lpns", label: "LPNs", icon: ScanBarcode },
-  { href: "/warehouse", label: "Warehouse", icon: Warehouse },
-  { href: "/requests", label: "Requests", icon: Inbox },
-  { href: "/yard-jobs", label: "Crossdock / Rework", icon: Forklift },
-  { href: "/billing", label: "Billing", icon: FileText },
+/** Cesar audit: fold flat nav into folder groups */
+const STAFF_NAV_GROUPS: NavGroup[] = [
+  {
+    label: "",
+    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/receive", label: "Receive", icon: ArrowLeftRight },
+      { href: "/store", label: "Store / Putaway", icon: ScanBarcode },
+      { href: "/ship", label: "Ship", icon: Truck },
+      { href: "/yard-jobs", label: "Crossdock / Rework", icon: Forklift },
+      { href: "/shipments", label: "Shipments / BOLs", icon: FileText },
+    ],
+  },
+  {
+    label: "Scheduling",
+    items: [
+      { href: "/bookings", label: "Bookings", icon: CalendarDays },
+      { href: "/expected", label: "Expected", icon: CalendarClock },
+    ],
+  },
+  {
+    label: "Inventory & Warehouse",
+    items: [
+      { href: "/inventory", label: "Inventory", icon: Package },
+      { href: "/lpns", label: "LPNs", icon: ScanBarcode },
+      { href: "/warehouse", label: "Warehouse", icon: Warehouse },
+    ],
+  },
+  {
+    label: "Accounts",
+    items: [
+      { href: "/customers", label: "Customers", icon: Users },
+      { href: "/fee-schedule", label: "Fee Schedule", icon: Receipt },
+      { href: "/billing", label: "Billing", icon: FileText },
+    ],
+  },
+  {
+    label: "",
+    items: [{ href: "/requests", label: "Requests", icon: Inbox }],
+  },
 ];
 
 const PORTAL_NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/inventory", label: "Pallets", icon: Package },
+  { href: "/shipments", label: "BOLs / Shipments", icon: Truck },
   { href: "/bookings", label: "Book dock", icon: CalendarDays },
   { href: "/requests", label: "Requests", icon: Inbox },
   { href: "/billing", label: "Invoices", icon: FileText },
@@ -57,7 +88,14 @@ const PORTAL_NAV: NavItem[] = [
 ];
 
 function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split" {
-  if (pathname.startsWith("/operations") || pathname.startsWith("/lpns") || pathname.startsWith("/expected")) {
+  if (
+    pathname.startsWith("/operations") ||
+    pathname.startsWith("/receive") ||
+    pathname.startsWith("/store") ||
+    pathname.startsWith("/ship") ||
+    pathname.startsWith("/lpns") ||
+    pathname.startsWith("/expected")
+  ) {
     return "form";
   }
   if (pathname.startsWith("/requests")) return "split";
@@ -124,44 +162,62 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const nav = user.role === "customer" ? PORTAL_NAV : STAFF_NAV;
+  const isPortal = user.role === "customer";
+
+  function renderLink(item: NavItem, onNavigate?: () => void) {
+    const active =
+      path === item.href ||
+      (item.href !== "/dashboard" && path.startsWith(`${item.href}/`));
+    const Icon = item.icon;
+    return (
+      <button
+        key={item.href}
+        type="button"
+        onClick={() => {
+          onNavigate?.();
+          navigate(item.href);
+        }}
+        className={cn(
+          "sidebar-link flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all duration-200",
+          active && "sidebar-link-active",
+          !active && "hover:translate-x-0.5"
+        )}
+      >
+        <Icon
+          className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
+          strokeWidth={2.25}
+        />
+        <span className="truncate">{item.label}</span>
+        {active ? (
+          <span
+            className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: "var(--accent)" }}
+          />
+        ) : null}
+      </button>
+    );
+  }
 
   function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+    if (isPortal) {
+      return (
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3 sm:px-3" aria-label="Main">
+          {PORTAL_NAV.map((item) => renderLink(item, onNavigate))}
+        </nav>
+      );
+    }
     return (
-      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3 sm:px-3" aria-label="Main">
-        {nav.map((item) => {
-          const active =
-            path === item.href ||
-            (item.href !== "/dashboard" && path.startsWith(`${item.href}/`));
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.href}
-              type="button"
-              onClick={() => {
-                onNavigate?.();
-                navigate(item.href);
-              }}
-              className={cn(
-                "sidebar-link flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all duration-200",
-                active && "sidebar-link-active",
-                !active && "hover:translate-x-0.5"
-              )}
-            >
-              <Icon
-                className={cn("sidebar-icon h-4 w-4 shrink-0", active && "sidebar-accent")}
-                strokeWidth={2.25}
-              />
-              <span className="truncate">{item.label}</span>
-              {active ? (
-                <span
-                  className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: "var(--accent)" }}
-                />
-              ) : null}
-            </button>
-          );
-        })}
+      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2.5 py-3 sm:px-3" aria-label="Main">
+        {STAFF_NAV_GROUPS.map((group) => (
+          <div key={group.label || group.items[0]?.href} className="flex flex-col gap-0.5">
+            {group.label ? (
+              <div className="sidebar-muted px-2.5 pb-0.5 pt-1 text-[9px] font-bold tracking-[0.12em] uppercase">
+                {group.label}
+              </div>
+            ) : null}
+            {group.items.map((item) => renderLink(item, onNavigate))}
+          </div>
+        ))}
       </nav>
     );
   }
