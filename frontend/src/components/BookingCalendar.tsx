@@ -150,28 +150,30 @@ export function BookingMonthCalendar({
                 {hasDot ? (
                   <span
                     className={cn(
-                      "mt-1 block h-1 w-1 rounded-full",
-                      selected && "bg-accent",
-                      !selected && info?.dot === "available" && "bg-[var(--success)]",
+                      "mt-1 block h-1.5 w-1.5 rounded-full",
+                      selected && "border border-white/80 bg-white",
+                      !selected &&
+                        info?.dot === "available" &&
+                        "border border-border bg-white shadow-sm",
                       !selected &&
                         (info?.dot === "mixed" || info?.dot === "booked") &&
-                        "bg-accent-dark"
+                        "bg-navy/80"
                     )}
                   />
                 ) : (
-                  <span className="mt-1 block h-1 w-1" />
+                  <span className="mt-1 block h-1.5 w-1.5" />
                 )}
               </button>
             );
           })}
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/70 pt-2.5 text-[10px] font-medium text-muted">
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/70 pt-2.5 text-[10px] font-bold tracking-[0.06em] text-muted uppercase">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--success)]" /> Open day
+            <span className="h-2 w-2 rounded-full border border-border bg-white shadow-sm" /> Open
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent-dark" /> Bookings
+            <span className="h-2 w-2 rounded-full bg-navy/80" /> Reserved
           </span>
         </div>
       </div>
