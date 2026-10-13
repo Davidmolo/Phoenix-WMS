@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Package, Printer, Save, Trash2 } from "lucide-react";
+import { Package, Pencil, Printer, Save, Trash2 } from "lucide-react";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
@@ -15,6 +15,7 @@ import {
   Field,
   FormGrid,
   Input,
+  Modal,
   NumberInput,
   PageHeader,
   statusLabel,
@@ -41,9 +42,17 @@ function locationCode(p: Pallet): string {
     loc && typeof loc === "object" ? (loc as PalletLocation).code || "" : "";
   const sec = p.secondaryLocationId;
   const secondary =
-    sec && typeof sec === "object" ? (sec as PalletLocation).code || "" : "";
+    sec && typeof sec === "object" ? (sec as PalletLocation).code || "—" : "";
   if (!primary && !secondary) return "—";
-  return secondary ? `${primary || "—"} + ${secondary}` : primary || "—";
+  return secondary && secondary !== "—" ? `${primary || "—"} + ${secondary}` : primary || "—";
+}
+
+function needsDualBarcode(p: Pallet): boolean {
+  return (
+    Number(p.dimLength) > 48 ||
+    Number(p.dimWidth) > 48 ||
+    Boolean(p.secondaryLocationId || p.secondaryLocationCode)
+  );
 }
 
 type PalletsResponse = { pallets: Pallet[] } & PaginationMeta;
@@ -55,8 +64,8 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [printPallets, setPrintPallets] = useState<Pallet[] | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
-  // Edit form state (staff only)
   const [description, setDescription] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [jobName, setJobName] = useState("");
@@ -69,6 +78,7 @@ export default function InventoryPage() {
   useEffect(() => {
     setPage(1);
     setSelectedId(null);
+    setEditOpen(false);
   }, [filter]);
 
   const path = useMemo(
@@ -89,17 +99,24 @@ export default function InventoryPage() {
     [rows, selectedId]
   );
 
-  // Sync the edit form whenever the selected pallet changes (new selection or fresh data)
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      setEditOpen(false);
+      return;
+    }
     setDescription(selected.description || "");
     setPoNumber(selected.poNumber || "");
     setJobName(selected.jobName || "");
     setWeightLbs(selected.weightLbs != null ? String(selected.weightLbs) : "");
     setNotes(selected.notes || "");
-    setMsg("");
-    setErr("");
   }, [selected]);
+
+  function openEdit() {
+    if (!selected) return;
+    setErr("");
+    setMsg("");
+    setEditOpen(true);
+  }
 
   async function onSave(e: FormEvent) {
     e.preventDefault();
@@ -120,6 +137,7 @@ export default function InventoryPage() {
         }),
       });
       setMsg(`${selected.externalId} updated`);
+      setEditOpen(false);
       invalidateApiCache();
       await reload();
     } catch (ex) {
@@ -148,6 +166,8 @@ export default function InventoryPage() {
         body: JSON.stringify({ status: "void" }),
       });
       setMsg(`${selected.externalId} voided — location freed`);
+      setEditOpen(false);
+      setSelectedId(null);
       invalidateApiCache();
       await reload();
     } catch (ex) {
@@ -161,19 +181,17 @@ export default function InventoryPage() {
     {
       key: "id",
       header: "Pallet ID",
-      render: (p) => <span className="font-semibold">{p.externalId}</span>,
+      render: (p) => <span className="font-mono font-semibold text-navy">{p.externalId}</span>,
     },
     {
       key: "status",
       header: "Status",
-      render: (p) => (
-        <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
-      ),
+      render: (p) => <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>,
     },
     {
       key: "loc",
       header: "Location",
-      render: (p) => locationCode(p),
+      render: (p) => <span className="font-mono text-[13px]">{locationCode(p)}</span>,
     },
     {
       key: "ref",
@@ -183,6 +201,7 @@ export default function InventoryPage() {
     {
       key: "sqft",
       header: "Sq ft",
+      className: "tabular-nums",
       render: (p) => (p.sqft != null ? p.sqft : "—"),
     },
     {
@@ -194,206 +213,235 @@ export default function InventoryPage() {
 
   return (
     <>
-        <PageHeader
-          title={user?.role === "customer" ? "My pallets" : "Inventory"}
-          icon={<Package className="h-5 w-5" />}
-          description="Filter by status · select a row for detail and barcode label"
-          actions={
-            isStaff && rows.length > 0 ? (
+      <PageHeader
+        title={user?.role === "customer" ? "My pallets" : "Inventory"}
+        icon={<Package className="h-5 w-5" />}
+        description="Filter by status · click a row for detail · edit opens in a modal"
+        actions={
+          isStaff && rows.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              icon={<Printer className="h-3.5 w-3.5" />}
+              onClick={() => setPrintPallets(rows)}
+            >
+              Print page ({rows.length})
+            </Button>
+          ) : undefined
+        }
+      />
+      <Alert>{error || err}</Alert>
+      {msg ? <Alert tone="success">{msg}</Alert> : null}
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <ChipGroup
+          label="Status"
+          size="sm"
+          options={FILTERS.map((f) => ({
+            id: f,
+            label: f === "all" ? "All" : statusLabel(f),
+          }))}
+          value={filter}
+          onChange={setFilter}
+        />
+      </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] xl:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]">
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(p) => p._id}
+          loading={loading}
+          emptyTitle="No pallets in this filter"
+          emptyDescription="Receive inbound freight to populate inventory."
+          onRowClick={(p) => setSelectedId(p._id)}
+          selectedKey={selectedId}
+          pagination={pagination}
+          onPageChange={setPage}
+        />
+
+        <Card className="h-fit lg:sticky lg:top-4" lift={false}>
+          <CardBody className="space-y-0">
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <CardTitle>Pallet detail</CardTitle>
+              {selected && isStaff ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Pencil className="h-3.5 w-3.5" />}
+                  onClick={openEdit}
+                >
+                  Edit
+                </Button>
+              ) : null}
+            </div>
+
+            {!selected ? (
+              <p className="m-0 rounded-[var(--radius)] border border-dashed border-border bg-surface-2/40 px-3 py-8 text-center text-sm text-muted">
+                Select a pallet in the table to see location, footprint, and labels.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-[var(--radius)] border border-border bg-surface-2/40 px-3 py-2.5">
+                  <div className="font-mono text-base font-semibold text-navy">
+                    {selected.externalId}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <Badge tone={statusTone(selected.status)}>
+                      {statusLabel(selected.status)}
+                    </Badge>
+                    <span className="font-mono text-xs text-muted">{locationCode(selected)}</span>
+                  </div>
+                </div>
+
+                <dl className="m-0 grid gap-0">
+                  <DetailRow
+                    label="Barcodes"
+                    value={
+                      needsDualBarcode(selected)
+                        ? `${selected.externalId} · ${selected.externalId}-B`
+                        : selected.externalId
+                    }
+                  />
+                  <DetailRow
+                    label={selected.status === "shipped" ? "Last location" : "Location"}
+                    value={
+                      locationCode(selected) === "—" && selected.status === "shipped"
+                        ? "Released on ship (slot freed)"
+                        : locationCode(selected)
+                    }
+                  />
+                  <DetailRow
+                    label="PO / Job"
+                    value={selected.jobName || selected.poNumber || "—"}
+                  />
+                  <DetailRow
+                    label="Footprint"
+                    value={
+                      selected.dimLength && selected.dimWidth
+                        ? `${selected.dimLength}" × ${selected.dimWidth}"`
+                        : "—"
+                    }
+                  />
+                  <DetailRow
+                    label="Sq ft"
+                    value={selected.sqft != null ? `${selected.sqft} SF` : "—"}
+                  />
+                  <DetailRow
+                    label="Weight"
+                    value={selected.weightLbs != null ? `${selected.weightLbs} lbs` : "—"}
+                  />
+                  <DetailRow label="Received" value={dateLabel(selected.receivedAt)} />
+                  <DetailRow label="Shipped" value={dateLabel(selected.shippedAt)} />
+                  <DetailRow label="Description" value={selected.description || "—"} />
+                </dl>
+
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  icon={<Printer className="h-3.5 w-3.5" />}
+                  onClick={() => setPrintPallets([selected])}
+                >
+                  {needsDualBarcode(selected)
+                    ? "Print both barcodes (A + B)"
+                    : "Print barcode label"}
+                </Button>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      <Modal
+        open={editOpen && Boolean(selected) && isStaff}
+        onClose={() => {
+          if (!busy) setEditOpen(false);
+        }}
+        title={selected ? `Edit ${selected.externalId}` : "Edit pallet"}
+        description="Update description, PO/job, weight, and notes. Void frees the storage slot."
+        size="md"
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {selected && selected.status !== "void" && selected.status !== "shipped" ? (
               <Button
                 type="button"
-                size="sm"
-                variant="secondary"
-                icon={<Printer className="h-3.5 w-3.5" />}
-                onClick={() => setPrintPallets(rows)}
+                variant="danger"
+                disabled={busy}
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                onClick={() => void onVoid()}
               >
-                Print labels for this page ({rows.length})
+                Void pallet
               </Button>
-            ) : undefined
-          }
-        />
-        <Alert>{error || err}</Alert>
-        {msg ? <Alert tone="success">{msg}</Alert> : null}
+            ) : (
+              <span />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" disabled={busy} onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="inventory-edit-pallet"
+                loading={busy}
+                icon={<Save className="h-3.5 w-3.5" />}
+              >
+                Save changes
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <form id="inventory-edit-pallet" onSubmit={onSave} className="space-y-3">
+          <Field label="Description">
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional"
+            />
+          </Field>
+          <FormGrid cols={2}>
+            <Field label="PO number">
+              <Input
+                value={poNumber}
+                onChange={(e) => setPoNumber(e.target.value)}
+                placeholder="Optional"
+              />
+            </Field>
+            <Field label="Job name">
+              <Input
+                value={jobName}
+                onChange={(e) => setJobName(e.target.value)}
+                placeholder="Optional"
+              />
+            </Field>
+          </FormGrid>
+          <Field label="Weight (lbs)">
+            <NumberInput value={weightLbs} onValueChange={setWeightLbs} placeholder="Optional" />
+          </Field>
+          <Field label="Notes">
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+          </Field>
+        </form>
+      </Modal>
 
-        <div className="mb-4">
-          <ChipGroup
-            label="Status"
-            size="sm"
-            options={FILTERS.map((f) => ({
-              id: f,
-              label: f === "all" ? "All" : statusLabel(f),
-            }))}
-            value={filter}
-            onChange={setFilter}
-          />
-        </div>
-
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]">
-          <DataTable
-            columns={columns}
-            rows={rows}
-            rowKey={(p) => p._id}
-            loading={loading}
-            emptyTitle="No pallets in this filter"
-            emptyDescription="Receive inbound freight to populate inventory."
-            onRowClick={(p) => setSelectedId(p._id)}
-            selectedKey={selectedId}
-            pagination={pagination}
-            onPageChange={setPage}
-          />
-
-          <Card className="h-fit lg:sticky lg:top-20">
-            <CardBody>
-              <CardTitle>Pallet detail</CardTitle>
-              {!selected ? (
-                <p className="mt-2 text-sm text-muted">Select a pallet row to view full detail.</p>
-              ) : (
-                <>
-                  <dl className="mt-3 space-y-2.5 text-sm">
-                    <DetailRow label="ID" value={selected.externalId} />
-                    <DetailRow
-                      label="Barcodes"
-                      value={
-                        Number(selected.dimLength) > 48 ||
-                        Number(selected.dimWidth) > 48 ||
-                        selected.secondaryLocationId ||
-                        selected.secondaryLocationCode
-                          ? `${selected.externalId} · ${selected.externalId}-B (2nd slot)`
-                          : selected.externalId
-                      }
-                    />
-                    <DetailRow
-                      label="Status"
-                      value={
-                        <Badge tone={statusTone(selected.status)}>
-                          {statusLabel(selected.status)}
-                        </Badge>
-                      }
-                    />
-                    <DetailRow
-                      label={selected.status === "shipped" ? "Last location" : "Location"}
-                      value={
-                        locationCode(selected) === "—" && selected.status === "shipped"
-                          ? "Released on ship (slot freed)"
-                          : locationCode(selected)
-                      }
-                    />
-                    <DetailRow
-                      label="PO / Job"
-                      value={selected.jobName || selected.poNumber || "—"}
-                    />
-                    <DetailRow
-                      label="Footprint"
-                      value={
-                        selected.dimLength && selected.dimWidth
-                          ? `${selected.dimLength}" × ${selected.dimWidth}"`
-                          : "—"
-                      }
-                    />
-                    <DetailRow
-                      label="Sq ft"
-                      value={selected.sqft != null ? `${selected.sqft} SF` : "—"}
-                    />
-                    <DetailRow
-                      label="Weight"
-                      value={selected.weightLbs != null ? `${selected.weightLbs} lbs` : "—"}
-                    />
-                    <DetailRow label="Received" value={dateLabel(selected.receivedAt)} />
-                    <DetailRow label="Shipped" value={dateLabel(selected.shippedAt)} />
-                    <DetailRow label="Description" value={selected.description || "—"} />
-                  </dl>
-
-                  {isStaff ? (
-                    <form onSubmit={onSave} className="mt-4 space-y-3 border-t border-border pt-4">
-                      <div className="text-[11px] font-bold tracking-wide text-muted uppercase">
-                        Edit pallet
-                      </div>
-                      <Field label="Description">
-                        <Input
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          placeholder="Optional"
-                        />
-                      </Field>
-                      <FormGrid cols={2}>
-                        <Field label="PO number">
-                          <Input
-                            value={poNumber}
-                            onChange={(e) => setPoNumber(e.target.value)}
-                            placeholder="Optional"
-                          />
-                        </Field>
-                        <Field label="Job name">
-                          <Input
-                            value={jobName}
-                            onChange={(e) => setJobName(e.target.value)}
-                            placeholder="Optional"
-                          />
-                        </Field>
-                      </FormGrid>
-                      <Field label="Weight (lbs)">
-                        <NumberInput
-                          value={weightLbs}
-                          onValueChange={setWeightLbs}
-                          placeholder="Optional"
-                        />
-                      </Field>
-                      <Field label="Notes">
-                        <Input
-                          value={notes}
-                          onChange={(e) => setNotes(e.target.value)}
-                          placeholder="Optional"
-                        />
-                      </Field>
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="submit" loading={busy} icon={<Save className="h-3.5 w-3.5" />}>
-                          Save changes
-                        </Button>
-                        {selected.status !== "void" && selected.status !== "shipped" ? (
-                          <Button
-                            type="button"
-                            variant="danger"
-                            disabled={busy}
-                            icon={<Trash2 className="h-3.5 w-3.5" />}
-                            onClick={onVoid}
-                          >
-                            Void pallet
-                          </Button>
-                        ) : null}
-                      </div>
-                    </form>
-                  ) : null}
-
-                  <Button
-                    className="mt-4 w-full"
-                    icon={<Printer className="h-3.5 w-3.5" />}
-                    onClick={() => setPrintPallets([selected])}
-                  >
-                    {Number(selected.dimLength) > 48 ||
-                    Number(selected.dimWidth) > 48 ||
-                    selected.secondaryLocationId ||
-                    selected.secondaryLocationCode
-                      ? "Print both barcodes (A + B)"
-                      : "Print barcode label"}
-                  </Button>
-                </>
-              )}
-            </CardBody>
-          </Card>
-        </div>
-
-        {printPallets ? (
-          <PalletLabelPreview pallets={printPallets} onClose={() => setPrintPallets(null)} />
-        ) : null}
+      {printPallets ? (
+        <PalletLabelPreview pallets={printPallets} onClose={() => setPrintPallets(null)} />
+      ) : null}
     </>
   );
 }
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] gap-2 border-b border-border/60 pb-2 last:border-0">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="font-medium text-text">{value}</dd>
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-x-3 border-b border-border/70 py-2.5 last:border-b-0">
+      <dt className="pt-0.5 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">
+        {label}
+      </dt>
+      <dd className="m-0 min-w-0 break-words text-sm font-medium leading-snug text-text">
+        {value}
+      </dd>
     </div>
   );
 }

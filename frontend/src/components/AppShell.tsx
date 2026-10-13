@@ -131,6 +131,7 @@ function SidebarNav({
 }) {
   const { navigate } = useAppNav();
   const navRef = useRef<HTMLElement>(null);
+  const scrollHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const root = navRef.current;
@@ -138,6 +139,23 @@ function SidebarNav({
     const active = root.querySelector<HTMLElement>("[data-nav-active='true']");
     active?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [path]);
+
+  useEffect(() => {
+    const root = navRef.current;
+    if (!root) return;
+    const onScroll = () => {
+      root.classList.add("sidebar-nav-scrolling");
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+      scrollHideTimer.current = setTimeout(() => {
+        root.classList.remove("sidebar-nav-scrolling");
+      }, 900);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+    };
+  }, []);
 
   function renderLink(item: NavItem) {
     const active = navItemActive(path, item.href);
@@ -176,7 +194,7 @@ function SidebarNav({
     return (
       <nav
         ref={navRef}
-        className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3 sm:px-3"
+        className="sidebar-nav-scroll flex flex-1 flex-col gap-0.5 px-2.5 py-3 sm:px-3"
         aria-label="Main"
       >
         {PORTAL_NAV.map((item) => renderLink(item))}
@@ -187,7 +205,7 @@ function SidebarNav({
   return (
     <nav
       ref={navRef}
-      className="flex flex-1 flex-col gap-3 overflow-y-auto px-2.5 py-3 sm:px-3"
+      className="sidebar-nav-scroll flex flex-1 flex-col gap-3 px-2.5 py-3 sm:px-3"
       aria-label="Main"
     >
       {STAFF_NAV_GROUPS.map((group) => (
