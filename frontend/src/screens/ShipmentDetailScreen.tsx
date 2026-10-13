@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Barcode, CheckCircle2, FilePenLine, Printer, Save, Truck } from "lucide-react";
+import { BolDocumentConfirmModal } from "@/components/BolDocumentConfirmModal";
 import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import {
   Alert,
@@ -29,10 +30,10 @@ import { useAuth } from "@/lib/auth";
 import { dateLabel, dateTimeLabel, titleCase } from "@/lib/format";
 import {
   assessBolCompleteness,
-  confirmBolDocumentAction,
   consumeBolFocusIntent,
   scrollToBolSection,
   setBolFocusIntent,
+  type BolCompleteness,
 } from "@/lib/bolGate";
 import { openHtmlForPrint } from "@/lib/print";
 import type { Pallet, Shipment } from "@/types";
@@ -89,6 +90,10 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
   const [printBusy, setPrintBusy] = useState(false);
   const [printErr, setPrintErr] = useState("");
   const [labelPallets, setLabelPallets] = useState<Pallet[] | null>(null);
+  const [bolGate, setBolGate] = useState<{
+    action: "print" | "email";
+    completeness: BolCompleteness;
+  } | null>(null);
 
   const shipment = data?.shipment;
   const pallets = data?.pallets ?? [];
@@ -147,20 +152,8 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setRefInboundBol(shipment.bol?.refInboundBol || "");
   }, [shipment]);
 
-  async function printBol(opts?: { skipScroll?: boolean }) {
-    if (!shipmentId || !shipment) return;
-    if (!opts?.skipScroll) {
-      scrollToBolSection();
-    }
-    const completeness = assessBolCompleteness(shipment);
-    if (
-      !confirmBolDocumentAction({
-        action: "print",
-        completeness,
-      })
-    ) {
-      return;
-    }
+  async function runPrintBol() {
+    if (!shipmentId) return;
     setPrintBusy(true);
     setPrintErr("");
     try {
@@ -174,6 +167,19 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     } finally {
       setPrintBusy(false);
     }
+  }
+
+  async function printBol(opts?: { skipScroll?: boolean }) {
+    if (!shipmentId || !shipment) return;
+    if (!opts?.skipScroll) {
+      scrollToBolSection();
+    }
+    const completeness = assessBolCompleteness(shipment);
+    if (completeness.incomplete) {
+      setBolGate({ action: "print", completeness });
+      return;
+    }
+    await runPrintBol();
   }
 
   // Ops / list: Print BOL or Close BOL → land on Bill of Lading section (+ optional print gate)
@@ -748,6 +754,18 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
       {labelPallets ? (
         <PalletLabelPreview pallets={labelPallets} onClose={() => setLabelPallets(null)} />
       ) : null}
+
+      <BolDocumentConfirmModal
+        open={Boolean(bolGate)}
+        action={bolGate?.action ?? "print"}
+        completeness={bolGate?.completeness ?? { incomplete: true, missing: [] }}
+        onCancel={() => setBolGate(null)}
+        onConfirm={() => {
+          const next = bolGate?.action ?? "print";
+          setBolGate(null);
+          if (next === "print") void runPrintBol();
+        }}
+      />
     </>
   );
 }

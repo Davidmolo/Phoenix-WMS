@@ -66,28 +66,6 @@ export function assessBolCompleteness(
   return { incomplete: missing.length > 0, missing };
 }
 
-/**
- * Shared gate before printing or emailing a BOL PDF.
- * Returns true if the user wants to continue.
- */
-export function confirmBolDocumentAction(opts: {
-  action: "print" | "email";
-  completeness: BolCompleteness;
-}): boolean {
-  if (typeof window === "undefined") return false;
-  if (!opts.completeness.incomplete) return true;
-
-  const verb = opts.action === "print" ? "print" : "email";
-  const list =
-    opts.completeness.missing.length > 0
-      ? `\n\nStill missing:\n• ${opts.completeness.missing.join("\n• ")}`
-      : "";
-
-  return window.confirm(
-    `Bill of Lading details look incomplete.${list}\n\nDo you want to ${verb} the BOL without filling this information?`
-  );
-}
-
 export function scrollToBolSection() {
   if (typeof document === "undefined") return;
   const el = document.getElementById("bol-section");
