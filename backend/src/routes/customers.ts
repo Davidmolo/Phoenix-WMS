@@ -329,6 +329,12 @@ router.patch("/:id", async (req, res, next) => {
       customer.testAccount = Boolean(req.body.testAccount);
     }
 
+    const nullableRate = (raw: unknown): number | null => {
+      if (raw === null || raw === "") return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    };
+
     const ratesTouched =
       req.body.contractSqft !== undefined ||
       req.body.contractFee !== undefined ||
@@ -338,6 +344,7 @@ router.patch("/:id", async (req, res, next) => {
       req.body.rateOutside !== undefined ||
       req.body.unloadFee !== undefined ||
       req.body.loadFee !== undefined ||
+      req.body.crossdockPerPallet !== undefined ||
       req.body.rateInsideSqft !== undefined ||
       req.body.rateOutsideSqft !== undefined ||
       req.body.contractNoDwellInside !== undefined ||
@@ -352,24 +359,23 @@ router.patch("/:id", async (req, res, next) => {
       if (req.body.contractSqft !== undefined) customer.contractSqft = Number(req.body.contractSqft) || 0;
       if (req.body.contractFee !== undefined) customer.contractFee = Number(req.body.contractFee) || 0;
       if (req.body.contractHandlingPerPallet !== undefined) {
-        customer.contractHandlingPerPallet =
-          req.body.contractHandlingPerPallet === null || req.body.contractHandlingPerPallet === ""
-            ? null
-            : Number(req.body.contractHandlingPerPallet);
+        customer.contractHandlingPerPallet = nullableRate(req.body.contractHandlingPerPallet);
       }
       if (req.body.contractFtlRate !== undefined) {
-        customer.contractFtlRate =
-          req.body.contractFtlRate === null || req.body.contractFtlRate === ""
-            ? null
-            : Number(req.body.contractFtlRate);
+        customer.contractFtlRate = nullableRate(req.body.contractFtlRate);
       }
-      if (req.body.rateInside !== undefined) customer.rateInside = Number(req.body.rateInside);
-      if (req.body.rateOutside !== undefined) customer.rateOutside = Number(req.body.rateOutside);
-      if (req.body.unloadFee !== undefined) customer.unloadFee = Number(req.body.unloadFee);
-      if (req.body.loadFee !== undefined) customer.loadFee = Number(req.body.loadFee);
-      if (req.body.rateInsideSqft !== undefined) customer.rateInsideSqft = Number(req.body.rateInsideSqft);
+      if (req.body.rateInside !== undefined) customer.rateInside = nullableRate(req.body.rateInside);
+      if (req.body.rateOutside !== undefined) customer.rateOutside = nullableRate(req.body.rateOutside);
+      if (req.body.unloadFee !== undefined) customer.unloadFee = nullableRate(req.body.unloadFee);
+      if (req.body.loadFee !== undefined) customer.loadFee = nullableRate(req.body.loadFee);
+      if (req.body.crossdockPerPallet !== undefined) {
+        customer.crossdockPerPallet = nullableRate(req.body.crossdockPerPallet);
+      }
+      if (req.body.rateInsideSqft !== undefined) {
+        customer.rateInsideSqft = nullableRate(req.body.rateInsideSqft);
+      }
       if (req.body.rateOutsideSqft !== undefined) {
-        customer.rateOutsideSqft = Number(req.body.rateOutsideSqft);
+        customer.rateOutsideSqft = nullableRate(req.body.rateOutsideSqft);
       }
       if (req.body.contractNoDwellInside !== undefined) {
         customer.contractNoDwellInside = Boolean(req.body.contractNoDwellInside);

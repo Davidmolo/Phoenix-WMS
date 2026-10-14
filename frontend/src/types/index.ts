@@ -9,13 +9,14 @@ export type Customer = {
   contractHandlingPerPallet?: number | null;
   contractFtlRate?: number | null;
   contractNoDwellInside?: boolean;
-  /** Blanket per-pallet rates (storage accounts). */
-  rateInside?: number;
-  rateOutside?: number;
-  unloadFee?: number;
-  loadFee?: number;
-  rateInsideSqft?: number;
-  rateOutsideSqft?: number;
+  /** Admin overrides — blank/null uses company fee schedule (Cesar). */
+  rateInside?: number | null;
+  rateOutside?: number | null;
+  unloadFee?: number | null;
+  loadFee?: number | null;
+  rateInsideSqft?: number | null;
+  rateOutsideSqft?: number | null;
+  crossdockPerPallet?: number | null;
   transportEnabled?: boolean;
   transportInboundFee?: number;
   transportOutboundFee?: number;

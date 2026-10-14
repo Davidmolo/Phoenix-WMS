@@ -1,11 +1,10 @@
 import { Schema, model, type InferSchemaType, Types } from "mongoose";
 
 /**
- * billingMethod:
- * - pallet: flat per-pallet monthly storage + unload/load fees
- * - sqft: storage by pallet footprint × $/sqft
- * - contract: fixed monthly reserved space (e.g. SBA $7,500 / 2,500 SF)
- * - crossdock: bills from company fee schedule (ad hoc)
+ * billingMethod = primary account type (storage vs contract, etc.).
+ * Cesar Oct 14: every customer may use Drop & Store / Crossdock / Rework —
+ * billingMethod does not gate which jobs they can run. Per-pallet ops charges
+ * come from the company fee schedule unless contract (or admin override > 0).
  */
 const customerSchema = new Schema(
   {
@@ -20,14 +19,16 @@ const customerSchema = new Schema(
       enum: ["pallet", "sqft", "contract", "crossdock"],
       default: "pallet",
     },
-    // Per-pallet blanket rates (storage accounts)
-    rateInside: { type: Number, default: 15 },
-    rateOutside: { type: Number, default: 9.5 },
-    unloadFee: { type: Number, default: 12 },
-    loadFee: { type: Number, default: 12 },
-    rateInsideSqft: { type: Number, default: 0.6 },
-    rateOutsideSqft: { type: Number, default: 0.4 },
-    // Contract (SBA)
+    // Admin overrides — null/0 = use company fee schedule (Cesar)
+    rateInside: { type: Number, default: null },
+    rateOutside: { type: Number, default: null },
+    unloadFee: { type: Number, default: null },
+    loadFee: { type: Number, default: null },
+    rateInsideSqft: { type: Number, default: null },
+    rateOutsideSqft: { type: Number, default: null },
+    /** Optional override for crossdock $/pallet; null = schedule. */
+    crossdockPerPallet: { type: Number, default: null },
+    // Contract (SBA) — monthly on the 1st, Net 30
     contractSqft: { type: Number, default: 0 },
     contractFee: { type: Number, default: 0 },
     /** Flat handling covering inbound+outbound together (SBA: $20). */

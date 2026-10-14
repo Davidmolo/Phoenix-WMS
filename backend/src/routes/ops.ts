@@ -502,4 +502,15 @@ router.post("/invoices/:id/send", requireRole("admin", "staff"), async (req, res
   }
 });
 
+/** Admin: run contract monthly invoices now (same job as 1st-of-month cron · Net 30). */
+router.post("/contract-monthly/run", requireRole("admin"), async (_req, res, next) => {
+  try {
+    const { runContractMonthlyInvoices } = await import("../jobs/contractMonthly");
+    const result = await runContractMonthlyInvoices();
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

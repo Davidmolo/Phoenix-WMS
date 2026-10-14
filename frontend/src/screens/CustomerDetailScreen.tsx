@@ -68,6 +68,7 @@ type EditForm = {
   rateOutside: string;
   unloadFee: string;
   loadFee: string;
+  crossdockPerPallet: string;
   address: string;
   contact: string;
   phone: string;
@@ -87,6 +88,7 @@ function formFromCustomer(c: Customer): EditForm {
     rateOutside: c.rateOutside != null ? String(c.rateOutside) : "",
     unloadFee: c.unloadFee != null ? String(c.unloadFee) : "",
     loadFee: c.loadFee != null ? String(c.loadFee) : "",
+    crossdockPerPallet: c.crossdockPerPallet != null ? String(c.crossdockPerPallet) : "",
     address: c.address || "",
     contact: c.contact || "",
     phone: c.phone || "",
@@ -171,10 +173,11 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         payload.contractSqft = numOrNull(form.contractSqft) ?? 0;
         payload.contractHandlingPerPallet = numOrNull(form.contractHandlingPerPallet);
         payload.contractFtlRate = numOrNull(form.contractFtlRate);
-        payload.rateInside = numOrNull(form.rateInside) ?? 0;
-        payload.rateOutside = numOrNull(form.rateOutside) ?? 0;
-        payload.unloadFee = numOrNull(form.unloadFee) ?? 0;
-        payload.loadFee = numOrNull(form.loadFee) ?? 0;
+        payload.rateInside = numOrNull(form.rateInside);
+        payload.rateOutside = numOrNull(form.rateOutside);
+        payload.unloadFee = numOrNull(form.unloadFee);
+        payload.loadFee = numOrNull(form.loadFee);
+        payload.crossdockPerPallet = numOrNull(form.crossdockPerPallet);
       }
       await api(`/customers/${c._id}`, {
         method: "PATCH",
@@ -400,7 +403,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                 if (!saveBusy) cancelEdit();
               }}
               title="Edit billing & account"
-              description="Admin — billing method, test/live QB push, rates, and contact."
+              description="All customers may use Drop & Store, Crossdock, and Rework. Blank fee fields use the company Fee Schedule. Contract invoices on the 1st · Net 30."
               size="xl"
               footer={
                 <div className="flex flex-wrap justify-end gap-2">
@@ -421,15 +424,18 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
               {form ? (
                 <form id="customer-edit-account" onSubmit={saveEdit} className="space-y-4">
                   <FormGrid cols={3}>
-                    <Field label="Billing method">
+                    <Field
+                      label="Primary account type"
+                      hint="Does not block other job types — only sets default billing posture."
+                    >
                       <Select
                         value={form.billingMethod}
                         onChange={(e) => setForm({ ...form, billingMethod: e.target.value })}
                       >
-                        <option value="pallet">Pallet</option>
-                        <option value="sqft">Square feet</option>
-                        <option value="contract">Contract</option>
-                        <option value="crossdock">Crossdock</option>
+                        <option value="pallet">Drop & Store (pallet)</option>
+                        <option value="sqft">Drop & Store (sq ft)</option>
+                        <option value="contract">Contract (monthly)</option>
+                        <option value="crossdock">Crossdock-focused</option>
                       </Select>
                     </Field>
                     <Field
@@ -446,58 +452,89 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                         <option value="yes">Yes — WMS only</option>
                       </Select>
                     </Field>
-                    <Field label="Contract monthly fee">
-                      <NumberInput
-                        value={form.contractFee}
-                        onValueChange={(v) => setForm({ ...form, contractFee: v })}
-                      />
-                    </Field>
-                    <Field label="Contract SF">
-                      <NumberInput
-                        decimal={false}
-                        value={form.contractSqft}
-                        onValueChange={(v) => setForm({ ...form, contractSqft: v })}
-                      />
-                    </Field>
-                    <Field label="Handling / pallet" hint="Flat inbound+outbound handling">
-                      <NumberInput
-                        value={form.contractHandlingPerPallet}
-                        onValueChange={(v) =>
-                          setForm({ ...form, contractHandlingPerPallet: v })
-                        }
-                      />
-                    </Field>
-                    <Field label="FTL rate" hint="Flat rate in lieu of per-pallet handling">
-                      <NumberInput
-                        value={form.contractFtlRate}
-                        onValueChange={(v) => setForm({ ...form, contractFtlRate: v })}
-                      />
-                    </Field>
-                    <Field label="Rate inside (/pallet/mo)">
-                      <NumberInput
-                        value={form.rateInside}
-                        onValueChange={(v) => setForm({ ...form, rateInside: v })}
-                      />
-                    </Field>
-                    <Field label="Rate outside (/pallet/mo)">
-                      <NumberInput
-                        value={form.rateOutside}
-                        onValueChange={(v) => setForm({ ...form, rateOutside: v })}
-                      />
-                    </Field>
-                    <Field label="Unload fee">
-                      <NumberInput
-                        value={form.unloadFee}
-                        onValueChange={(v) => setForm({ ...form, unloadFee: v })}
-                      />
-                    </Field>
-                    <Field label="Load fee">
-                      <NumberInput
-                        value={form.loadFee}
-                        onValueChange={(v) => setForm({ ...form, loadFee: v })}
-                      />
-                    </Field>
                   </FormGrid>
+
+                  <div className="rounded-[var(--radius)] border border-border bg-surface-2/40 p-3.5">
+                    <p className="m-0 mb-3 text-[11px] font-bold tracking-wide text-navy uppercase">
+                      Contract (monthly · 1st · Net 30)
+                    </p>
+                    <FormGrid cols={3}>
+                      <Field label="Monthly fee">
+                        <NumberInput
+                          value={form.contractFee}
+                          onValueChange={(v) => setForm({ ...form, contractFee: v })}
+                        />
+                      </Field>
+                      <Field label="Reserved SF">
+                        <NumberInput
+                          decimal={false}
+                          value={form.contractSqft}
+                          onValueChange={(v) => setForm({ ...form, contractSqft: v })}
+                        />
+                      </Field>
+                      <Field label="Handling / pallet" hint="Contract IN+OUT flat">
+                        <NumberInput
+                          value={form.contractHandlingPerPallet}
+                          onValueChange={(v) =>
+                            setForm({ ...form, contractHandlingPerPallet: v })
+                          }
+                        />
+                      </Field>
+                      <Field label="FTL rate" hint="Flat in lieu of per-pallet">
+                        <NumberInput
+                          value={form.contractFtlRate}
+                          onValueChange={(v) => setForm({ ...form, contractFtlRate: v })}
+                        />
+                      </Field>
+                    </FormGrid>
+                  </div>
+
+                  <div className="rounded-[var(--radius)] border border-border bg-surface-2/40 p-3.5">
+                    <p className="m-0 mb-1 text-[11px] font-bold tracking-wide text-navy uppercase">
+                      Fee overrides (optional)
+                    </p>
+                    <p className="m-0 mb-3 text-xs text-muted">
+                      Leave blank to use the published Fee Schedule. Per-pallet ops charges always
+                      start from the schedule except Contract accounts.
+                    </p>
+                    <FormGrid cols={3}>
+                      <Field label="Unload / pallet">
+                        <NumberInput
+                          value={form.unloadFee}
+                          onValueChange={(v) => setForm({ ...form, unloadFee: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Load / pallet">
+                        <NumberInput
+                          value={form.loadFee}
+                          onValueChange={(v) => setForm({ ...form, loadFee: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Crossdock / pallet">
+                        <NumberInput
+                          value={form.crossdockPerPallet}
+                          onValueChange={(v) => setForm({ ...form, crossdockPerPallet: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Storage inside (/pallet/mo)">
+                        <NumberInput
+                          value={form.rateInside}
+                          onValueChange={(v) => setForm({ ...form, rateInside: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Storage outside (/pallet/mo)">
+                        <NumberInput
+                          value={form.rateOutside}
+                          onValueChange={(v) => setForm({ ...form, rateOutside: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                    </FormGrid>
+                  </div>
                   <FormGrid cols={2}>
                     <Field label="Contact name">
                       <Input

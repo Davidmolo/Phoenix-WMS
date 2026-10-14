@@ -5,7 +5,6 @@ import { Shipment } from "../models/Shipment";
 import { Customer } from "../models/Customer";
 import { Company } from "../models/Company";
 import { Accessorial } from "../models/Accessorial";
-import { DEFAULT_FEE_SCHEDULE } from "../constants/feeSchedule";
 import { generateBolNumber } from "../services/bol";
 import { createAndPushInvoice } from "../services/billingInvoice";
 import { paginationMeta, parsePagination } from "../utils/pagination";
@@ -138,7 +137,13 @@ router.patch("/:id", async (req, res, next) => {
 
       if (!job.accessorialId) {
         const company = await Company.findById(job.companyId);
-        const fees = { ...DEFAULT_FEE_SCHEDULE, ...(company?.feeSchedule || {}) };
+        const { resolveCompanyFees, crossdockPerPallet } = await import(
+          "../services/customerFees"
+        );
+        const fees = resolveCompanyFees(company);
+        const customerDoc = await Customer.findById(job.customerId).select(
+          "crossdockPerPallet billingMethod"
+        );
         const hours = Math.max(
           0.25,
           (job.endedAt.getTime() - job.startedAt.getTime()) / (1000 * 60 * 60)
@@ -150,7 +155,8 @@ router.patch("/:id", async (req, res, next) => {
 
         if (job.type === "crossdock") {
           accType = "crossdock";
-          const perPallet = (job.palletCount || 0) * (fees.crossDockPerPallet ?? 25);
+          const xdRate = crossdockPerPallet(customerDoc, fees);
+          const perPallet = (job.palletCount || 0) * xdRate;
           const trailer = fees.crossDockPerTrailer ?? 425;
           const minimum = fees.crossDockMinimum ?? 150;
           amount = Math.max(minimum, perPallet > 0 ? perPallet : trailer);

@@ -576,14 +576,19 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       shipment.palletIds.push(pallet._id);
     }
 
-    // Billing accruals — invoiced immediately on receive (Cesar: no inbound BOL)
+    // Billing accruals — invoiced on receive (Cesar: no inbound BOL).
+    // Per-pallet from fee schedule except contract; admin override when set.
+    const {
+      resolveCompanyFees,
+      isContractCustomer,
+      unloadPerPallet,
+      crossdockPerPallet,
+    } = await import("../services/customerFees");
     const companyDoc = await (await import("../models/Company")).Company.findById(companyId);
-    const fees = {
-      ...(await import("../constants/feeSchedule")).DEFAULT_FEE_SCHEDULE,
-      ...(companyDoc?.feeSchedule || {}),
-    };
+    const fees = resolveCompanyFees(companyDoc);
+    const service = String(shipment.serviceType || st || "drop_and_store");
 
-    if (customer.billingMethod === "contract") {
+    if (isContractCustomer(customer)) {
       if (billAsFtl && customer.contractFtlRate) {
         shipment.ftlRateApplied = customer.contractFtlRate;
         await Accessorial.create({
@@ -596,7 +601,6 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
           date: new Date(),
         });
       } else if (customer.contractHandlingPerPallet) {
-        // $20 flat covers IN+OUT together — charge once on inbound
         for (const p of createdPallets) {
           await Accessorial.create({
             companyId,
@@ -610,8 +614,8 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
           });
         }
       }
-    } else if (customer.billingMethod === "crossdock") {
-      const rate = fees.crossDockPerPallet ?? 25;
+    } else if (service === "crossdock") {
+      const rate = crossdockPerPallet(customer, fees);
       for (const p of createdPallets) {
         await Accessorial.create({
           companyId,
@@ -625,8 +629,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         });
       }
     } else {
-      // Pallet / sqft — unload at customer rate or fee-schedule fallback
-      const per = Number(customer.unloadFee || fees.unloadLoadPerPallet || 14);
+      const per = unloadPerPallet(customer, fees);
       const minimum = Number(fees.unloadLoadMinimum ?? 125);
       const amount = Math.max(minimum, Math.round(per * count * 100) / 100);
       await Accessorial.create({

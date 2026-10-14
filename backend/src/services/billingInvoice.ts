@@ -2,9 +2,16 @@ import { Invoice } from "../models/Invoice";
 import { Accessorial } from "../models/Accessorial";
 import { Customer } from "../models/Customer";
 import { Company } from "../models/Company";
-import { DEFAULT_FEE_SCHEDULE } from "../constants/feeSchedule";
 import { env } from "../config/env";
 import { pushInvoiceToQuickBooks, requireCustomerEmail } from "./quickbooks";
+import {
+  crossdockPerPallet,
+  isContractCustomer,
+  loadPerPallet,
+  resolveCompanyFees,
+  unloadPerPallet,
+} from "./customerFees";
+import { Shipment } from "../models/Shipment";
 
 export type InvoiceLineInput = {
   description: string;
@@ -230,7 +237,7 @@ export async function invoiceInboundShipment(opts: {
   if (!customer) return { invoice: null, push: null, created: false, skipped: "no_customer" as const };
 
   const company = await Company.findById(opts.companyId);
-  const fees = { ...DEFAULT_FEE_SCHEDULE, ...(company?.feeSchedule || {}) };
+  const fees = resolveCompanyFees(company);
   const when = opts.completedAt || new Date();
   const lines: InvoiceLineInput[] = [];
   const accessorialIds: string[] = [];
@@ -255,25 +262,27 @@ export async function invoiceInboundShipment(opts: {
     accessorialIds.push(String(a._id));
   }
 
-  // If receive didn't post accessorials (legacy), build pallet unload now
-  if (lines.length === 0 && customer.billingMethod !== "contract") {
-    const per =
-      customer.billingMethod === "crossdock"
-        ? Number(fees.crossDockPerPallet ?? 25)
-        : Number(customer.unloadFee || fees.unloadLoadPerPallet || 14);
+  // If receive didn't post accessorials (legacy), build from schedule / service type
+  if (lines.length === 0 && !isContractCustomer(customer)) {
+    const shipment = await Shipment.findById(opts.shipmentId).select("serviceType").lean();
+    const service = String(shipment?.serviceType || "drop_and_store");
+    const isXd = service === "crossdock";
+    const per = isXd
+      ? crossdockPerPallet(customer as { crossdockPerPallet?: number | null }, fees)
+      : unloadPerPallet(customer, fees);
     const qty = Math.max(1, opts.palletCount);
     let amount = Math.round(per * qty * 100) / 100;
-    if (customer.billingMethod !== "crossdock") {
+    if (!isXd) {
       amount = Math.max(Number(fees.unloadLoadMinimum ?? 125), amount);
     }
     lines.push({
-      description: `Inbound unload / handling — ${qty} pallet(s)${
+      description: `${isXd ? "Cross-dock" : "Inbound unload / handling"} — ${qty} pallet(s)${
         opts.carrier ? ` · ${opts.carrier}` : ""
       }`,
       qty,
       unitAmount: per,
       amount,
-      type: customer.billingMethod === "crossdock" ? "crossdock" : "handling",
+      type: isXd ? "crossdock" : "handling",
       shipmentId: opts.shipmentId,
     });
   }
@@ -311,7 +320,7 @@ export async function invoiceOutboundShipment(opts: {
   if (!customer) return { invoice: null, push: null, created: false, skipped: "no_customer" as const };
 
   const company = await Company.findById(opts.companyId);
-  const fees = { ...DEFAULT_FEE_SCHEDULE, ...(company?.feeSchedule || {}) };
+  const fees = resolveCompanyFees(company);
   const when = opts.completedAt || new Date();
   const lines: InvoiceLineInput[] = [];
   const accessorialIds: string[] = [];
@@ -336,18 +345,19 @@ export async function invoiceOutboundShipment(opts: {
     accessorialIds.push(String(a._id));
   }
 
-  const isContract = customer.billingMethod === "contract";
-  // SBA: IN+OUT handling already charged on inbound — only invoice extra (FTL / accessorials)
+  const isContract = isContractCustomer(customer);
+  // Contract: IN+OUT handling already on inbound — only extra FTL / accessorials
   if (!isContract) {
-    const per =
-      customer.billingMethod === "crossdock"
-        ? Number(fees.crossDockPerPallet ?? 25)
-        : Number(customer.loadFee || fees.unloadLoadPerPallet || 14);
+    const shipment = await Shipment.findById(opts.shipmentId).select("serviceType").lean();
+    const service = String(shipment?.serviceType || "drop_and_store");
+    const isXd = service === "crossdock";
+    const per = isXd
+      ? crossdockPerPallet(customer as { crossdockPerPallet?: number | null }, fees)
+      : loadPerPallet(customer, fees);
     const qty = Math.max(1, opts.palletCount);
     let amount = Math.round(per * qty * 100) / 100;
-    if (customer.billingMethod !== "crossdock") {
-      const minimum = Number(fees.unloadLoadMinimum ?? 125);
-      amount = Math.max(minimum, amount);
+    if (!isXd) {
+      amount = Math.max(Number(fees.unloadLoadMinimum ?? 125), amount);
     }
     lines.push({
       description: `Outbound load / handling — ${qty} pallet(s)${
@@ -356,11 +366,10 @@ export async function invoiceOutboundShipment(opts: {
       qty,
       unitAmount: per,
       amount,
-      type: customer.billingMethod === "crossdock" ? "crossdock" : "handling",
+      type: isXd ? "crossdock" : "handling",
       shipmentId: opts.shipmentId,
     });
   } else if (opts.billAsFtl && customer.contractFtlRate && openAcc.length === 0) {
-    // FTL may already be in accessorials; if not, add once
     lines.push({
       description: `FTL outbound handling — ${opts.carrier || "load"}`,
       qty: 1,
