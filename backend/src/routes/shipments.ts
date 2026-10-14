@@ -385,6 +385,8 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       sqft,
       weightLbs = null,
       weightLbsEach = null,
+      /** Cesar #9: optional per-pallet weights (same length as palletCount). */
+      weightLbsByPallet = null,
       serviceType = "drop_and_store",
       shipFrom = "",
       shipTo = "",
@@ -410,12 +412,25 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
 
     const count = Math.max(1, Math.min(50, Number(palletCount) || 1));
     const slotsEach = slotsPerPallet(footprint.dimLength, footprint.dimWidth);
-    const perPalletWeight =
+    const perPalletWeightDefault =
       weightLbsEach != null && weightLbsEach !== ""
         ? Number(weightLbsEach)
         : weightLbs != null && weightLbs !== ""
           ? Number(weightLbs) / count
           : null;
+    const weightList: Array<number | null> = Array.from({ length: count }, (_, i) => {
+      if (Array.isArray(weightLbsByPallet) && weightLbsByPallet[i] != null && weightLbsByPallet[i] !== "") {
+        const n = Number(weightLbsByPallet[i]);
+        return Number.isFinite(n) ? n : null;
+      }
+      return perPalletWeightDefault != null && Number.isFinite(perPalletWeightDefault)
+        ? perPalletWeightDefault
+        : null;
+    });
+    const totalWeightFromList = weightList.reduce<number | null>((s, w) => {
+      if (w == null) return s;
+      return (s ?? 0) + w;
+    }, null);
 
     let locationGroups: string[][];
     try {
@@ -459,6 +474,9 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       shipment.trailerNumber = trailerNumber || shipment.trailerNumber;
       shipment.billAsFtl = Boolean(billAsFtl);
       shipment.serviceType = shipment.serviceType || st;
+      if (totalWeightFromList != null) {
+        shipment.weightLbs = Math.round(totalWeightFromList * 100) / 100;
+      }
       if (ref) shipment.notes = ref;
       await shipment.save();
     } else {
@@ -479,7 +497,9 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         thirdParty,
         billAsFtl: Boolean(billAsFtl),
         weightLbs:
-          perPalletWeight != null ? Math.round(perPalletWeight * count * 100) / 100 : null,
+          totalWeightFromList != null
+            ? Math.round(totalWeightFromList * 100) / 100
+            : null,
         notes: ref,
       });
     }
@@ -523,7 +543,8 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         dimLength: footprint.dimLength,
         dimWidth: footprint.dimWidth,
         sqft: footprint.sqft,
-        weightLbs: perPalletWeight != null ? Math.round(perPalletWeight * 100) / 100 : null,
+        weightLbs:
+          weightList[i] != null ? Math.round(Number(weightList[i]) * 100) / 100 : null,
         ref,
         receivedAt: new Date(),
       });

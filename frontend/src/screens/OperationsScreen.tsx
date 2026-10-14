@@ -125,6 +125,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const dimLength = Number(dimLengthStr) || 48;
   const dimWidth = Number(dimWidthStr) || 48;
   const [weightLbsEach, setWeightLbsEach] = useState("");
+  /** Cesar #9: one weight per pallet on receive (prefilled from Expected total ÷ count). */
+  const [palletWeights, setPalletWeights] = useState<string[]>([""]);
   const [billAsFtl, setBillAsFtl] = useState(false);
   const [carrier, setCarrier] = useState("");
   const [locationMode, setLocationMode] = useState<"next_available" | "choose">("next_available");
@@ -180,11 +182,24 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     if (planned != null) setPalletCountStr(String(planned));
     if (exp.weightLbs != null && exp.weightLbs !== undefined) {
       const each = planned && planned > 0 ? Number(exp.weightLbs) / planned : Number(exp.weightLbs);
-      if (Number.isFinite(each) && each > 0) setWeightLbsEach(String(Math.round(each * 100) / 100));
+      if (Number.isFinite(each) && each > 0) {
+        const rounded = String(Math.round(each * 100) / 100);
+        setWeightLbsEach(rounded);
+        const n = Math.max(1, planned || 1);
+        setPalletWeights(Array.from({ length: n }, () => rounded));
+      }
     }
     if (exp.notes) setRef(exp.notes);
     if (exp.billAsFtl) setBillAsFtl(true);
   }, [expectedShipmentId, expectedData]);
+
+  // Keep per-pallet weight fields aligned with pallet count
+  useEffect(() => {
+    setPalletWeights((prev) => {
+      const next = Array.from({ length: palletCount }, (_, i) => prev[i] ?? weightLbsEach ?? "");
+      return next;
+    });
+  }, [palletCount, weightLbsEach]);
 
   // Cesar audit: Expected Outbound → Ship pre-fill (selector was missing entirely)
   useEffect(() => {
@@ -293,6 +308,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           dimWidth,
           sqft: sqftEach,
           weightLbsEach: weightLbsEach === "" ? undefined : Number(weightLbsEach),
+          weightLbsByPallet: palletWeights.map((w) => (w === "" ? null : Number(w))),
           billAsFtl,
           carrier,
           locationMode,
@@ -316,6 +332,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       setRef("");
       setExpectedShipmentId("");
       setWeightLbsEach("");
+      setPalletWeights([""]);
       setPalletCountStr("1");
       setChosenLocationIds([]);
       setLabelPallets(result.pallets);
@@ -758,17 +775,44 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                     Over 48″ on a side — each pallet needs 2 adjacent floor slots.
                   </p>
                 ) : null}
-                <div className="mt-3">
+                <div className="mt-3 space-y-2">
                   <Field
-                    label="Weight / pallet (lbs)"
-                    hint="Optional — used on the BOL and pallet label. Leave blank if unknown."
+                    label="Default weight / pallet (lbs)"
+                    hint="Optional — fills every pallet below. Change individuals if they differ."
                   >
                     <NumberInput
                       value={weightLbsEach}
-                      onValueChange={setWeightLbsEach}
+                      onValueChange={(v) => {
+                        setWeightLbsEach(v);
+                        setPalletWeights(Array.from({ length: palletCount }, () => v));
+                      }}
                       placeholder="Optional"
                     />
                   </Field>
+                  {palletCount > 1 ? (
+                    <div className="rounded-lg border border-border bg-white p-2">
+                      <p className="m-0 mb-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
+                        Weight per pallet (lbs)
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {palletWeights.map((w, i) => (
+                          <Field key={`pw-${i}`} label={`Pallet ${i + 1}`}>
+                            <NumberInput
+                              value={w}
+                              onValueChange={(v) =>
+                                setPalletWeights((prev) => {
+                                  const next = [...prev];
+                                  next[i] = v;
+                                  return next;
+                                })
+                              }
+                              placeholder="Optional"
+                            />
+                          </Field>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

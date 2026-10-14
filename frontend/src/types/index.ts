@@ -101,7 +101,13 @@ export type Invoice = {
   notes?: string;
   quickbooksId?: string | null;
   customerId?: string | { _id: string; name?: string; billingMethod?: string };
-  lines?: Array<{ description: string; amount: number; type: string; qty?: number }>;
+  lines?: Array<{
+    description: string;
+    amount: number;
+    type: string;
+    qty?: number;
+    unitAmount?: number;
+  }>;
 };
 
 export type Warehouse = {

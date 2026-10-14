@@ -87,15 +87,32 @@ export default function BillingPage() {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sendMsg, setSendMsg] = useState("");
   const [sendErr, setSendErr] = useState("");
+  type EditLine = {
+    description: string;
+    qty: string;
+    unitAmount: string;
+    type: string;
+  };
   const [editInv, setEditInv] = useState<InvoiceRow | null>(null);
   const [editStatus, setEditStatus] = useState("unpaid");
   const [editTotal, setEditTotal] = useState("");
   const [editBalance, setEditBalance] = useState("");
   const [editDue, setEditDue] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
   const [editBusy, setEditBusy] = useState(false);
   const [editErr, setEditErr] = useState("");
   const [editMsg, setEditMsg] = useState("");
+
+  const editLinesTotal = useMemo(() => {
+    return Math.round(
+      editLines.reduce((s, l) => {
+        const qty = Number(l.qty) || 0;
+        const unit = Number(l.unitAmount) || 0;
+        return s + qty * unit;
+      }, 0) * 100
+    ) / 100;
+  }, [editLines]);
 
   const { data: qbStatus, reload: reloadQb } = useApiQuery<QbStatus>("/quickbooks/status", {
     enabled: isStaff,
@@ -229,6 +246,33 @@ export default function BillingPage() {
     setEditBalance(inv.balanceDue != null ? String(inv.balanceDue) : String(inv.total ?? ""));
     setEditDue(inv.dueDate ? String(inv.dueDate).slice(0, 10) : "");
     setEditNotes(inv.notes || "");
+    const lines = (inv.lines || []).map((l) => {
+      const qty = Number(l.qty) || 1;
+      const unit =
+        l.unitAmount != null
+          ? Number(l.unitAmount)
+          : qty
+            ? Number(l.amount) / qty
+            : Number(l.amount) || 0;
+      return {
+        description: l.description || "",
+        qty: String(qty),
+        unitAmount: String(Math.round(unit * 100) / 100),
+        type: l.type || "other",
+      };
+    });
+    setEditLines(
+      lines.length
+        ? lines
+        : [
+            {
+              description: inv.number ? `Invoice ${inv.number}` : "Charge",
+              qty: "1",
+              unitAmount: String(inv.total ?? 0),
+              type: "other",
+            },
+          ]
+    );
     setEditErr("");
     setEditMsg("");
   }
@@ -240,6 +284,24 @@ export default function BillingPage() {
     setEditErr("");
     setEditMsg("");
     try {
+      const linesPayload = editLines
+        .filter((l) => l.description.trim())
+        .map((l) => {
+          const qty = Number(l.qty) || 1;
+          const unitAmount = Number(l.unitAmount) || 0;
+          return {
+            description: l.description.trim(),
+            qty,
+            unitAmount,
+            amount: Math.round(qty * unitAmount * 100) / 100,
+            type: l.type || "other",
+          };
+        });
+      if (!linesPayload.length) {
+        setEditErr("Add at least one line item");
+        setEditBusy(false);
+        return;
+      }
       const result = await api<{
         invoice: InvoiceRow;
         hint?: string;
@@ -249,10 +311,10 @@ export default function BillingPage() {
         token,
         body: JSON.stringify({
           status: editStatus,
-          total: editTotal === "" ? undefined : Number(editTotal),
-          balanceDue: editBalance === "" ? undefined : Number(editBalance),
           dueDate: editDue || null,
           notes: editNotes,
+          lines: linesPayload,
+          balanceDue: editBalance === "" ? undefined : Number(editBalance),
         }),
       });
       const hint = result.hint || "Invoice updated";
@@ -682,32 +744,37 @@ export default function BillingPage() {
           if (!editBusy) setEditInv(null);
         }}
         title={editInv ? `Edit invoice ${editInv.number}` : "Edit invoice"}
-        description="Admin override — saves in WMS and syncs the linked QuickBooks invoice (amount, due date, paid/void)."
-        size="lg"
+        description="Admin override — edit line items, rates, and amounts. Saves in WMS and syncs QuickBooks when linked."
+        size="xl"
         footer={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={editBusy}
-              onClick={() => setEditInv(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form="billing-edit-invoice"
-              loading={editBusy}
-              icon={<Pencil className="h-4 w-4" />}
-            >
-              Save invoice
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="m-0 text-sm font-semibold text-navy">
+              Line total {money(editLinesTotal)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={editBusy}
+                onClick={() => setEditInv(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="billing-edit-invoice"
+                loading={editBusy}
+                icon={<Pencil className="h-4 w-4" />}
+              >
+                Save invoice
+              </Button>
+            </div>
           </div>
         }
       >
         <Alert>{editErr}</Alert>
         {editMsg ? <Alert tone="success">{editMsg}</Alert> : null}
-        <form id="billing-edit-invoice" onSubmit={saveEdit} className="space-y-3">
+        <form id="billing-edit-invoice" onSubmit={saveEdit} className="space-y-4">
           <FormGrid cols={2}>
             <Field label="Status">
               <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
@@ -722,16 +789,131 @@ export default function BillingPage() {
             <Field label="Due date">
               <Input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
             </Field>
-            <Field label="Invoice total">
-              <NumberInput value={editTotal} onValueChange={setEditTotal} />
-            </Field>
-            <Field label="Balance due">
+            <Field
+              label="Balance due"
+              hint="Leave as line total unless a partial payment already posted."
+            >
               <NumberInput value={editBalance} onValueChange={setEditBalance} />
             </Field>
-            <Field label="Notes" className="sm:col-span-2">
+            <Field label="Notes">
               <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
             </Field>
           </FormGrid>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-bold tracking-wide text-muted uppercase">
+                Line items
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  setEditLines((prev) => [
+                    ...prev,
+                    { description: "", qty: "1", unitAmount: "", type: "other" },
+                  ])
+                }
+              >
+                Add line
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {editLines.map((line, idx) => {
+                const qty = Number(line.qty) || 0;
+                const unit = Number(line.unitAmount) || 0;
+                const amount = Math.round(qty * unit * 100) / 100;
+                return (
+                  <div
+                    key={`eline-${idx}`}
+                    className="rounded-[var(--radius)] border border-border bg-surface-2/40 p-3"
+                  >
+                    <FormGrid cols={2}>
+                      <Field label="Description" className="sm:col-span-2">
+                        <Input
+                          value={line.description}
+                          onChange={(e) =>
+                            setEditLines((prev) => {
+                              const next = [...prev];
+                              next[idx] = { ...next[idx], description: e.target.value };
+                              return next;
+                            })
+                          }
+                          placeholder="e.g. Inbound unload / handling"
+                        />
+                      </Field>
+                      <Field label="Qty">
+                        <NumberInput
+                          value={line.qty}
+                          onValueChange={(v) =>
+                            setEditLines((prev) => {
+                              const next = [...prev];
+                              next[idx] = { ...next[idx], qty: v };
+                              return next;
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Rate / unit">
+                        <NumberInput
+                          value={line.unitAmount}
+                          onValueChange={(v) =>
+                            setEditLines((prev) => {
+                              const next = [...prev];
+                              next[idx] = { ...next[idx], unitAmount: v };
+                              return next;
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Type">
+                        <Select
+                          value={line.type}
+                          onChange={(e) =>
+                            setEditLines((prev) => {
+                              const next = [...prev];
+                              next[idx] = { ...next[idx], type: e.target.value };
+                              return next;
+                            })
+                          }
+                        >
+                          <option value="handling">Handling</option>
+                          <option value="crossdock">Crossdock</option>
+                          <option value="storage">Storage</option>
+                          <option value="ftl">FTL</option>
+                          <option value="dwell">Dwell</option>
+                          <option value="accessorial">Accessorial</option>
+                          <option value="base_rent">Base rent</option>
+                          <option value="other">Other</option>
+                        </Select>
+                      </Field>
+                      <Field label="Line amount">
+                        <Input value={money(amount)} readOnly />
+                      </Field>
+                    </FormGrid>
+                    <div className="mt-2 flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={editLines.length <= 1}
+                        onClick={() =>
+                          setEditLines((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                      >
+                        Remove line
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="m-0 text-xs text-muted">
+              Invoice total updates from line items ({money(editLinesTotal)}). Was{" "}
+              {money(Number(editTotal) || 0)} before this edit.
+            </p>
+          </div>
         </form>
       </Modal>
 
