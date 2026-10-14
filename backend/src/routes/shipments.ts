@@ -10,6 +10,7 @@ import { nextPalletExternalId, nextLpnCode } from "../services/ids";
 import { splitClientReference } from "../services/palletSpace";
 import { assignLocationGroups, slotsPerPallet } from "../services/locationAssign";
 import { generateBolNumber } from "../services/bol";
+import { invoiceInboundShipment } from "../services/billingInvoice";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
 import {
@@ -357,6 +358,7 @@ router.get("/:id", async (req, res, next) => {
  * 2) Location = next available (default) or chosen slots
  * 3) Status stays staged_for_store while labels print (location on barcode)
  * 4) Later: Store scan confirms putaway → stored
+ * 5) Cesar: no inbound BOL — unload invoice posts on receive (not Close BOL)
  *
  * Body: { warehouseId, customerId, palletCount, locationMode?, locationIds?, expectedShipmentId?, ... }
  */
@@ -471,11 +473,11 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         trailerNumber,
         sealNumber,
         scac,
-        shipFrom: shipFrom || "Phoenix Cross Dock",
-        shipTo: shipTo || customer.name,
+        // Cesar: inbound is arriving — origin → Phoenix (not outbound-style route)
+        shipFrom: shipFrom || customer.name,
+        shipTo: shipTo || "Phoenix Cross Dock",
         thirdParty,
         billAsFtl: Boolean(billAsFtl),
-        bolNumber: generateBolNumber(),
         weightLbs:
           perPalletWeight != null ? Math.round(perPalletWeight * count * 100) / 100 : null,
         notes: ref,
@@ -553,7 +555,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       shipment.palletIds.push(pallet._id);
     }
 
-    // Billing accruals (invoiced when BOL closes — Cesar cadence)
+    // Billing accruals — invoiced immediately on receive (Cesar: no inbound BOL)
     const companyDoc = await (await import("../models/Company")).Company.findById(companyId);
     const fees = {
       ...(await import("../constants/feeSchedule")).DEFAULT_FEE_SCHEDULE,
@@ -602,8 +604,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         });
       }
     } else {
-      // Pallet / sqft — unload at customer rate or fee-schedule fallback (audit: was inert)
-      // Invoiced when inbound BOL closes. $125 minimum applies to the receipt total.
+      // Pallet / sqft — unload at customer rate or fee-schedule fallback
       const per = Number(customer.unloadFee || fees.unloadLoadPerPallet || 14);
       const minimum = Number(fees.unloadLoadMinimum ?? 125);
       const amount = Math.max(minimum, Math.round(per * count * 100) / 100);
@@ -620,21 +621,54 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
 
     shipment.status = "completed";
     shipment.completedAt = new Date();
-    if (!shipment.bolNumber) shipment.bolNumber = generateBolNumber();
-    if (!shipment.bol) shipment.set("bol", {});
-    shipment.bol.status = shipment.bol.status === "closed" ? "closed" : "open";
-    shipment.bol.timeReceived = shipment.bol.timeReceived || new Date();
+    // Cesar: no inbound BOL — clear any leftover draft fields from Expected templates
+    shipment.bolNumber = "";
+    shipment.set("bol", undefined);
     await shipment.save();
+
+    let billing: {
+      invoice: { number?: string } | null;
+      created?: boolean;
+      skipped?: string;
+    } | null = null;
+    try {
+      const result = await invoiceInboundShipment({
+        companyId: String(companyId),
+        customerId: String(customerId),
+        shipmentId: String(shipment._id),
+        palletCount: count,
+        carrier: shipment.carrier || carrier || "",
+        completedAt: shipment.completedAt || new Date(),
+      });
+      billing = {
+        invoice: result.invoice
+          ? { number: (result.invoice as { number?: string }).number }
+          : null,
+        created: result.created,
+        skipped: "skipped" in result ? String(result.skipped || "") : undefined,
+      };
+    } catch (billErr) {
+      // Receive still succeeds — surface billing failure to ops
+      billing = {
+        invoice: null,
+        created: false,
+        skipped: billErr instanceof Error ? billErr.message : "invoice_failed",
+      };
+    }
 
     const pallets = await Pallet.find({ _id: { $in: createdPallets.map((p) => p._id) } })
       .populate({ path: "locationId", select: "code aisle type" })
       .populate({ path: "secondaryLocationId", select: "code aisle type" });
 
+    const invNum = billing?.invoice && "number" in billing.invoice ? billing.invoice.number : null;
     res.status(201).json({
       shipment,
       pallets,
       slotsPerPallet: slotsEach,
-      nextStep: "Close BOL (signatures + count verify) to finalize and invoice open charges",
+      billing,
+      nextStep: invNum
+        ? `Unload invoiced as ${invNum}. Print labels, then Store scan to putaway.`
+        : "Print labels, then Store scan to putaway. (No unload invoice — check billing method / rates.)",
     });
   } catch (err) {
     next(err);

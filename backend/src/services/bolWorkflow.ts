@@ -62,40 +62,36 @@ export async function customerHasLienHold(companyId: string, customerId: string)
   };
 }
 
-/** Resolve inbound BOL #s for outbound pallets (same customer warehouse history). */
+/**
+ * Resolve inbound receipt refs for outbound pallets.
+ * Cesar: inbound has no BOL — prefer inbound BOL # when legacy, else receipt id.
+ */
 export async function resolveInboundBolRefs(opts: {
   companyId: string;
   customerId: string;
   palletIds: Array<string | Types.ObjectId>;
 }) {
-  const inbound = await Shipment.find({
+  const rows = await Shipment.find({
     companyId: opts.companyId,
     customerId: opts.customerId,
     direction: "inbound",
-    bolNumber: { $nin: ["", null] },
+    status: "completed",
     palletIds: { $in: opts.palletIds },
   })
     .select("_id bolNumber")
     .lean();
 
-  // Fallback: any completed inbound that shares pallet ids (if expected path updated palletIds)
-  let rows = inbound;
-  if (!rows.length) {
-    rows = await Shipment.find({
-      companyId: opts.companyId,
-      customerId: opts.customerId,
-      direction: "inbound",
-      status: "completed",
-      bolNumber: { $nin: ["", null] },
-      palletIds: { $in: opts.palletIds },
-    })
-      .select("_id bolNumber")
-      .lean();
-  }
-
-  const bols = [...new Set(rows.map((r) => String(r.bolNumber || "")).filter(Boolean))];
+  const labels = [
+    ...new Set(
+      rows.map((r) => {
+        const bol = String(r.bolNumber || "").trim();
+        if (bol) return bol;
+        return `RCPT-${String(r._id).slice(-6).toUpperCase()}`;
+      })
+    ),
+  ];
   return {
-    refInboundBol: bols.join(", "),
+    refInboundBol: labels.join(", "),
     refInboundShipmentIds: rows.map((r) => r._id),
   };
 }
@@ -333,7 +329,7 @@ export async function closeBol(opts: {
     bol.refInboundBol = refs.refInboundBol;
     bol.refInboundShipmentIds = refs.refInboundShipmentIds as Types.ObjectId[];
     if (!bol.refInboundBol) {
-      throw new Error("Outbound BOL must reference the inbound BOL # it pulls from");
+      throw new Error("Outbound BOL must reference the inbound receipt / BOL # it pulls from");
     }
   }
 
@@ -450,7 +446,8 @@ async function invoiceFromClosedBol(shipment: InstanceType<typeof Shipment>) {
     });
   }
 
-  // Cesar: pallet / crossdock inbound — invoice on BOL close (unload + any open accessorials)
+  // Cesar: inbound has no BOL — invoicing happens on receive. Legacy inbound BOL close
+  // still runs the same idempotent inbound invoice helper.
   return invoiceInboundShipment({
     companyId: String(shipment.companyId),
     customerId: String(shipment.customerId),

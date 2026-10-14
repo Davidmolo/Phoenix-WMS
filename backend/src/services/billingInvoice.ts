@@ -212,7 +212,7 @@ export async function createAndPushInvoice(opts: {
 }
 
 /**
- * Cesar: Pallet / sqft cadence — invoice unload/handling when inbound BOL closes.
+ * Cesar: invoice unload/handling when inbound receive completes (no inbound BOL).
  * Uses open accessorials from receive, or builds fee-schedule / customer unload rate lines.
  */
 export async function invoiceInboundShipment(opts: {
@@ -281,13 +281,14 @@ export async function invoiceInboundShipment(opts: {
   return createAndPushInvoice({
     companyId: opts.companyId,
     customerId: opts.customerId,
-    wmsJobKey: `bol:${opts.shipmentId}`,
+    // Cesar: no inbound BOL — key stays stable if a legacy inbound BOL close retries
+    wmsJobKey: `inbound:${opts.shipmentId}`,
     sourceType: "shipment",
     sourceId: opts.shipmentId,
     lines,
     periodStart: when,
     periodEnd: when,
-    notes: `Inbound BOL close · shipment ${opts.shipmentId}`,
+    notes: `Inbound receive · shipment ${opts.shipmentId}`,
     termsDays: 30,
     accessorialIds,
   });

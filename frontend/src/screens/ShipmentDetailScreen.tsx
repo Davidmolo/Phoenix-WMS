@@ -413,17 +413,19 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
             >
               Print pallet barcodes
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              icon={<Printer className="h-3.5 w-3.5" />}
-              onClick={() => void printBol()}
-              loading={printBusy}
-              disabled={!shipment}
-            >
-              {bolClosed ? "Open signed BOL" : "Print BOL"}
-            </Button>
+            {shipment?.direction === "outbound" || bolClosed ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Printer className="h-3.5 w-3.5" />}
+                onClick={() => void printBol()}
+                loading={printBusy}
+                disabled={!shipment}
+              >
+                {bolClosed ? "Open signed BOL" : "Print BOL"}
+              </Button>
+            ) : null}
             <button
               type="button"
               onClick={() => navigate("/shipments")}
@@ -449,11 +451,17 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
             <Stat label="Direction" value={titleCase(shipment.direction)} />
             <Stat label="Status" value={statusLabel(shipment.status)} />
             <Stat label="Service type" value={statusLabel(shipment.serviceType) || "—"} />
-            <Stat label="BOL #" value={shipment.bolNumber || "—"} />
-            <Stat
-              label="BOL status"
-              value={statusLabel(shipment.bol?.status || "draft")}
-            />
+            {shipment.direction === "outbound" || shipment.bolNumber ? (
+              <>
+                <Stat label="BOL #" value={shipment.bolNumber || "—"} />
+                <Stat
+                  label="BOL status"
+                  value={statusLabel(shipment.bol?.status || "draft")}
+                />
+              </>
+            ) : (
+              <Stat label="BOL" value="N/A (inbound)" />
+            )}
             <Stat label="Carrier" value={shipment.carrier || "—"} />
             <Stat label="Trailer #" value={shipment.trailerNumber || "—"} />
             <Stat label="Seal #" value={shipment.sealNumber || "—"} />
@@ -466,14 +474,18 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
 
           <Card className="mb-5">
             <CardBody>
-              <CardTitle>Route</CardTitle>
+              <CardTitle>{shipment.direction === "inbound" ? "Receipt route" : "Route"}</CardTitle>
               <div className="mt-2 grid gap-2 text-sm text-muted sm:grid-cols-2">
                 <div>
-                  <span className="font-semibold text-text">Ship from: </span>
+                  <span className="font-semibold text-text">
+                    {shipment.direction === "inbound" ? "From: " : "Ship from: "}
+                  </span>
                   {shipment.shipFrom || "—"}
                 </div>
                 <div>
-                  <span className="font-semibold text-text">Ship to: </span>
+                  <span className="font-semibold text-text">
+                    {shipment.direction === "inbound" ? "To warehouse: " : "Ship to: "}
+                  </span>
                   {shipment.shipTo || "—"}
                 </div>
                 <div>
@@ -492,7 +504,17 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
             </CardBody>
           </Card>
 
-          {isStaff ? (
+          {shipment.direction === "inbound" && !bolClosed ? (
+            <Card className="mb-5">
+              <CardBody>
+                <CardTitle>Inbound receipt</CardTitle>
+                <p className="mt-2 mb-0 text-sm text-muted">
+                  Cesar: inbound / Receive does not create a Bill of Lading. Unload charges invoice
+                  when freight is received. Print pallet barcodes, then Store scan to putaway.
+                </p>
+              </CardBody>
+            </Card>
+          ) : isStaff ? (
             <div id="bol-section" className="mb-5 scroll-mt-4">
             <FormSection
               title="Bill of Lading"
@@ -508,7 +530,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
               {bolMsg ? <Alert tone="success">{bolMsg}</Alert> : null}
               {shipment.direction === "outbound" ? (
                 <p className="mb-3 text-sm text-muted">
-                  Ref inbound BOL:{" "}
+                  Ref inbound receipt / BOL:{" "}
                   <strong className="text-text">{shipment.bol?.refInboundBol || refInboundBol || "—"}</strong>
                 </p>
               ) : null}
@@ -535,7 +557,10 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                       <Input value={truckNumber} onChange={(e) => setTruckNumber(e.target.value)} />
                     </Field>
                     {shipment.direction === "outbound" ? (
-                      <Field label="Ref inbound BOL #">
+                      <Field
+                        label="Ref inbound receipt / BOL #"
+                        hint="Inbound has no BOL — use receipt id or legacy BOL #."
+                      >
                         <Input
                           value={refInboundBol}
                           onChange={(e) => setRefInboundBol(e.target.value)}

@@ -72,12 +72,12 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           : "Receive / Store / Ship";
   const pageDescription =
     mode === "receive"
-      ? "From Expected or manual — location on barcode, then Close BOL to invoice unload."
+      ? "From Expected or manual — location on barcode, print labels, Store scan to putaway. Unload invoices on receive (no inbound BOL)."
       : mode === "store"
         ? "Scan pallet barcode, then scan storage location. Hands-free Enter between fields."
         : mode === "ship"
           ? "From Expected outbound or select pallets — pick list, ship, then Close BOL to invoice load."
-          : "Receive → assign location → print label → Store scan → Ship. Close BOL to invoice.";
+          : "Receive → assign location → print label → Store scan → Ship. Outbound only uses Close BOL to invoice.";
   const [shipPage, setShipPage] = useState(1);
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
@@ -263,8 +263,10 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   async function onReceive(e: FormEvent) {
     e.preventDefault();
     if (!token || !warehouse || !customerId) return;
-    if (locationMode === "choose" && chosenLocationIds.length < slotsNeeded) {
-      setError(`Choose ${slotsNeeded} location(s) (selected ${chosenLocationIds.length}).`);
+    if (locationMode === "choose" && chosenLocationIds.length !== slotsNeeded) {
+      setError(
+        `Choose exactly ${slotsNeeded} location(s) (selected ${chosenLocationIds.length}).`
+      );
       return;
     }
     setBusy(true);
@@ -272,7 +274,12 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     setMessage("");
     setBolInfo(null);
     try {
-      const result = await api<{ shipment: Shipment; pallets: Pallet[] }>("/shipments/receive", {
+      const result = await api<{
+        shipment: Shipment;
+        pallets: Pallet[];
+        billing?: { invoice?: { number?: string } | null; skipped?: string };
+        nextStep?: string;
+      }>("/shipments/receive", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -297,12 +304,14 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
         (n, p) => n + (p.secondaryLocationId ? 2 : 1),
         0
       );
+      const inv = result.billing?.invoice?.number;
       setMessage(
-        `Received ${result.pallets.length} pallet(s) · Staged for Store · ${labelCount} barcode label(s) — print labels, then open shipment to Close BOL (signatures → invoice)`
+        result.nextStep ||
+          `Received ${result.pallets.length} pallet(s) · Staged for Store · ${labelCount} barcode label(s)${
+            inv ? ` · Invoice ${inv}` : ""
+          } — print labels, then Store scan to putaway`
       );
-      if (result.shipment?.bolNumber) {
-        setBolInfo({ id: result.shipment._id, bolNumber: result.shipment.bolNumber });
-      }
+      // Cesar: inbound has no BOL — bolInfo is only set after outbound ship
       setDescription("");
       setRef("");
       setExpectedShipmentId("");
@@ -441,13 +450,18 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     }
   }
 
+  // Cesar: exactly N locations — uncheck free; once N checked, gray out the rest
   function toggleChosenLocation(id: string) {
     setChosenLocationIds((ids) => {
       if (ids.includes(id)) return ids.filter((x) => x !== id);
-      if (ids.length >= slotsNeeded) return [...ids.slice(1), id];
+      if (ids.length >= slotsNeeded) return ids;
       return [...ids, id];
     });
   }
+
+  useEffect(() => {
+    setChosenLocationIds((ids) => (ids.length > slotsNeeded ? ids.slice(0, slotsNeeded) : ids));
+  }, [slotsNeeded]);
 
   const shipColumns: Column<Shipment>[] = [
     {
@@ -509,7 +523,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       <PageHeader title={title} icon={headerIcon} description={pageDescription} />
       <Alert>{error}</Alert>
       {message ? <Alert tone="info">{message}</Alert> : null}
-      {bolInfo ? (
+      {bolInfo && mode !== "receive" ? (
         <Alert tone="success">
           <div className="flex flex-wrap items-center gap-3">
             <span>
@@ -560,7 +574,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
         {showReceive ? (
         <FormSection
           title="Receive inbound"
-          description="From Expected or manual. Location goes on the barcode; status stays Staged for Store until putaway. Unload invoices when you Close BOL."
+          description="From Expected or manual. Location goes on the barcode; status stays Staged for Store until putaway. Unload invoices on receive — no inbound BOL."
           icon={<PackagePlus className="h-4 w-4" />}
           className={mode === "receive" ? "w-full" : undefined}
         >
@@ -662,27 +676,46 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                     {availableLocations.length === 0 ? (
                       <p className="m-0 p-2 text-xs text-muted">No open locations.</p>
                     ) : (
-                      availableLocations.map((loc) => (
-                        <label
-                          key={loc._id}
-                          className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-2"
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 accent-[var(--accent)]"
-                            checked={chosenLocationIds.includes(loc._id)}
-                            onChange={() => toggleChosenLocation(loc._id)}
-                          />
-                          <span className="font-mono font-semibold">{loc.code}</span>
-                          <span className="text-xs text-muted">
-                            {loc.aisle} · {loc.type}
-                          </span>
-                        </label>
-                      ))
+                      availableLocations.map((loc) => {
+                        const checked = chosenLocationIds.includes(loc._id);
+                        const atCap =
+                          !checked && chosenLocationIds.length >= slotsNeeded;
+                        return (
+                          <label
+                            key={loc._id}
+                            className={
+                              atCap
+                                ? "flex cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-sm opacity-45"
+                                : "flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-2"
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-[var(--accent)] disabled:cursor-not-allowed"
+                              checked={checked}
+                              disabled={atCap}
+                              onChange={() => toggleChosenLocation(loc._id)}
+                            />
+                            <span className="font-mono font-semibold">{loc.code}</span>
+                            <span className="text-xs text-muted">
+                              {loc.aisle} · {loc.type}
+                            </span>
+                          </label>
+                        );
+                      })
                     )}
-                    <p className="m-0 px-2 pt-1 text-[11px] text-muted">
+                    <p
+                      className={
+                        chosenLocationIds.length === slotsNeeded
+                          ? "m-0 px-2 pt-1 text-[11px] font-semibold text-[var(--success)]"
+                          : "m-0 px-2 pt-1 text-[11px] text-muted"
+                      }
+                    >
                       Selected {chosenLocationIds.length} / {slotsNeeded}
                       {needsDualSlot ? " (2 adjacent slots per oversized pallet)" : ""}
+                      {chosenLocationIds.length === slotsNeeded
+                        ? " — ready"
+                        : ` — pick ${slotsNeeded - chosenLocationIds.length} more`}
                     </p>
                   </div>
                 ) : (

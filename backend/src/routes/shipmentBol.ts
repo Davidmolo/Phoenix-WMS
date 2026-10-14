@@ -33,6 +33,14 @@ async function loadOwnedShipment(req: Request) {
   return { shipment };
 }
 
+/** Cesar: inbound/Receive never creates a BOL — only outbound uses BOL workflow. */
+function inboundBolBlocked(shipment: InstanceType<typeof Shipment>) {
+  if (shipment.direction !== "inbound") return null;
+  // Allow viewing a legacy closed inbound BOL document if one already exists
+  if (isBolClosed(shipment) && shipment.bol?.documentPath) return null;
+  return "Inbound receipts do not use a Bill of Lading. Unload is invoiced when freight is received.";
+}
+
 /** Lien / past-due hold for a customer (staff + that customer). */
 router.get("/billing-hold/:customerId", async (req, res, next) => {
   try {
@@ -109,6 +117,11 @@ router.patch("/:id/bol", requireRole("admin", "staff"), async (req, res, next) =
       res.status(loaded.status).json({ error: loaded.error });
       return;
     }
+    const blocked = inboundBolBlocked(loaded.shipment!);
+    if (blocked) {
+      res.status(400).json({ error: blocked });
+      return;
+    }
     try {
       const shipment = await patchBolFields(loaded.shipment!, req.body || {});
       res.json({ shipment, bol: shipment.bol });
@@ -126,6 +139,11 @@ router.post("/:id/bol/sign", requireRole("admin", "staff"), async (req, res, nex
     const loaded = await loadOwnedShipment(req);
     if ("error" in loaded && loaded.error) {
       res.status(loaded.status).json({ error: loaded.error });
+      return;
+    }
+    const blocked = inboundBolBlocked(loaded.shipment!);
+    if (blocked) {
+      res.status(400).json({ error: blocked });
       return;
     }
     try {
@@ -150,6 +168,11 @@ router.post("/:id/bol/photos", requireRole("admin", "staff"), async (req, res, n
     const loaded = await loadOwnedShipment(req);
     if ("error" in loaded && loaded.error) {
       res.status(loaded.status).json({ error: loaded.error });
+      return;
+    }
+    const blocked = inboundBolBlocked(loaded.shipment!);
+    if (blocked) {
+      res.status(400).json({ error: blocked });
       return;
     }
     const urls = Array.isArray(req.body.photos)
@@ -188,6 +211,11 @@ router.post("/:id/bol/close", requireRole("admin", "staff"), async (req, res, ne
       return;
     }
     const shipment = loaded.shipment!;
+    const blocked = inboundBolBlocked(shipment);
+    if (blocked) {
+      res.status(400).json({ error: blocked });
+      return;
+    }
 
     // Lien hold — do not release / close-out billable release when past due
     if (shipment.direction === "outbound") {
@@ -236,6 +264,11 @@ router.post("/:id/bol/amend", requireRole("admin", "staff"), async (req, res, ne
       res.status(loaded.status).json({ error: loaded.error });
       return;
     }
+    const blocked = inboundBolBlocked(loaded.shipment!);
+    if (blocked) {
+      res.status(400).json({ error: blocked });
+      return;
+    }
     try {
       const result = await amendBol({
         shipment: loaded.shipment!,
@@ -262,6 +295,11 @@ router.get("/:id/bol", requireRole("admin", "staff", "customer"), async (req, re
       return;
     }
     const shipment = loaded.shipment!;
+    const blocked = inboundBolBlocked(shipment);
+    if (blocked) {
+      res.status(400).json({ error: blocked });
+      return;
+    }
     // If closed and file exists, serve frozen document
     if (isBolClosed(shipment) && shipment.bol?.documentPath) {
       try {

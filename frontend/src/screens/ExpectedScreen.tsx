@@ -59,6 +59,10 @@ function EditShipmentModal({
   onSaved: (message: string) => void;
 }) {
   const [carrier, setCarrier] = useState(shipment.carrier || "");
+  const [trailerNumber, setTrailerNumber] = useState(shipment.trailerNumber || "");
+  const [weightLbs, setWeightLbs] = useState(
+    shipment.weightLbs != null ? String(shipment.weightLbs) : ""
+  );
   const [poOrJob, setPoOrJob] = useState(shipment.jobName || shipment.poNumber || "");
   const [serviceType, setServiceType] = useState(shipment.serviceType || "drop_and_store");
   const [scheduledAt, setScheduledAt] = useState(toDatetimeLocalValue(shipment.scheduledAt));
@@ -85,6 +89,8 @@ function EditShipmentModal({
         token,
         body: JSON.stringify({
           carrier,
+          trailerNumber,
+          weightLbs: weightLbs === "" ? null : Number(weightLbs),
           jobName: poOrJob,
           serviceType,
           scheduledAt: scheduledAt || null,
@@ -128,6 +134,16 @@ function EditShipmentModal({
             <FormGrid>
               <Field label="Carrier">
                 <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="Optional" />
+              </Field>
+              <Field label="Trailer #">
+                <Input
+                  value={trailerNumber}
+                  onChange={(e) => setTrailerNumber(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+              <Field label="Total weight (lbs)" hint="Flows into Receive / Ship when linked.">
+                <NumberInput value={weightLbs} onValueChange={setWeightLbs} placeholder="Optional" />
               </Field>
               <Field label="PO / Job">
                 <Input
@@ -205,6 +221,8 @@ export default function ExpectedPage() {
   const [serviceType, setServiceType] = useState<string>("drop_and_store");
   const [palletCountStr, setPalletCountStr] = useState("1");
   const [carrier, setCarrier] = useState("");
+  const [trailerNumber, setTrailerNumber] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
   const [poOrJob, setPoOrJob] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [notes, setNotes] = useState("");
@@ -241,6 +259,8 @@ export default function ExpectedPage() {
           serviceType,
           palletCount: Math.max(1, Number(palletCountStr) || 1),
           carrier,
+          trailerNumber,
+          weightLbs: weightLbs === "" ? undefined : Number(weightLbs),
           poOrJob,
           scheduledAt: scheduledAt || undefined,
           notes,
@@ -249,6 +269,8 @@ export default function ExpectedPage() {
       setMsg(`Expected ${direction} appointment created`);
       setNotes("");
       setPoOrJob("");
+      setTrailerNumber("");
+      setWeightLbs("");
       if (direction === "inbound") setInPage(1);
       else setOutPage(1);
       invalidateApiCache();
@@ -401,6 +423,19 @@ export default function ExpectedPage() {
               </Field>
               <Field label="Carrier">
                 <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} />
+              </Field>
+              <Field label="Trailer #">
+                <Input
+                  value={trailerNumber}
+                  onChange={(e) => setTrailerNumber(e.target.value)}
+                  placeholder="Optional — pre-fills Ship"
+                />
+              </Field>
+              <Field
+                label="Total weight (lbs)"
+                hint="Optional — Receive splits across pallet count; Ship can use as default."
+              >
+                <NumberInput value={weightLbs} onValueChange={setWeightLbs} placeholder="Optional" />
               </Field>
               <Field label="PO / Job">
                 <Input

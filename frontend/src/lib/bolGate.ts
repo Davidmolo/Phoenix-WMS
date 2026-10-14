@@ -55,7 +55,7 @@ export function assessBolCompleteness(
     missing.push("actual count");
   }
   if (shipment.direction === "outbound" && !String(bol?.refInboundBol || "").trim()) {
-    missing.push("ref inbound BOL #");
+    missing.push("ref inbound receipt / BOL #");
   }
   const sigs = bol?.signatures || [];
   const hasDriver = sigs.some((s) => s.role === "driver");
