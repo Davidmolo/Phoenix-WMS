@@ -91,15 +91,15 @@ async function seed() {
 
   // Floor grid (racking not installed yet — proforma §1 racking = 0)
   const locationDocs = [];
-  let n = 0;
   for (let row = 0; row < mapRows; row++) {
     for (let col = 0; col < mapCols; col++) {
-      n += 1;
+      const lane = String.fromCharCode(65 + row);
+      const section = String.fromCharCode(65 + col);
       locationDocs.push({
         companyId: company._id,
         warehouseId: warehouse._id,
-        code: `W-${n}`,
-        aisle: "W",
+        code: `${lane}${section}1A`,
+        aisle: lane,
         type: "inside" as const,
         level: 1,
         spot: 1,

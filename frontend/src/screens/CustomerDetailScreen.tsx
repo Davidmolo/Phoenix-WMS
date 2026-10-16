@@ -31,6 +31,7 @@ import { useAppNav } from "@/lib/appNav";
 import { dateLabel, money } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import { api } from "@/lib/api";
+import { downloadCsv } from "@/lib/csv";
 import type { Customer, Invoice, Pallet, WhRequest } from "@/types";
 
 type Charge = { _id: string; description: string; amount: number; type: string; date: string };
@@ -49,6 +50,10 @@ type DetailResponse = {
     activePallets: number;
     unbilledTotal: number;
     unbilledCount: number;
+    unpaidTotal?: number;
+    unpaidCount?: number;
+    pastDueTotal?: number;
+    pastDueCount?: number;
     openRequests: number;
   };
   pallets: Pallet[];
@@ -69,6 +74,11 @@ type EditForm = {
   unloadFee: string;
   loadFee: string;
   crossdockPerPallet: string;
+  serviceDropStore: boolean;
+  serviceCrossdock: boolean;
+  serviceRework: boolean;
+  reworkHourlyRate: string;
+  reworkMinimumHours: string;
   address: string;
   contact: string;
   phone: string;
@@ -77,7 +87,14 @@ type EditForm = {
 
 function formFromCustomer(c: Customer): EditForm {
   return {
-    billingMethod: c.billingMethod || "pallet",
+    billingMethod:
+      c.billingMethod === "rework"
+        ? "rework"
+        : c.billingMethod === "crossdock"
+          ? "crossdock"
+          : c.billingMethod === "contract" || c.billingMethod === "sqft"
+            ? "contract"
+            : "crossdock",
     testAccount: Boolean(c.testAccount),
     contractFee: c.contractFee != null ? String(c.contractFee) : "",
     contractSqft: c.contractSqft != null ? String(c.contractSqft) : "",
@@ -89,6 +106,11 @@ function formFromCustomer(c: Customer): EditForm {
     unloadFee: c.unloadFee != null ? String(c.unloadFee) : "",
     loadFee: c.loadFee != null ? String(c.loadFee) : "",
     crossdockPerPallet: c.crossdockPerPallet != null ? String(c.crossdockPerPallet) : "",
+    serviceDropStore: c.serviceDropStore !== false,
+    serviceCrossdock: c.serviceCrossdock !== false,
+    serviceRework: c.serviceRework !== false,
+    reworkHourlyRate: c.reworkHourlyRate != null ? String(c.reworkHourlyRate) : "",
+    reworkMinimumHours: c.reworkMinimumHours != null ? String(c.reworkMinimumHours) : "",
     address: c.address || "",
     contact: c.contact || "",
     phone: c.phone || "",
@@ -119,6 +141,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
     { invoices: Invoice[] } & PaginationMeta
   >(invPath);
   const [showReport, setShowReport] = useState(false);
+  const [palletSearch, setPalletSearch] = useState("");
 
   const c = data?.customer;
   const invoices = invData?.invoices ?? [];
@@ -163,6 +186,9 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
       const payload: Record<string, unknown> = {
         billingMethod: form.billingMethod,
         testAccount: form.testAccount,
+        serviceDropStore: form.serviceDropStore,
+        serviceCrossdock: form.serviceCrossdock,
+        serviceRework: form.serviceRework,
         address: form.address,
         contact: form.contact,
         phone: form.phone,
@@ -178,6 +204,8 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         payload.unloadFee = numOrNull(form.unloadFee);
         payload.loadFee = numOrNull(form.loadFee);
         payload.crossdockPerPallet = numOrNull(form.crossdockPerPallet);
+        payload.reworkHourlyRate = numOrNull(form.reworkHourlyRate);
+        payload.reworkMinimumHours = numOrNull(form.reworkMinimumHours);
       }
       await api(`/customers/${c._id}`, {
         method: "PATCH",
@@ -235,16 +263,10 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
       header: "Status",
       render: (p) => <Badge tone={statusTone(p.status)}>{p.status}</Badge>,
     },
+    { key: "desc", header: "Description", render: (p) => p.description || "—" },
     { key: "job", header: "Job", render: (p) => p.jobName || "—" },
     { key: "po", header: "PO", render: (p) => p.poNumber || "—" },
     { key: "recv", header: "Received", render: (p) => dateLabel(p.receivedAt) },
-  ];
-
-  const chargeCols: Column<Charge>[] = [
-    { key: "desc", header: "Description", render: (x) => x.description },
-    { key: "type", header: "Type", render: (x) => <Badge>{x.type}</Badge> },
-    { key: "amt", header: "Amount", render: (x) => money(x.amount) },
-    { key: "date", header: "Date", render: (x) => dateLabel(x.date) },
   ];
 
   const reqCols: Column<WhRequest>[] = [
@@ -333,40 +355,44 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         {c ? (
           <>
             <KpiGrid>
-              <KpiCard label="Billing method" value={c.billingMethod} />
               <KpiCard
-                label="QB push"
-                value={c.testAccount ? "Test — WMS only" : "Live → QuickBooks"}
-              />
-              <KpiCard
-                label="Contract monthly fee"
-                value={c.billingMethod === "contract" ? money(c.contractFee) : "—"}
-              />
-              <KpiCard
-                label="Reserved square feet"
-                value={
-                  c.contractSqft != null && c.contractSqft > 0
-                    ? `${c.contractSqft.toLocaleString()} SF`
-                    : "—"
+                label="Active pallets"
+                value={data?.summary.activePallets}
+                onClick={() =>
+                  document.getElementById("customer-pallets")?.scrollIntoView({ behavior: "smooth" })
                 }
               />
               <KpiCard
-                label="Handling rate / pallet"
-                value={
-                  c.contractHandlingPerPallet != null ? money(c.contractHandlingPerPallet) : "—"
+                label="Unpaid"
+                value={money(data?.summary.unpaidTotal ?? 0)}
+                hint={`${data?.summary.unpaidCount ?? 0} invoices · open in Billing`}
+                onClick={() => {
+                  sessionStorage.setItem(
+                    "phoenix.billingFocus",
+                    JSON.stringify({ customerId: c._id, focus: "unpaid" })
+                  );
+                  navigate("/billing");
+                }}
+              />
+              <KpiCard
+                label="Past due"
+                value={money(data?.summary.pastDueTotal ?? 0)}
+                hint={`${data?.summary.pastDueCount ?? 0} invoices · open in Billing`}
+                onClick={() => {
+                  sessionStorage.setItem(
+                    "phoenix.billingFocus",
+                    JSON.stringify({ customerId: c._id, focus: "past_due" })
+                  );
+                  navigate("/billing");
+                }}
+              />
+              <KpiCard
+                label="Open requests"
+                value={data?.summary.openRequests}
+                onClick={() =>
+                  document.getElementById("customer-requests")?.scrollIntoView({ behavior: "smooth" })
                 }
               />
-              <KpiCard
-                label="FTL rate"
-                value={c.contractFtlRate != null ? money(c.contractFtlRate) : "—"}
-              />
-              <KpiCard label="Active pallets" value={data?.summary.activePallets} />
-              <KpiCard
-                label="Unbilled charges"
-                value={money(data?.summary.unbilledTotal)}
-                hint={`${data?.summary.unbilledCount ?? 0} lines`}
-              />
-              <KpiCard label="Open requests" value={data?.summary.openRequests} />
             </KpiGrid>
 
             <Card className="mb-5">
@@ -403,7 +429,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                 if (!saveBusy) cancelEdit();
               }}
               title="Edit billing & account"
-              description="All customers may use Drop & Store, Crossdock, and Rework. Blank fee fields use the company Fee Schedule. Contract invoices on the 1st · Net 30."
+              description="Every customer can use Contract, Crossdock, and Rework. Contract bills on the 1st (Net 30). Crossdock and Rework bill when the job ends. Square feet is part of the contract."
               size="xl"
               footer={
                 <div className="flex flex-wrap justify-end gap-2">
@@ -425,18 +451,49 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                 <form id="customer-edit-account" onSubmit={saveEdit} className="space-y-4">
                   <FormGrid cols={3}>
                     <Field
-                      label="Primary account type"
-                      hint="Does not block other job types — only sets default billing posture."
+                      label="Account type"
+                      hint="Contract, Crossdock, or Rework. A contract customer can still run a one-off crossdock."
                     >
                       <Select
                         value={form.billingMethod}
                         onChange={(e) => setForm({ ...form, billingMethod: e.target.value })}
                       >
-                        <option value="pallet">Drop & Store (pallet)</option>
-                        <option value="sqft">Drop & Store (sq ft)</option>
-                        <option value="contract">Contract (monthly)</option>
-                        <option value="crossdock">Crossdock-focused</option>
+                        <option value="contract">Contract — monthly on the 1st, Net 30</option>
+                        <option value="crossdock">Crossdock — billed when the job ends</option>
+                        <option value="rework">Rework — billed when the job ends</option>
                       </Select>
+                    </Field>
+                    <Field label="Services" hint="Any mix. These do not replace each other.">
+                      <div className="flex flex-col gap-1.5 pt-1 text-sm text-navy">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={form.serviceDropStore}
+                            onChange={(e) =>
+                              setForm({ ...form, serviceDropStore: e.target.checked })
+                            }
+                          />
+                          Drop & Store
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={form.serviceCrossdock}
+                            onChange={(e) =>
+                              setForm({ ...form, serviceCrossdock: e.target.checked })
+                            }
+                          />
+                          Crossdock
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={form.serviceRework}
+                            onChange={(e) => setForm({ ...form, serviceRework: e.target.checked })}
+                          />
+                          Rework
+                        </label>
+                      </div>
                     </Field>
                     <Field
                       label="Test account"
@@ -491,11 +548,11 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
 
                   <div className="rounded-[var(--radius)] border border-border bg-surface-2/40 p-3.5">
                     <p className="m-0 mb-1 text-[11px] font-bold tracking-wide text-navy uppercase">
-                      Fee overrides (optional)
+                      What we charge this customer
                     </p>
                     <p className="m-0 mb-3 text-xs text-muted">
-                      Leave blank to use the published Fee Schedule. Per-pallet ops charges always
-                      start from the schedule except Contract accounts.
+                      Contract: monthly fee, reserved square feet, handling, and FTL are above.
+                      Crossdock and Rework below. Leave a rate blank to use the company fee schedule.
                     </p>
                     <FormGrid cols={3}>
                       <Field label="Unload / pallet">
@@ -517,6 +574,20 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                           value={form.crossdockPerPallet}
                           onValueChange={(v) => setForm({ ...form, crossdockPerPallet: v })}
                           placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Rework $/hr" hint="Blank uses $65/hr on the fee schedule">
+                        <NumberInput
+                          value={form.reworkHourlyRate}
+                          onValueChange={(v) => setForm({ ...form, reworkHourlyRate: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Rework minimum hours">
+                        <NumberInput
+                          value={form.reworkMinimumHours}
+                          onValueChange={(v) => setForm({ ...form, reworkMinimumHours: v })}
+                          placeholder="1"
                         />
                       </Field>
                       <Field label="Storage inside (/pallet/mo)">
@@ -566,27 +637,65 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
               ) : null}
             </Modal>
 
-            <div className="mb-5">
-              <PageHeader title="Pallets" />
+            <div className="mb-5" id="customer-pallets">
+              <PageHeader
+                title="Pallets"
+                actions={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      const rows = (data?.pallets ?? []).filter((p) => {
+                        const q = palletSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return [p.externalId, p.description, p.jobName, p.poNumber, p.status]
+                          .join(" ")
+                          .toLowerCase()
+                          .includes(q);
+                      });
+                      downloadCsv(
+                        "customer-pallets.csv",
+                        ["Pallet", "Status", "Description", "Job", "PO", "Received"],
+                        rows.map((p) => [
+                          p.externalId,
+                          p.status,
+                          p.description || "",
+                          p.jobName || "",
+                          p.poNumber || "",
+                          p.receivedAt || "",
+                        ])
+                      );
+                    }}
+                  >
+                    Export CSV
+                  </Button>
+                }
+              />
+              <div className="mb-3 max-w-sm">
+                <Input
+                  type="search"
+                  value={palletSearch}
+                  onChange={(e) => setPalletSearch(e.target.value)}
+                  placeholder="Search pallet, job, PO, description…"
+                />
+              </div>
               <DataTable
                 columns={palletCols}
-                rows={data?.pallets ?? []}
+                rows={(data?.pallets ?? []).filter((p) => {
+                  const q = palletSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return [p.externalId, p.description, p.jobName, p.poNumber, p.status]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(q);
+                })}
                 rowKey={(p) => p._id}
                 emptyTitle="No pallets for this customer"
               />
             </div>
 
-            <div className="mb-5">
-              <PageHeader title="Unbilled charges" />
-              <DataTable
-                columns={chargeCols}
-                rows={data?.unbilledCharges ?? []}
-                rowKey={(x) => x._id}
-                emptyTitle="No open charges"
-              />
-            </div>
-
-            <div className="mb-5">
+            <div className="mb-5" id="customer-requests">
               <PageHeader title="Requests" />
               <DataTable
                 columns={reqCols}
@@ -596,7 +705,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
               />
             </div>
 
-            <div className="mb-5">
+            <div className="mb-5" id="customer-invoices">
               <PageHeader
                 title="Invoices"
                 description="Same register as Billing — invoice total is billed; balance due is still owed"

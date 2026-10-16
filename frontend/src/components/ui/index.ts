@@ -11,6 +11,7 @@ export { NumberInput } from "./NumberInput";
 export { KpiCard, KpiGrid } from "./KpiCard";
 export { Label } from "./Label";
 export { Modal } from "./Modal";
+export { DialogProvider, useDialog } from "./DialogProvider";
 export { PageHeader } from "./PageHeader";
 export { Pagination } from "./Pagination";
 export { Select } from "./Select";

@@ -17,6 +17,7 @@ import {
   Modal,
   NumberInput,
   PageHeader,
+  useDialog,
   SearchableSelect,
   Select,
   statusLabel,
@@ -71,12 +72,14 @@ function paidSoFar(inv: InvoiceRow): number | null {
 }
 
 export default function BillingPage() {
+  const dialog = useDialog();
   const { user, token } = useAuth();
   const isStaff = user?.role !== "customer";
   const isAdmin = user?.role === "admin";
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [balance, setBalance] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [showRegisterPrint, setShowRegisterPrint] = useState(false);
@@ -119,6 +122,20 @@ export default function BillingPage() {
   });
 
   useEffect(() => {
+    const raw = sessionStorage.getItem("phoenix.billingFocus");
+    if (!raw) return;
+    sessionStorage.removeItem("phoenix.billingFocus");
+    try {
+      const focus = JSON.parse(raw) as { customerId?: string; focus?: string };
+      if (focus.customerId) setCustomerId(focus.customerId);
+      if (focus.focus === "unpaid" || focus.focus === "past_due") setBalance(focus.focus);
+      setPage(1);
+    } catch {
+      /* ignore bad focus payload */
+    }
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const qb = params.get("qb");
@@ -145,10 +162,11 @@ export default function BillingPage() {
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         customerId: isStaff && customerId ? customerId : undefined,
+        balance: balance || undefined,
         q: search.trim() || undefined,
       },
     });
-  }, [fromDate, toDate, customerId, isStaff, page, search]);
+  }, [fromDate, toDate, customerId, isStaff, page, search, balance]);
 
   const { data, error, loading, reload } = useApiQuery<
     { invoices: InvoiceRow[] } & PaginationMeta
@@ -336,7 +354,13 @@ export default function BillingPage() {
   }
 
   async function disconnectQuickBooks() {
-    if (!window.confirm("Disconnect QuickBooks from Phoenix WMS?")) return;
+    const ok = await dialog.confirm({
+      title: "Disconnect QuickBooks",
+      message: "Disconnect QuickBooks from Phoenix WMS? Invoices stay in WMS. Pay Now email stops until you connect again.",
+      confirmLabel: "Disconnect",
+      danger: true,
+    });
+    if (!ok) return;
     setQbBusy(true);
     setQbErr("");
     try {
@@ -490,6 +514,7 @@ export default function BillingPage() {
     setFromDate("");
     setToDate("");
     setCustomerId("");
+    setBalance("");
     setSearch("");
     setPage(1);
     invalidateApiCache("/invoices");
@@ -706,7 +731,12 @@ export default function BillingPage() {
               />
             </Field>
           </FormGrid>
-          {(fromDate || toDate || customerId || search.trim()) && (
+          {balance ? (
+            <p className="m-0 mt-3 text-xs text-muted">
+              {balance === "past_due" ? "Past due" : "Unpaid"} invoices for this customer. These rows are the amount on the customer tile.
+            </p>
+          ) : null}
+          {(fromDate || toDate || customerId || search.trim() || balance) && (
             <div className="mt-3">
               <Button type="button" size="sm" variant="ghost" onClick={clearFilters}>
                 Clear filters (show all)

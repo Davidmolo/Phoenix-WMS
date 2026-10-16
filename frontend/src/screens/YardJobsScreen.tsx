@@ -14,6 +14,7 @@ import {
   FormGrid,
   FormSection,
   Input,
+  Modal,
   NumberInput,
   PageHeader,
   SearchableSelect,
@@ -184,6 +185,7 @@ export default function YardJobsPage() {
   const [err, setErr] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState<YardJob | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<YardJob | null>(null);
 
   useEffect(() => {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
@@ -244,6 +246,7 @@ export default function YardJobsPage() {
       );
       setTruckNumberIn("");
       setTruckNumberOut("");
+      setPalletCountStr("0");
       setNotes("");
       setExpectedShipmentId("");
       invalidateApiCache();
@@ -279,9 +282,9 @@ export default function YardJobsPage() {
     }
   }
 
-  async function cancelJob(job: YardJob) {
-    if (!token) return;
-    if (!window.confirm(`Cancel this ${statusLabel(job.type)} job?`)) return;
+  async function confirmCancel() {
+    if (!token || !cancelTarget) return;
+    const job = cancelTarget;
     setActionId(job._id);
     setErr("");
     setMsg("");
@@ -292,6 +295,7 @@ export default function YardJobsPage() {
         body: JSON.stringify({ status: "cancelled" }),
       });
       setMsg("Job cancelled");
+      setCancelTarget(null);
       invalidateApiCache();
       await reload();
     } catch (ex) {
@@ -362,7 +366,7 @@ export default function YardJobsPage() {
               size="sm"
               variant="danger"
               loading={actionId === j._id}
-              onClick={() => void cancelJob(j)}
+              onClick={() => setCancelTarget(j)}
             >
               Cancel
             </Button>
@@ -472,11 +476,69 @@ export default function YardJobsPage() {
           <Field label="Notes">
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
-          <Button type="submit" loading={busy} icon={<Forklift className="h-4 w-4" />}>
-            Start {type === "crossdock" ? "crossdock" : "trailer rework"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" loading={busy} icon={<Forklift className="h-4 w-4" />}>
+              Start {type === "crossdock" ? "crossdock" : "trailer rework"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setExpectedShipmentId("");
+                setTruckNumberIn("");
+                setTruckNumberOut("");
+                setPalletCountStr("0");
+                setNotes("");
+                setErr("");
+                setMsg("");
+              }}
+            >
+              Clear
+            </Button>
+          </div>
         </form>
       </FormSection>
+
+      <Modal
+        open={Boolean(cancelTarget)}
+        onClose={() => {
+          if (!actionId) setCancelTarget(null);
+        }}
+        title="Cancel job"
+        description={
+          cancelTarget
+            ? `Cancel this ${statusLabel(cancelTarget.type)} job? It stays in the list as cancelled and is not billed.`
+            : undefined
+        }
+        size="md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={Boolean(actionId)}
+              onClick={() => setCancelTarget(null)}
+            >
+              Keep job
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              loading={Boolean(actionId)}
+              onClick={() => void confirmCancel()}
+            >
+              Cancel job
+            </Button>
+          </div>
+        }
+      >
+        <p className="m-0 text-sm text-muted">
+          {cancelTarget?.truckNumberIn
+            ? `Incoming truck ${cancelTarget.truckNumberIn} will be left as cancelled.`
+            : "The job will be marked cancelled and will not be billed."}
+        </p>
+      </Modal>
 
       <DataTable
         columns={columns}

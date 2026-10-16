@@ -14,6 +14,7 @@ import {
   FormGrid,
   Input,
   PageHeader,
+  useDialog,
   Select,
   statusTone,
 } from "@/components/ui";
@@ -72,6 +73,7 @@ function sourceLabel(source?: string) {
  * Creating appointments happens on phoenixcrossdocks.com (prototype: /book), not here.
  */
 export default function BookingsScreen() {
+  const dialog = useDialog();
   const { token } = useAuth();
   const [serviceType, setServiceType] = useState("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "web" | "phone">("all");
@@ -186,10 +188,16 @@ export default function BookingsScreen() {
       void doReschedule(slot);
       return;
     }
-    if (slot.status === "booked" && slot.bookings?.[0]?.id) {
+    if (slot.status === "booked") {
+      const bookingId = slot.bookings?.find((b) => b.id)?.id;
+      if (!bookingId) {
+        setErr("That time is blocked, but there is no appointment to open.");
+        return;
+      }
       setPhoneLogSlot(null);
       setReschedulingId(null);
-      setFocusBookingId(slot.bookings[0].id);
+      setErr("");
+      setFocusBookingId(bookingId);
       return;
     }
     if (slot.status === "available") {
@@ -715,13 +723,16 @@ export default function BookingsScreen() {
                       className="w-full justify-center text-danger hover:bg-danger-bg hover:text-danger"
                       disabled={!!actionId}
                       onClick={() => {
-                        if (
-                          window.confirm(
-                            `Release ${focused.companyName || "this"} appointment? The time will open again on the calendar.`
-                          )
-                        ) {
-                          setStatus(focused._id, "cancelled");
-                        }
+                        void dialog
+                          .confirm({
+                            title: "Release appointment",
+                            message: `Release ${focused.companyName || "this"} appointment? That time opens again on the calendar.`,
+                            confirmLabel: "Release",
+                            danger: true,
+                          })
+                          .then((ok) => {
+                            if (ok) setStatus(focused._id, "cancelled");
+                          });
                       }}
                     >
                       Release appointment

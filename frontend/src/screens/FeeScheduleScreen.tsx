@@ -93,6 +93,27 @@ export default function FeeSchedulePage() {
     setErr("");
   }
 
+  async function runContractBilling() {
+    if (!token) return;
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const result = await api<{ created?: number; period?: string }>("/contract-monthly/run", {
+        method: "POST",
+        token,
+      });
+      setMsg(
+        `Contract invoices for ${result.period || "this month"}: ${result.created ?? 0} created. The same job runs automatically on the 1st (Net 30).`
+      );
+      invalidateApiCache();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Could not run contract billing");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onSave(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
@@ -150,14 +171,19 @@ export default function FeeSchedulePage() {
                   </Button>
                 </div>
               ) : (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={beginEdit}
-                  icon={<Pencil className="h-4 w-4" />}
-                >
-                  Edit rates
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" loading={busy} onClick={() => void runContractBilling()}>
+                    Run contract billing
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={beginEdit}
+                    icon={<Pencil className="h-4 w-4" />}
+                  >
+                    Edit rates
+                  </Button>
+                </div>
               )
             ) : undefined
           }
@@ -173,8 +199,7 @@ export default function FeeSchedulePage() {
         {err ? <Alert>{err}</Alert> : null}
 
         <Alert tone="info">
-          Contract customers bill from their signed agreement (base rent, handling, FTL). Overflow
-          outside dedicated contract square footage uses this company fee schedule.
+          Contract accounts recur on the 1st of each month, Net 30 (idempotent — running it again this month will not double-bill). Crossdock and Rework invoice when the job ends. Pallet storage still bills with the BOL, not on a calendar.
           {data?.source ? (
             <>
               {" "}

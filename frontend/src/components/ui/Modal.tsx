@@ -84,7 +84,7 @@ export function Modal({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">{children}</div>
         {footer ? (
-          <div className="shrink-0 border-t border-border bg-surface-2/40 px-4 py-3 sm:px-5">
+          <div className="shrink-0 border-t border-border bg-surface-2/40 px-4 py-3 sm:px-5 [&>div]:flex [&>div]:flex-wrap [&>div]:items-center [&>div]:justify-end [&>div]:gap-2">
             {footer}
           </div>
         ) : null}

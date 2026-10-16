@@ -7,17 +7,17 @@ type Size = "sm" | "md";
 
 const variants: Record<Variant, string> = {
   primary:
-    "bg-[linear-gradient(135deg,#E6A030,#DA8E0B)] text-[var(--navy-deep)] border-transparent shadow-[var(--shadow-button)] hover:brightness-[1.03] hover:-translate-y-0.5 font-bold",
+    "bg-[linear-gradient(135deg,#E6A030,#DA8E0B)] text-[var(--navy-deep)] border-transparent shadow-[var(--shadow-button)] hover:brightness-[1.03] font-bold",
   secondary:
-    "bg-white text-navy border-border hover:bg-surface-2 hover:border-border-strong hover:-translate-y-0.5 font-semibold",
+    "bg-white text-navy border-border hover:bg-surface-2 hover:border-border-strong font-semibold",
   ghost:
     "bg-transparent text-muted border-transparent hover:bg-accent-bg hover:text-[var(--accent-text)] font-semibold",
   danger: "bg-danger-bg text-danger border-transparent hover:opacity-90 font-semibold",
 };
 
 const sizes: Record<Size, string> = {
-  sm: "px-2 py-1 text-[11px] rounded-md",
-  md: "px-3 py-1.5 text-[13px] rounded-[var(--radius)]",
+  sm: "h-8 px-2.5 text-xs rounded-md",
+  md: "h-9 px-3 text-[13px] rounded-[var(--radius)]",
 };
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -40,7 +40,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 border transition-all duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0",
+        "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border leading-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60",
         variants[variant],
         sizes[size],
         className

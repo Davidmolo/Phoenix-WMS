@@ -56,12 +56,12 @@ export const BOOKING_DEFAULTS = {
 } as const;
 
 /**
- * Marketing “fake demand” for the first ~2 months:
- * show ~30–50% of starts as busy (distributed pockets, not whole mornings).
- * Disable by setting enabled: false once real volume is high enough.
+ * Marketing “fake demand” painted empty starts as Reserved.
+ * Oct 16 audit (#18): the dock board showed those chips with no appointment,
+ * a 0 “on this date” count, and a dead click. Real bookings only.
  */
 export const FAKE_DEMAND = {
-  enabled: true,
+  enabled: false,
   untilDateKey: "2026-11-30",
   busyFraction: 0.4,
 } as const;

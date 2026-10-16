@@ -50,6 +50,9 @@ export default function WarehousePage() {
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stackCell, setStackCell] = useState<{ row: number; col: number } | null>(null);
+  const [stackLevels, setStackLevels] = useState("1");
+  const [spotB, setSpotB] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
@@ -109,7 +112,14 @@ export default function WarehousePage() {
   }
 
   function onCellClick(row: number, col: number) {
-    if (!editing) return;
+    if (!editing) {
+      const here = (data?.locations ?? []).filter((l) => l.row === row && l.col === col);
+      setStackCell({ row, col });
+      setStackLevels(String(Math.max(1, ...here.map((l) => l.level || 1), 1)));
+      setSpotB(here.some((l) => (l.spot || 1) === 2));
+      setErr("");
+      return;
+    }
     const key = `${row}:${col}`;
     const existing = cellMap.get(key);
 
@@ -142,45 +152,6 @@ export default function WarehousePage() {
   async function saveLayout() {
     if (!token || !warehouse) return;
     setErr("");
-
-    // Defensive: two different slots can never share one cell. The click/swap logic above
-    // shouldn't allow this, but catch it client-side before it ever reaches the server.
-    const cellOwner = new Map<string, string>(); // "row:col" -> locationId
-    const collisions = new Set<string>();
-    for (const p of placements) {
-      const key = `${p.row}:${p.col}`;
-      const owner = cellOwner.get(key);
-      if (owner && owner !== p.locationId) {
-        const a = locById.get(owner)?.code || owner;
-        const b = locById.get(p.locationId)?.code || p.locationId;
-        collisions.add(`${a} / ${b} → cell ${key}`);
-      }
-      cellOwner.set(key, p.locationId);
-    }
-    if (collisions.size > 0) {
-      setErr(
-        `Two slots are placed on the same cell — move one before saving: ${[...collisions].join(", ")}`
-      );
-      return;
-    }
-
-    // Non-blocking heads-up: sequential "W-N" floor codes stay fixed when you move a slot,
-    // so a gap usually means a slot was removed by shrinking the grid earlier.
-    const wNumbers = (data?.locations ?? [])
-      .map((l) => {
-        const m = String(l.code).match(/^W-(\d+)$/);
-        return m ? Number(m[1]) : null;
-      })
-      .filter((n): n is number => n != null)
-      .sort((a, b) => a - b);
-    let gapNote = "";
-    for (let i = 1; i < wNumbers.length; i++) {
-      if (wNumbers[i] !== wNumbers[i - 1] + 1) {
-        gapNote = ` Note: floor codes skip from W-${wNumbers[i - 1]} to W-${wNumbers[i]} — numbers stay fixed when slots move, so this clears up as you expand.`;
-        break;
-      }
-    }
-
     setBusy(true);
     setMsg("");
     try {
@@ -194,13 +165,43 @@ export default function WarehousePage() {
           placements,
         }),
       });
-      setMsg(`Saved ${rows}×${cols} floor map.${gapNote}`);
+      setMsg(`Saved ${rows}×${cols} floor map.`);
       setEditing(false);
       setSelectedId(null);
       invalidateApiCache();
       await reload();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveStack() {
+    if (!token || !warehouse || !stackCell) return;
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const levels = Math.min(5, Math.max(1, Number(stackLevels) || 1));
+      await api("/locations/stack", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          warehouseId: warehouse._id,
+          row: stackCell.row,
+          col: stackCell.col,
+          levels,
+          spots: spotB ? ["A", "B"] : ["A"],
+        }),
+      });
+      setMsg(
+        `Lane updated — ${levels} level${levels === 1 ? "" : "s"}, spot${spotB ? "s A and B" : " A"}`
+      );
+      invalidateApiCache();
+      await reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not update lane");
     } finally {
       setBusy(false);
     }
@@ -217,7 +218,7 @@ export default function WarehousePage() {
         icon={<WarehouseIcon className="h-5 w-5" />}
         description={
           warehouse
-            ? `${warehouse.name} · ${warehouse.sqft?.toLocaleString() ?? "—"} SF · ${warehouse.address || ""}`
+            ? `${warehouse.name} · ${warehouse.sqft?.toLocaleString() ?? "—"} SF · lane, level, and spot on every slot`
             : "Floor locations"
         }
         actions={
@@ -291,13 +292,15 @@ export default function WarehousePage() {
 
       <Card lift={false}>
         <CardBody>
-          <CardTitle>Floor map · {rows}×{cols}</CardTitle>
+          <CardTitle>Floor map · {rows} lanes × {cols} spots</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">
+            Each cell is a floor bay. Codes read lane + bay + level + spot, for example AA1A
+            (lane A, first bay, level 1, spot A). Click a bay to set levels 1–5 and spot B.
             {editing
               ? selectedId
-                ? `Moving ${locById.get(selectedId)?.code ?? "slot"} — click a target cell`
-                : "Click a slot to select, then click a cell to place it"
-              : "Gold = occupied · Gray = open"}
+                ? ` Moving ${locById.get(selectedId)?.code ?? "slot"} — click a target cell.`
+                : " Click a slot to select, then click a cell to place it."
+              : " Gold = occupied · Gray = open."}
           </p>
           <div
             className="grid gap-1.5"
@@ -316,8 +319,7 @@ export default function WarehousePage() {
                 <button
                   key={`${row}-${col}`}
                   type="button"
-                  disabled={!editing}
-                  title={loc?.code || (editing ? `Empty ${row + 1},${col + 1}` : undefined)}
+                  title={loc?.code || `Lane bay ${row + 1},${col + 1}`}
                   onClick={() => onCellClick(row, col)}
                   className={cn(
                     "flex aspect-square items-center justify-center rounded-md border text-[10px] font-semibold transition-colors",
@@ -325,13 +327,83 @@ export default function WarehousePage() {
                     !isEmpty && occupied && "border-accent/40 bg-accent-bg text-accent-dark",
                     !isEmpty && !occupied && "border-border bg-surface-2 text-muted",
                     selected && "ring-2 ring-accent ring-offset-1",
-                    editing && "cursor-pointer hover:border-accent"
+                    "cursor-pointer hover:border-accent",
+                    stackCell?.row === row && stackCell?.col === col && !editing && "ring-2 ring-navy"
                   )}
                 >
-                  {loc ? loc.code.replace(/^W-/, "") : editing ? "·" : ""}
+                  {loc ? (
+                    <span className="flex flex-col items-center leading-none">
+                      <span>{loc.aisle || loc.code}</span>
+                      <span className="mt-0.5 text-[8px] font-medium">
+                        L{loc.level ?? 1}·S{loc.spot ?? 1}
+                      </span>
+                    </span>
+                  ) : editing ? (
+                    "·"
+                  ) : (
+                    ""
+                  )}
                 </button>
               );
             })}
+          </div>
+
+          {stackCell && !editing ? (
+            <div className="mt-4 rounded-lg border border-border bg-surface-2/40 p-3">
+              <p className="m-0 text-sm font-semibold text-navy">
+                Bay row {stackCell.row + 1}, column {stackCell.col + 1}
+              </p>
+              <p className="mt-1 mb-3 text-xs text-muted">
+                Level is 1–5. Spot A is the default; turn on spot B for a second position on that level.
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="Levels">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={stackLevels}
+                    onChange={(e) => setStackLevels(e.target.value)}
+                  />
+                </Field>
+                <label className="flex items-center gap-2 pb-2 text-sm text-navy">
+                  <input
+                    type="checkbox"
+                    checked={spotB}
+                    onChange={(e) => setSpotB(e.target.checked)}
+                  />
+                  Spot B
+                </label>
+                <Button type="button" loading={busy} onClick={() => void saveStack()}>
+                  Save lane structure
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead>
+                <tr className="border-b border-border text-[10px] font-semibold tracking-wide text-muted uppercase">
+                  <th className="py-1.5 pr-3">Code</th>
+                  <th className="py-1.5 pr-3">Lane</th>
+                  <th className="py-1.5 pr-3">Level</th>
+                  <th className="py-1.5 pr-3">Spot</th>
+                  <th className="py-1.5">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.locations ?? []).map((loc) => (
+                  <tr key={loc._id} className="border-b border-border/60">
+                    <td className="py-1.5 pr-3 font-mono font-semibold text-navy">{loc.code}</td>
+                    <td className="py-1.5 pr-3">{loc.aisle || "—"}</td>
+                    <td className="py-1.5 pr-3">{loc.level ?? 1}</td>
+                    <td className="py-1.5 pr-3">{(loc.spot || 1) === 2 ? "B" : "A"}</td>
+                    <td className="py-1.5">{loc.palletId ? "Occupied" : "Open"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </CardBody>
       </Card>

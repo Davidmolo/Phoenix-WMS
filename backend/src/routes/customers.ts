@@ -163,6 +163,29 @@ router.get("/:id", async (req, res, next) => {
     ]);
 
     const unbilledTotal = unbilledCharges.reduce((s, c) => s + (c.amount || 0), 0);
+    const openInvoices = await Invoice.find({
+      ...filter,
+      status: { $nin: ["paid", "void"] },
+    }).select("status balanceDue total dueDate");
+    const now = Date.now();
+    let unpaidTotal = 0;
+    let unpaidCount = 0;
+    let pastDueTotal = 0;
+    let pastDueCount = 0;
+    for (const inv of openInvoices) {
+      const owed = inv.balanceDue == null ? Number(inv.total) || 0 : Number(inv.balanceDue) || 0;
+      if (!(owed > 0)) continue;
+      const overdue =
+        inv.status === "past_due" ||
+        Boolean(inv.dueDate && new Date(inv.dueDate).getTime() < now);
+      if (overdue) {
+        pastDueTotal += owed;
+        pastDueCount += 1;
+      } else {
+        unpaidTotal += owed;
+        unpaidCount += 1;
+      }
+    }
     const portalUser = await User.findOne({
       companyId: req.auth!.companyId,
       customerId: customer._id,
@@ -185,7 +208,12 @@ router.get("/:id", async (req, res, next) => {
         activePallets,
         unbilledTotal,
         unbilledCount: unbilledCharges.length,
-        openRequests: requests.filter((r) => r.status === "pending").length,
+        unpaidTotal,
+        unpaidCount,
+        pastDueTotal,
+        pastDueCount,
+        openRequests: requests.filter((r) => r.status === "pending" || r.status === "scheduled")
+          .length,
       },
       pallets,
       unbilledCharges,
@@ -328,6 +356,15 @@ router.patch("/:id", async (req, res, next) => {
     if (req.body.testAccount !== undefined && (role === "admin" || role === "staff")) {
       customer.testAccount = Boolean(req.body.testAccount);
     }
+    if (req.body.serviceDropStore !== undefined) {
+      customer.serviceDropStore = Boolean(req.body.serviceDropStore);
+    }
+    if (req.body.serviceCrossdock !== undefined) {
+      customer.serviceCrossdock = Boolean(req.body.serviceCrossdock);
+    }
+    if (req.body.serviceRework !== undefined) {
+      customer.serviceRework = Boolean(req.body.serviceRework);
+    }
 
     const nullableRate = (raw: unknown): number | null => {
       if (raw === null || raw === "") return null;
@@ -345,6 +382,8 @@ router.patch("/:id", async (req, res, next) => {
       req.body.unloadFee !== undefined ||
       req.body.loadFee !== undefined ||
       req.body.crossdockPerPallet !== undefined ||
+      req.body.reworkHourlyRate !== undefined ||
+      req.body.reworkMinimumHours !== undefined ||
       req.body.rateInsideSqft !== undefined ||
       req.body.rateOutsideSqft !== undefined ||
       req.body.contractNoDwellInside !== undefined ||
@@ -370,6 +409,12 @@ router.patch("/:id", async (req, res, next) => {
       if (req.body.loadFee !== undefined) customer.loadFee = nullableRate(req.body.loadFee);
       if (req.body.crossdockPerPallet !== undefined) {
         customer.crossdockPerPallet = nullableRate(req.body.crossdockPerPallet);
+      }
+      if (req.body.reworkHourlyRate !== undefined) {
+        customer.reworkHourlyRate = nullableRate(req.body.reworkHourlyRate);
+      }
+      if (req.body.reworkMinimumHours !== undefined) {
+        customer.reworkMinimumHours = nullableRate(req.body.reworkMinimumHours);
       }
       if (req.body.rateInsideSqft !== undefined) {
         customer.rateInsideSqft = nullableRate(req.body.rateInsideSqft);

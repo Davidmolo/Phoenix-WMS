@@ -23,6 +23,7 @@ import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAppNav } from "@/lib/appNav";
 import { money } from "@/lib/format";
+import { downloadCsv } from "@/lib/csv";
 import type { Customer } from "@/types";
 
 type PortalFilter = "all" | "active" | "invite_sent" | "not_invited";
@@ -48,7 +49,7 @@ export default function CustomersPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [billingMethod, setBillingMethod] = useState("pallet");
+  const [billingMethod, setBillingMethod] = useState("crossdock");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -211,7 +212,7 @@ export default function CustomersPage() {
       setEmail("");
       setPhone("");
       setAddress("");
-      setBillingMethod("pallet");
+      setBillingMethod("crossdock");
       invalidateApiCache("/customers");
       await reload();
     } catch (ex) {
@@ -264,13 +265,12 @@ export default function CustomersPage() {
             </Field>
             <Field
               label="Billing method"
-              hint="Pallet = unload on inbound BOL close + load on outbound BOL close · Crossdock job = instant · Contract = monthly"
+              hint="Contract bills on the 1st. Crossdock and Rework bill when the job ends. Square feet belongs on the contract."
             >
               <Select value={billingMethod} onChange={(e) => setBillingMethod(e.target.value)}>
-                <option value="pallet">Pallet</option>
-                <option value="crossdock">Crossdock</option>
                 <option value="contract">Contract</option>
-                <option value="sqft">Square feet</option>
+                <option value="crossdock">Crossdock</option>
+                <option value="rework">Rework</option>
               </Select>
             </Field>
           </FormGrid>
@@ -295,6 +295,21 @@ export default function CustomersPage() {
             onChange={(id) => setPortalFilter(id as PortalFilter)}
           />
         </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={customers.length === 0}
+          onClick={() =>
+            downloadCsv(
+              "customers.csv",
+              ["Customer", "Email", "Phone", "Billing", "Contact"],
+              customers.map((c) => [c.name, c.email || "", c.phone || "", c.billingMethod, c.contact || ""])
+            )
+          }
+        >
+          Export CSV
+        </Button>
         <div className="w-full shrink-0 sm:w-64 lg:w-72">
           <Input
             type="search"

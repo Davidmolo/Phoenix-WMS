@@ -142,7 +142,7 @@ router.patch("/:id", async (req, res, next) => {
         );
         const fees = resolveCompanyFees(company);
         const customerDoc = await Customer.findById(job.customerId).select(
-          "crossdockPerPallet billingMethod"
+          "crossdockPerPallet billingMethod reworkHourlyRate reworkMinimumHours"
         );
         const hours = Math.max(
           0.25,
@@ -166,8 +166,14 @@ router.patch("/:id", async (req, res, next) => {
         } else {
           // Cesar: rework = $65/hr with a 1-hour minimum
           accType = "trailer_rework";
-          const rate = Number(fees.sortRelabelPerHour ?? 65);
-          const minHours = Number(fees.trailerReworkMinimumHours ?? 1);
+          const rate =
+            customerDoc?.reworkHourlyRate != null && Number(customerDoc.reworkHourlyRate) > 0
+              ? Number(customerDoc.reworkHourlyRate)
+              : Number(fees.sortRelabelPerHour ?? 65);
+          const minHours =
+            customerDoc?.reworkMinimumHours != null && Number(customerDoc.reworkMinimumHours) > 0
+              ? Number(customerDoc.reworkMinimumHours)
+              : Number(fees.trailerReworkMinimumHours ?? 1);
           const billableHours = Math.max(minHours, hours);
           amount = Math.round(billableHours * rate * 100) / 100;
           description = `Trailer rework — truck ${job.truckNumberIn || "—"} · ${billableHours.toFixed(2)} hrs @ $${rate}/hr${

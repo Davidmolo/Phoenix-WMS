@@ -16,6 +16,7 @@ import {
   Input,
   NumberInput,
   PageHeader,
+  useDialog,
   SearchableSelect,
   Select,
   statusLabel,
@@ -188,6 +189,7 @@ function EditShipmentModal({
 }
 
 export default function ExpectedPage() {
+  const dialog = useDialog();
   const { token } = useAuth();
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
@@ -284,13 +286,13 @@ export default function ExpectedPage() {
 
   async function onCancel(s: Shipment) {
     if (!token) return;
-    if (
-      !window.confirm(
-        `Cancel this ${s.direction} appointment${s.carrier ? ` (${s.carrier})` : ""}?`
-      )
-    ) {
-      return;
-    }
+    const ok = await dialog.confirm({
+      title: "Cancel appointment",
+      message: `Cancel this ${s.direction} appointment${s.carrier ? ` (${s.carrier})` : ""}?`,
+      confirmLabel: "Cancel appointment",
+      danger: true,
+    });
+    if (!ok) return;
     setCancelId(s._id);
     setErr("");
     setMsg("");

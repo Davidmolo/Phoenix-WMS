@@ -18,6 +18,7 @@ import {
   Input,
   NumberInput,
   PageHeader,
+  useDialog,
   Select,
   statusLabel,
   statusTone,
@@ -83,7 +84,9 @@ function locationCodeOf(p: Pallet) {
 export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: string }) {
   const { navigate } = useAppNav();
   const { token, user } = useAuth();
+  const dialog = useDialog();
   const isStaff = user?.role === "admin" || user?.role === "staff";
+  const isAdmin = user?.role === "admin";
   const { data, error, loading, reload } = useApiQuery<DetailResponse>(
     shipmentId ? `/shipments/${shipmentId}` : null
   );
@@ -124,6 +127,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
   const [whName, setWhName] = useState("");
   const [drvName, setDrvName] = useState("");
   const [bolBusy, setBolBusy] = useState(false);
+  const [lienOverride, setLienOverride] = useState(false);
   const [bolMsg, setBolMsg] = useState("");
   const [bolErr, setBolErr] = useState("");
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -298,7 +302,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
       }>(`/shipments/${shipmentId}/bol/close`, {
         method: "POST",
         token,
-        body: JSON.stringify({ createInvoice: true }),
+        body: JSON.stringify({ createInvoice: true, lienOverride }),
       });
       const inv = result.invoice?.number ? ` · Invoice ${result.invoice.number}` : "";
       setBolMsg(`BOL closed and locked${inv}`);
@@ -313,7 +317,12 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
 
   async function startAmend() {
     if (!token || !shipmentId) return;
-    const reason = window.prompt("Amendment reason (required):");
+    const reason = await dialog.prompt({
+      title: "Start amendment",
+      message: "Signed BOLs stay locked. A reason is required before the document can be signed again.",
+      label: "Amendment reason",
+      confirmLabel: "Start amendment",
+    });
     if (!reason?.trim()) return;
     setBolBusy(true);
     setBolErr("");
@@ -441,7 +450,8 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
         <Alert tone="danger">
           Lien hold — account past due
           {lien.balanceDue != null ? ` ($${Number(lien.balanceDue).toFixed(2)})` : ""}. Outbound
-          release / BOL close blocked until current.
+          release and BOL close stay blocked until the account is current. Inbound receive is not
+          held. An admin can override the block on Ship or Close BOL.
         </Alert>
       ) : null}
 
@@ -647,7 +657,17 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                       </div>
                     </Field>
                   </FormGrid>
-                  <div className="mt-4">
+                  <div className="mt-4 space-y-3">
+                    {isAdmin && lien?.hold ? (
+                      <label className="flex items-center gap-2 text-sm text-navy">
+                        <input
+                          type="checkbox"
+                          checked={lienOverride}
+                          onChange={(e) => setLienOverride(e.target.checked)}
+                        />
+                        Admin override — close BOL despite the lien hold
+                      </label>
+                    ) : null}
                     <Button
                       type="button"
                       loading={bolBusy}

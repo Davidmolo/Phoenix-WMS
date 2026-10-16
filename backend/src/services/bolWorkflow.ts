@@ -38,25 +38,40 @@ export function isBolClosed(shipment: InstanceType<typeof Shipment>) {
   return String(shipment.bol?.status || "") === "closed";
 }
 
-/** Cesar lien: block release when customer has past-due open balance in WMS (from QB sync). */
+function amountOwed(row: { balanceDue?: number | null; total?: number | null }) {
+  if (row.balanceDue == null) return Number(row.total) || 0;
+  return Number(row.balanceDue) || 0;
+}
+
+/**
+ * Cesar lien: block release when the customer owes money that is past due.
+ * Matches status past_due even when balanceDue was never copied off the invoice total,
+ * and sent/unpaid invoices whose due date has passed.
+ */
 export async function customerHasLienHold(companyId: string, customerId: string) {
-  const pastDue = await Invoice.find({
+  const open = await Invoice.find({
     companyId,
     customerId,
-    status: "past_due",
-    balanceDue: { $gt: 0 },
+    status: { $in: ["past_due", "sent", "unpaid"] },
   })
-    .select("number balanceDue dueDate")
-    .limit(10)
+    .select("number balanceDue total dueDate status")
+    .limit(50)
     .lean();
-  const balanceDue = pastDue.reduce((s, i) => s + (Number(i.balanceDue) || 0), 0);
+
+  const now = Date.now();
+  const pastDue = open.filter((row) => {
+    if (!(amountOwed(row) > 0)) return false;
+    if (row.status === "past_due") return true;
+    return Boolean(row.dueDate && new Date(row.dueDate).getTime() < now);
+  });
+  const balanceDue = pastDue.reduce((s, i) => s + amountOwed(i), 0);
   return {
     hold: pastDue.length > 0,
     count: pastDue.length,
     balanceDue,
     invoices: pastDue.map((i) => ({
       number: i.number,
-      balanceDue: i.balanceDue,
+      balanceDue: amountOwed(i),
       dueDate: i.dueDate,
     })),
   };

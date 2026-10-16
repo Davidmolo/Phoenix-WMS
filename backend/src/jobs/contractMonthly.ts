@@ -38,7 +38,7 @@ export async function runContractMonthlyInvoices(now = new Date()) {
     const customers = await Customer.find({
       companyId,
       active: true,
-      billingMethod: "contract",
+      billingMethod: { $in: ["contract", "sqft"] },
       contractFee: { $gt: 0 },
     });
 

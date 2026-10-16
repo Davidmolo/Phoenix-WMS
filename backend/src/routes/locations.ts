@@ -4,14 +4,24 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { Location } from "../models/Location";
 import { Warehouse } from "../models/Warehouse";
 import { Pallet } from "../models/Pallet";
+import { isLegacyFloorCode, structuredSlot, type SpotLetter } from "../services/locationCodes";
 
 const router = Router();
 router.use(requireAuth);
 
 router.get("/", async (req, res, next) => {
   try {
-    const filter: Record<string, unknown> = { companyId: req.auth!.companyId };
-    if (req.query.warehouseId) filter.warehouseId = req.query.warehouseId;
+    const companyId = req.auth!.companyId;
+    const filter: Record<string, unknown> = { companyId };
+    if (req.query.warehouseId) {
+      filter.warehouseId = req.query.warehouseId;
+      await migrateFlatFloorCodes(companyId, String(req.query.warehouseId));
+    } else {
+      const warehouses = await Warehouse.find({ companyId, active: true }).select("_id");
+      for (const warehouse of warehouses) {
+        await migrateFlatFloorCodes(companyId, String(warehouse._id));
+      }
+    }
     if (req.query.available === "true") filter.palletId = null;
 
     const locations = await Location.find(filter).sort({ aisle: 1, code: 1 }).limit(1000);
@@ -31,8 +41,10 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
 
     const warehouseId = (req.query.warehouseId as string) || String(warehouses[0]?._id || "");
     const warehouse = warehouses.find((w) => String(w._id) === warehouseId) || warehouses[0];
+    if (warehouseId) await migrateFlatFloorCodes(companyId, warehouseId);
+
     const locations = warehouseId
-      ? await Location.find({ companyId, warehouseId }).sort({ row: 1, col: 1 })
+      ? await Location.find({ companyId, warehouseId }).sort({ row: 1, col: 1, level: 1, spot: 1 })
       : [];
 
     const occupied = locations.filter((l) => l.palletId).length;
@@ -150,28 +162,23 @@ router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) 
 
     const remaining = await Location.find({ companyId, warehouseId });
     const occupiedCells = new Set(remaining.map((l) => `${l.row}:${l.col}`));
-    let maxCode = remaining.reduce((m, l) => {
-      const n = Number(String(l.code).replace(/\D/g, ""));
-      return Number.isFinite(n) ? Math.max(m, n) : m;
-    }, 0);
 
     const toCreate = [];
     for (let row = 0; row < nextRows; row++) {
       for (let col = 0; col < nextCols; col++) {
         const key = `${row}:${col}`;
         if (occupiedCells.has(key)) continue;
-        // Only auto-fill empty cells that have no location yet
         const hasAny = remaining.some((l) => l.row === row && l.col === col);
         if (hasAny) continue;
-        maxCode += 1;
+        const slot = structuredSlot(row, col, 1, "A");
         toCreate.push({
           companyId,
           warehouseId,
-          code: `W-${maxCode}`,
-          aisle: "W",
+          code: slot.code,
+          aisle: slot.aisle,
           type: "inside",
-          level: 1,
-          spot: 1,
+          level: slot.level,
+          spot: slot.spot,
           floorOnly: true,
           row,
           col,
@@ -190,6 +197,140 @@ router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) 
       mapLayout: { rows: nextRows, cols: nextCols },
       locations: locationsOut,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Rewrite W-1 and A-L1-S1 labels into lane/section/level/spot (AA1A) and refresh pallet snapshots. */
+async function migrateFlatFloorCodes(companyId: string, warehouseId: string) {
+  const locations = await Location.find({ companyId, warehouseId });
+  const legacy = locations.filter((loc) => isLegacyFloorCode(loc.code));
+  if (!legacy.length) return;
+
+  const taken = new Set(
+    locations.filter((loc) => !isLegacyFloorCode(loc.code)).map((loc) => loc.code)
+  );
+
+  for (const loc of legacy) {
+    const slot = structuredSlot(loc.row, loc.col, loc.level || 1, loc.spot || 1);
+    if (taken.has(slot.code)) continue;
+    taken.add(slot.code);
+    loc.code = slot.code;
+    loc.aisle = slot.aisle;
+    loc.level = slot.level;
+    loc.spot = slot.spot;
+    loc.floorOnly = slot.level === 1;
+    await loc.save();
+    await Pallet.updateMany({ locationId: loc._id }, { $set: { locationCode: slot.code } });
+    await Pallet.updateMany(
+      { secondaryLocationId: loc._id },
+      { $set: { secondaryLocationCode: slot.code } }
+    );
+  }
+}
+
+/**
+ * Set how many levels (1–5) and which spots (A and/or B) exist at one floor cell.
+ * Occupied slots that would be removed are rejected.
+ */
+router.put("/stack", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const warehouseId = String(req.body.warehouseId || "");
+    const row = Number(req.body.row);
+    const col = Number(req.body.col);
+    const levelCount = Math.min(5, Math.max(1, Number(req.body.levels) || 1));
+    const requested = Array.isArray(req.body.spots) ? req.body.spots : ["A"];
+    const letters = new Set<SpotLetter>();
+    for (const raw of requested) {
+      letters.add(String(raw).toUpperCase() === "B" ? "B" : "A");
+    }
+    if (!letters.size) letters.add("A");
+
+    if (!warehouseId || !Number.isFinite(row) || !Number.isFinite(col) || row < 0 || col < 0) {
+      res.status(400).json({ error: "warehouseId, row, and col are required" });
+      return;
+    }
+
+    const warehouse = await Warehouse.findOne({ _id: warehouseId, companyId });
+    if (!warehouse) {
+      res.status(404).json({ error: "Warehouse not found" });
+      return;
+    }
+
+    const wanted = [];
+    for (let level = 1; level <= levelCount; level++) {
+      for (const letter of letters) {
+        wanted.push(structuredSlot(row, col, level, letter));
+      }
+    }
+
+    const existing = await Location.find({ companyId, warehouseId, row, col });
+    const occupied = existing.filter((loc) => loc.palletId);
+    if (occupied.length > wanted.length) {
+      res.status(400).json({
+        error: `${occupied.length} occupied slot(s) at this cell do not fit in ${wanted.length} lane positions. Move pallets first.`,
+      });
+      return;
+    }
+    existing.sort((a, b) => Number(Boolean(b.palletId)) - Number(Boolean(a.palletId)));
+    const used = new Set<string>();
+
+    for (const slot of wanted) {
+      const match =
+        existing.find(
+          (loc) =>
+            !used.has(String(loc._id)) &&
+            (loc.code === slot.code || (loc.level === slot.level && loc.spot === slot.spot))
+        ) || existing.find((loc) => !used.has(String(loc._id)));
+
+      if (match) {
+        used.add(String(match._id));
+        match.code = slot.code;
+        match.aisle = slot.aisle;
+        match.level = slot.level;
+        match.spot = slot.spot;
+        match.floorOnly = slot.level === 1;
+        await match.save();
+        await Pallet.updateMany({ locationId: match._id }, { $set: { locationCode: slot.code } });
+        await Pallet.updateMany(
+          { secondaryLocationId: match._id },
+          { $set: { secondaryLocationCode: slot.code } }
+        );
+      } else {
+        await Location.create({
+          companyId,
+          warehouseId,
+          code: slot.code,
+          aisle: slot.aisle,
+          type: "inside",
+          level: slot.level,
+          spot: slot.spot,
+          floorOnly: slot.level === 1,
+          row,
+          col,
+          palletId: null,
+        });
+      }
+    }
+
+    for (const loc of existing) {
+      if (used.has(String(loc._id))) continue;
+      if (loc.palletId) {
+        res.status(400).json({
+          error: `Cannot remove occupied slot ${loc.code}. Move the pallet first.`,
+        });
+        return;
+      }
+      await loc.deleteOne();
+    }
+
+    const locations = await Location.find({ companyId, warehouseId, row, col }).sort({
+      level: 1,
+      spot: 1,
+    });
+    res.json({ locations });
   } catch (err) {
     next(err);
   }

@@ -118,10 +118,24 @@ router.get("/", async (req, res, next) => {
     }
     if (req.query.status) filter.status = req.query.status;
     if (req.query.warehouseId) filter.warehouseId = req.query.warehouseId;
+    const q = String(req.query.q || "").trim();
+    if (q) {
+      const safe = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      filter.$or = [
+        { externalId: rx },
+        { description: rx },
+        { jobName: rx },
+        { poNumber: rx },
+        { locationCode: rx },
+        { ref: rx },
+        { notes: rx },
+      ];
+    }
 
     const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
       defaultLimit: 50,
-      maxLimit: 200,
+      maxLimit: req.query.export === "1" ? 2000 : 200,
     });
     const [total, pallets] = await Promise.all([
       Pallet.countDocuments(filter),

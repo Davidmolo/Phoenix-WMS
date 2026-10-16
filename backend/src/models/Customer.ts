@@ -16,7 +16,7 @@ const customerSchema = new Schema(
     address: { type: String, default: "" },
     billingMethod: {
       type: String,
-      enum: ["pallet", "sqft", "contract", "crossdock"],
+      enum: ["pallet", "sqft", "contract", "crossdock", "rework"],
       default: "pallet",
     },
     // Admin overrides — null/0 = use company fee schedule (Cesar)
@@ -28,6 +28,17 @@ const customerSchema = new Schema(
     rateOutsideSqft: { type: Number, default: null },
     /** Optional override for crossdock $/pallet; null = schedule. */
     crossdockPerPallet: { type: Number, default: null },
+    /**
+     * Service mix — independent of billingMethod.
+     * Drop & Store, Crossdock, and Rework can all be on for one customer.
+     */
+    serviceDropStore: { type: Boolean, default: true },
+    serviceCrossdock: { type: Boolean, default: true },
+    serviceRework: { type: Boolean, default: true },
+    /** Rework $/hr override. Null = company fee schedule (default $65). */
+    reworkHourlyRate: { type: Number, default: null },
+    /** Rework minimum hours override. Null = schedule (default 1). */
+    reworkMinimumHours: { type: Number, default: null },
     // Contract (SBA) — monthly on the 1st, Net 30
     contractSqft: { type: Number, default: 0 },
     contractFee: { type: Number, default: 0 },

@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import type { Customer, Lpn, Pallet, Warehouse } from "@/types";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
+import { downloadCsv } from "@/lib/csv";
 
 type LpnRow = Lpn & {
   kind?: string;
@@ -32,11 +33,26 @@ type LpnsResponse = { lpns: LpnRow[] } & PaginationMeta;
 export default function LpnsPage() {
   const { token } = useAuth();
   const [page, setPage] = useState(1);
-  const lpnsPath = useMemo(() => listQuery("/lpns", { page }), [page]);
+  const [search, setSearch] = useState("");
+  const lpnsPath = useMemo(
+    () => listQuery("/lpns", { page, params: { q: search.trim() || undefined } }),
+    [page, search]
+  );
   const { data, error, loading, reload } = useApiQuery<LpnsResponse>(lpnsPath);
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
   const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
   const [customerId, setCustomerId] = useState("");
+  const openGroupsPath = useMemo(
+    () =>
+      customerId
+        ? listQuery("/lpns", {
+            limit: 200,
+            params: { kind: "group", customerId },
+          })
+        : null,
+    [customerId]
+  );
+  const { data: openGroupData } = useApiQuery<LpnsResponse>(openGroupsPath);
   const palletPath = useMemo(
     () =>
       listQuery("/pallets", {
@@ -58,14 +74,26 @@ export default function LpnsPage() {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
   }, [customers, customerId]);
 
+  const takenPalletIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const lpn of openGroupData?.lpns ?? []) {
+      if (lpn.status === "shipped" || lpn.status === "void") continue;
+      for (const p of lpn.palletIds || []) {
+        ids.add(typeof p === "string" ? p : p._id);
+      }
+    }
+    return ids;
+  }, [openGroupData]);
+
   const stageable = useMemo(
     () =>
       (palletData?.pallets ?? []).filter(
         (p) =>
           p.customerId === customerId &&
-          ["received", "stored", "staged"].includes(p.status)
+          ["received", "staged_for_store", "stored", "staged"].includes(p.status) &&
+          !takenPalletIds.has(p._id)
       ),
-    [palletData, customerId]
+    [palletData, customerId, takenPalletIds]
   );
 
   async function onCreateGroup(e: FormEvent) {
@@ -179,8 +207,44 @@ export default function LpnsPage() {
         <PageHeader
           title="LPNs"
           icon={<ScanBarcode className="h-5 w-5" />}
-          description="License plates — group many pallets under one code for staging, then scan once to load the truck"
+          description="License plates — a pallet on an open staging plate cannot be added to another until that plate ships or is voided"
+          actions={
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={(data?.lpns ?? []).length === 0}
+              onClick={() =>
+                downloadCsv(
+                  "lpns.csv",
+                  ["LPN", "Kind", "Status", "Pallets", "Description"],
+                  (data?.lpns ?? []).map((l) => [
+                    l.code,
+                    l.kind || "unit",
+                    l.status,
+                    l.qty,
+                    l.description || "",
+                  ])
+                )
+              }
+            >
+              Export CSV
+            </Button>
+          }
         />
+        <div className="mb-4 max-w-sm">
+          <Field label="Search">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="LPN code or description…"
+            />
+          </Field>
+        </div>
         <Alert>{error || err}</Alert>
         {msg ? <Alert tone="info">{msg}</Alert> : null}
 

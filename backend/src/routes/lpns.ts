@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Lpn } from "../models/Lpn";
 import { Pallet } from "../models/Pallet";
-import { nextLpnCode } from "../services/ids";
+import { createUniqueLpn } from "../services/ids";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
@@ -15,6 +15,37 @@ function palletIdList(lpn: { palletId?: unknown; palletIds?: unknown[] }): strin
   return [...ids];
 }
 
+/**
+ * One active plate per pallet. A receive-time unit LPN is retired when the pallet
+ * joins a staging plate. A second group plate is rejected.
+ */
+async function claimPalletsForNewPlate(
+  companyId: string,
+  palletIds: string[],
+  exceptLpnId?: string
+): Promise<string | null> {
+  const wanted = new Set(palletIds.map(String));
+  const plates = await Lpn.find({
+    companyId,
+    status: { $in: ["active", "staged"] },
+    $or: [{ palletIds: { $in: palletIds } }, { palletId: { $in: palletIds } }],
+  });
+  for (const plate of plates) {
+    if (exceptLpnId && String(plate._id) === exceptLpnId) continue;
+    const ids = palletIdList(plate);
+    const overlap = ids.filter((id) => wanted.has(id));
+    if (!overlap.length) continue;
+    const unitPlate = plate.kind !== "group" && ids.length <= 1;
+    if (!unitPlate) {
+      return `Pallet is already on LPN ${plate.code}. One active plate per pallet.`;
+    }
+    plate.status = "void";
+    await plate.save();
+    await Pallet.updateOne({ _id: overlap[0] }, { $pull: { lpnIds: plate._id } });
+  }
+  return null;
+}
+
 router.get("/", async (req, res, next) => {
   try {
     const filter: Record<string, unknown> = { companyId: req.auth!.companyId };
@@ -25,10 +56,22 @@ router.get("/", async (req, res, next) => {
     }
     if (req.query.status) filter.status = req.query.status;
     if (req.query.kind) filter.kind = req.query.kind;
+    const q = String(req.query.q || "").trim();
+    if (q) {
+      const safe = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      const text = { $or: [{ code: rx }, { description: rx }, { sku: rx }] };
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or as unknown[] }, text];
+        delete filter.$or;
+      } else {
+        filter.$or = text.$or;
+      }
+    }
 
     const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>, {
       defaultLimit: 50,
-      maxLimit: 200,
+      maxLimit: req.query.export === "1" ? 2000 : 200,
     });
     const [total, lpns] = await Promise.all([
       Lpn.countDocuments(filter),
@@ -64,28 +107,37 @@ router.get("/:id", async (req, res, next) => {
 router.post("/", requireRole("admin", "staff"), async (req, res, next) => {
   try {
     const companyId = req.auth!.companyId;
-    const code = req.body.code || (await nextLpnCode(companyId));
+    const suppliedCode = String(req.body.code || "").trim();
     const palletIds: string[] = Array.isArray(req.body.palletIds)
       ? req.body.palletIds
       : req.body.palletId
         ? [req.body.palletId]
         : [];
 
-    const lpn = await Lpn.create({
-      companyId,
-      warehouseId: req.body.warehouseId,
-      customerId: req.body.customerId,
-      palletId: palletIds[0] || null,
-      palletIds,
-      code,
-      kind: palletIds.length > 1 ? "group" : "unit",
-      sku: req.body.sku || "",
-      description: req.body.description || "",
-      qty: palletIds.length || req.body.qty || 1,
-      uom: req.body.uom || "ea",
-      status: "active",
-    });
-    res.status(201).json({ lpn });
+    try {
+      const lpn = await createUniqueLpn({
+        companyId,
+        warehouseId: req.body.warehouseId,
+        customerId: req.body.customerId,
+        palletId: palletIds[0] || null,
+        palletIds,
+        ...(suppliedCode ? { code: suppliedCode } : {}),
+        kind: palletIds.length > 1 ? "group" : "unit",
+        sku: req.body.sku || "",
+        description: req.body.description || "",
+        qty: palletIds.length || req.body.qty || 1,
+        uom: req.body.uom || "ea",
+        status: "active",
+      });
+      res.status(201).json({ lpn });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode === 409) {
+        res.status(409).json({ error: err instanceof Error ? err.message : "Duplicate LPN" });
+        return;
+      }
+      throw err;
+    }
   } catch (err) {
     next(err);
   }
@@ -122,14 +174,21 @@ router.post("/group", requireRole("admin", "staff"), async (req, res, next) => {
       return;
     }
 
-    const code = await nextLpnCode(companyId);
-    const lpn = await Lpn.create({
+    const conflict = await claimPalletsForNewPlate(
+      companyId,
+      pallets.map((p) => String(p._id))
+    );
+    if (conflict) {
+      res.status(409).json({ error: conflict });
+      return;
+    }
+
+    const lpn = await createUniqueLpn({
       companyId,
       warehouseId,
       customerId,
       palletId: pallets[0]._id,
       palletIds: pallets.map((p) => p._id),
-      code,
       kind: "group",
       description:
         description ||
@@ -140,10 +199,7 @@ router.post("/group", requireRole("admin", "staff"), async (req, res, next) => {
 
     for (const p of pallets) {
       p.status = "staged";
-      const existing = (p.lpnIds || []).map(String);
-      if (!existing.includes(String(lpn._id))) {
-        p.lpnIds = [...(p.lpnIds || []), lpn._id];
-      }
+      p.lpnIds = [lpn._id];
       await p.save();
     }
 
@@ -175,6 +231,12 @@ router.post("/:id/attach", requireRole("admin", "staff"), async (req, res, next)
     const addIds: string[] = Array.isArray(req.body.palletIds) ? req.body.palletIds : [];
     if (!addIds.length) {
       res.status(400).json({ error: "palletIds required" });
+      return;
+    }
+
+    const conflict = await claimPalletsForNewPlate(companyId, addIds, String(lpn._id));
+    if (conflict) {
+      res.status(409).json({ error: conflict });
       return;
     }
 

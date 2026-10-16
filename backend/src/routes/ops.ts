@@ -205,6 +205,19 @@ router.get("/invoices", async (req, res, next) => {
       });
     }
 
+    const balance = String(req.query.balance || "");
+    if (balance === "past_due") {
+      andClauses.push({
+        status: { $nin: ["paid", "void"] },
+        $or: [{ status: "past_due" }, { dueDate: { $lt: new Date() } }],
+      });
+    } else if (balance === "unpaid") {
+      andClauses.push({
+        status: { $in: ["draft", "sent", "unpaid"] },
+        $or: [{ dueDate: null }, { dueDate: { $gte: new Date() } }],
+      });
+    }
+
     if (andClauses.length === 1) {
       Object.assign(filter, andClauses[0]);
     } else if (andClauses.length > 1) {
@@ -347,6 +360,15 @@ router.patch("/invoices/:id", requireRole("admin"), async (req, res, next) => {
         invoice.balanceDue = b;
         if (b === 0 && invoice.status !== "void") invoice.status = "paid";
       }
+    }
+
+    if (
+      invoice.status === "past_due" &&
+      (invoice.balanceDue == null || Number(invoice.balanceDue) === 0) &&
+      Number(invoice.total) > 0 &&
+      balanceDue === undefined
+    ) {
+      invoice.balanceDue = Number(invoice.total);
     }
 
     const editNote = `Edited by ${req.auth!.email || "admin"} ${new Date().toISOString()}`;

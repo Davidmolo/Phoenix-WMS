@@ -175,7 +175,7 @@ export default function RequestsPage() {
       key: "actions",
       header: "Actions",
       render: (r) =>
-        r.status === "pending" ? (
+        r.status === "pending" || r.status === "scheduled" ? (
           <div className="flex flex-wrap gap-1.5">
             <Button
               size="sm"
@@ -216,7 +216,7 @@ export default function RequestsPage() {
         description={
           isPortal
             ? "Submit inbound/outbound requests — tell us if any pallets are abnormal size"
-            : "Portal requests by company — approve or cancel pending items"
+            : "Portal requests — approve or cancel pending and scheduled items"
         }
       />
       <Alert>{error || err}</Alert>

@@ -17,6 +17,11 @@ export type Customer = {
   rateInsideSqft?: number | null;
   rateOutsideSqft?: number | null;
   crossdockPerPallet?: number | null;
+  serviceDropStore?: boolean;
+  serviceCrossdock?: boolean;
+  serviceRework?: boolean;
+  reworkHourlyRate?: number | null;
+  reworkMinimumHours?: number | null;
   transportEnabled?: boolean;
   transportInboundFee?: number;
   transportOutboundFee?: number;
@@ -140,6 +145,8 @@ export type Location = {
   code: string;
   aisle: string;
   type: string;
+  level?: number;
+  spot?: number;
   palletId?: string | null;
   row: number;
   col: number;

@@ -18,6 +18,8 @@ import {
   Modal,
   NumberInput,
   PageHeader,
+  useDialog,
+  SearchableSelect,
   statusLabel,
   statusTone,
   type Column,
@@ -27,7 +29,8 @@ import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
-import type { Pallet, PalletLocation } from "@/types";
+import { downloadCsv } from "@/lib/csv";
+import type { Customer, Pallet, PalletLocation } from "@/types";
 
 const FILTERS = ["all", "staged_for_store", "stored", "staged", "received", "shipped"] as const;
 
@@ -58,9 +61,12 @@ function needsDualBarcode(p: Pallet): boolean {
 type PalletsResponse = { pallets: Pallet[] } & PaginationMeta;
 
 export default function InventoryPage() {
+  const dialog = useDialog();
   const { user, token } = useAuth();
   const isStaff = user?.role === "admin" || user?.role === "staff";
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const [customerId, setCustomerId] = useState("");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [printPallets, setPrintPallets] = useState<Pallet[] | null>(null);
@@ -75,19 +81,27 @@ export default function InventoryPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
+  const { data: custData } = useApiQuery<{ customers: Customer[] }>(
+    isStaff ? "/customers?portal=all" : null
+  );
+
   useEffect(() => {
     setPage(1);
     setSelectedId(null);
     setEditOpen(false);
-  }, [filter]);
+  }, [filter, customerId, search]);
 
   const path = useMemo(
     () =>
       listQuery("/pallets", {
         page,
-        params: { status: filter === "all" ? undefined : filter },
+        params: {
+          status: filter === "all" ? undefined : filter,
+          customerId: isStaff && customerId ? customerId : undefined,
+          q: search.trim() || undefined,
+        },
       }),
-    [page, filter]
+    [page, filter, customerId, isStaff, search]
   );
 
   const { data, error, loading, reload } = useApiQuery<PalletsResponse>(path);
@@ -149,13 +163,13 @@ export default function InventoryPage() {
 
   async function onVoid() {
     if (!token || !selected) return;
-    if (
-      !window.confirm(
-        `Void pallet ${selected.externalId}? This frees its storage location(s) and retires the barcode.`
-      )
-    ) {
-      return;
-    }
+    const ok = await dialog.confirm({
+      title: "Void pallet",
+      message: `Void pallet ${selected.externalId}? This frees its storage location and retires the barcode.`,
+      confirmLabel: "Void pallet",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setErr("");
     setMsg("");
@@ -199,6 +213,11 @@ export default function InventoryPage() {
       render: (p) => p.jobName || p.poNumber || "—",
     },
     {
+      key: "desc",
+      header: "Description",
+      render: (p) => p.description || "—",
+    },
+    {
       key: "sqft",
       header: "Sq ft",
       className: "tabular-nums",
@@ -216,25 +235,80 @@ export default function InventoryPage() {
       <PageHeader
         title={user?.role === "customer" ? "My pallets" : "Inventory"}
         icon={<Package className="h-5 w-5" />}
-        description="Filter by status · click a row for detail · edit opens in a modal"
+        description="Filter by customer and status · click a row for detail · edit opens in a modal"
         actions={
-          isStaff && rows.length > 0 ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              icon={<Printer className="h-3.5 w-3.5" />}
-              onClick={() => setPrintPallets(rows)}
-            >
-              Print page ({rows.length})
-            </Button>
+          isStaff ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={rows.length === 0}
+                onClick={() =>
+                  downloadCsv(
+                    "inventory.csv",
+                    ["Pallet", "Status", "Location", "PO / Job", "Description", "Sq ft", "Received"],
+                    rows.map((p) => [
+                      p.externalId,
+                      p.status,
+                      locationCode(p),
+                      p.jobName || p.poNumber || "",
+                      p.description || "",
+                      p.sqft ?? "",
+                      p.receivedAt || "",
+                    ])
+                  )
+                }
+              >
+                Export CSV
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Printer className="h-3.5 w-3.5" />}
+                disabled={rows.length === 0}
+                onClick={() => setPrintPallets(rows)}
+              >
+                Print page ({rows.length})
+              </Button>
+            </div>
           ) : undefined
         }
       />
       <Alert>{error || err}</Alert>
       {msg ? <Alert tone="success">{msg}</Alert> : null}
 
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,220px)_minmax(0,240px)_minmax(0,1fr)]">
+        <div className="w-full sm:max-w-xs">
+          <Field label="Search">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Pallet, job, PO, description…"
+            />
+          </Field>
+        </div>
+        {isStaff ? (
+          <div className="w-full sm:w-64">
+            <Field label="Customer">
+              <SearchableSelect
+                value={customerId}
+                onChange={setCustomerId}
+                allowEmpty
+                emptyOptionLabel="All customers"
+                placeholder="All customers"
+                searchPlaceholder="Search customers…"
+                options={(custData?.customers ?? []).map((c) => ({
+                  value: c._id,
+                  label: c.name,
+                  keywords: c.email,
+                }))}
+              />
+            </Field>
+          </div>
+        ) : null}
         <ChipGroup
           label="Status"
           size="sm"

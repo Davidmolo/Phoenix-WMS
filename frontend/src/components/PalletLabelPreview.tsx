@@ -146,6 +146,10 @@ function LabelFace({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-black pt-2 text-[12px]">
+        <div className="col-span-2">
+          <div className="text-[8.5px] tracking-wide text-muted uppercase">Description</div>
+          <div className="font-bold">{pallet.description || "—"}</div>
+        </div>
         <div>
           <div className="text-[8.5px] tracking-wide text-muted uppercase">PO / Job</div>
           <div className="font-bold">{poJob}</div>

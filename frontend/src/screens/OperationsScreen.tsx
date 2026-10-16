@@ -14,6 +14,7 @@ import { PalletLabelPreview } from "@/components/PalletLabelPreview";
 import { PickListModal, type PickListPayload } from "@/components/PickListModal";
 import {
   Alert,
+  useDialog,
   Badge,
   Button,
   CheckboxField,
@@ -57,7 +58,8 @@ function locationCodeOf(loc?: Pallet["locationId"] | null, fallback = ""): strin
 export type OpsMode = "all" | "receive" | "store" | "ship";
 
 export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
-  const { token } = useAuth();
+  const dialog = useDialog();
+  const { token, user } = useAuth();
   const { navigate } = useAppNav();
   const showReceive = mode === "all" || mode === "receive";
   const showStore = mode === "all" || mode === "store";
@@ -147,6 +149,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [shipSealNumber, setShipSealNumber] = useState("");
   const [shipTo, setShipTo] = useState("");
   const [shipWeightLbs, setShipWeightLbs] = useState("");
+  const [lienOverride, setLienOverride] = useState(false);
   const [expectedOutboundId, setExpectedOutboundId] = useState("");
 
   const selectedCustomer = useMemo(
@@ -385,9 +388,11 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       (p) => selectedShipIds.includes(p._id) && p.status === "staged_for_store"
     );
     if (staged.length > 0) {
-      const ok = window.confirm(
-        `${staged.length} selected pallet(s) are still Staged for Store (never putaway-confirmed).\n\nShip them anyway? (Same-day turn / informal cross-dock.)`
-      );
+      const ok = await dialog.confirm({
+        title: "Ship without putaway",
+        message: `${staged.length} selected pallet(s) are still Staged for Store and were never putaway-confirmed. Ship them anyway for a same-day turn?`,
+        confirmLabel: "Ship anyway",
+      });
       if (!ok) return;
     }
 
@@ -412,6 +417,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
             shipTo: shipTo || undefined,
             weightLbs: shipWeightLbs === "" ? undefined : Number(shipWeightLbs),
             expectedShipmentId: expectedOutboundId || undefined,
+            lienOverride: user?.role === "admin" && lienOverride,
           }),
         }
       );
@@ -828,9 +834,35 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 </CheckboxField>
               </div>
             </FormGrid>
-            <Button type="submit" loading={busy} icon={<PackagePlus className="h-4 w-4" />}>
-              Receive & print labels
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" loading={busy} icon={<PackagePlus className="h-4 w-4" />}>
+                Receive & print labels
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setExpectedShipmentId("");
+                  setPalletCountStr("1");
+                  setDescription("");
+                  setRef("");
+                  setPoOrJob("");
+                  setDimLengthStr("48");
+                  setDimWidthStr("48");
+                  setWeightLbsEach("");
+                  setPalletWeights([""]);
+                  setBillAsFtl(false);
+                  setCarrier("");
+                  setChosenLocationIds([]);
+                  setLocationMode("next_available");
+                  setMessage("");
+                  setError("");
+                }}
+              >
+                Clear
+              </Button>
+            </div>
           </form>
         </FormSection>
         ) : null}
@@ -1075,6 +1107,16 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 </Field>
               </FormGrid>
 
+              {user?.role === "admin" ? (
+                <label className="flex items-center gap-2 text-sm text-navy">
+                  <input
+                    type="checkbox"
+                    checked={lienOverride}
+                    onChange={(e) => setLienOverride(e.target.checked)}
+                  />
+                  Admin override — release even if this customer is on lien hold
+                </label>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
