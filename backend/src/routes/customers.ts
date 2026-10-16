@@ -186,7 +186,18 @@ router.get("/:id", async (req, res, next) => {
         unpaidCount += 1;
       }
     }
-    const portalUser = await User.findOne({
+    if (!customer.contacts?.length && (customer.email || customer.phone || customer.contact)) {
+      customer.contacts = [
+        {
+          name: customer.contact || "",
+          email: String(customer.email || "").trim().toLowerCase(),
+          phone: customer.phone || "",
+        },
+      ];
+      await customer.save();
+    }
+
+    const portalUsers = await User.find({
       companyId: req.auth!.companyId,
       customerId: customer._id,
       role: "customer",
@@ -194,16 +205,14 @@ router.get("/:id", async (req, res, next) => {
 
     res.json({
       customer,
-      portal: portalUser
-        ? {
-            email: portalUser.email,
-            name: portalUser.name,
-            active: portalUser.active,
-            invitePending: Boolean(portalUser.inviteTokenHash),
-            inviteSentAt: portalUser.inviteSentAt,
-            inviteExpiresAt: portalUser.inviteExpiresAt,
-          }
-        : null,
+      portalUsers: portalUsers.map((portalUser) => ({
+        email: portalUser.email,
+        name: portalUser.name,
+        active: portalUser.active,
+        invitePending: Boolean(portalUser.inviteTokenHash),
+        inviteSentAt: portalUser.inviteSentAt,
+        inviteExpiresAt: portalUser.inviteExpiresAt,
+      })),
       summary: {
         activePallets,
         unbilledTotal,
@@ -344,6 +353,25 @@ router.patch("/:id", async (req, res, next) => {
     if (req.body.email !== undefined) customer.email = String(req.body.email ?? "").trim();
     if (req.body.phone !== undefined) customer.phone = String(req.body.phone ?? "").trim();
     if (req.body.address !== undefined) customer.address = String(req.body.address ?? "").trim();
+    if (Array.isArray(req.body.contacts)) {
+      const seen = new Set<string>();
+      const next: { name: string; email: string; phone: string }[] = [];
+      for (const raw of req.body.contacts) {
+        const email = String(raw?.email || "").trim().toLowerCase();
+        const name = String(raw?.name || "").trim();
+        const phone = String(raw?.phone || "").trim();
+        if (!email && !phone && !name) continue;
+        if (email && !email.includes("@")) {
+          res.status(400).json({ error: `Contact email is not valid: ${email}` });
+          return;
+        }
+        if (email && seen.has(email)) continue;
+        if (email) seen.add(email);
+        next.push({ name, email, phone });
+      }
+      customer.contacts = next;
+      customer.markModified("contacts");
+    }
     if (req.body.active !== undefined) customer.active = Boolean(req.body.active);
     if (req.body.transportEnabled !== undefined) {
       customer.transportEnabled = Boolean(req.body.transportEnabled);

@@ -11,8 +11,26 @@ const customerSchema = new Schema(
     companyId: { type: Schema.Types.ObjectId, ref: "Company", required: true, index: true },
     name: { type: String, required: true, trim: true },
     contact: { type: String, default: "" },
+    /** Billing email. QuickBooks invoices use this one address. */
     email: { type: String, default: "" },
     phone: { type: String, default: "" },
+    /**
+     * People who can be invited to the customer portal.
+     * Each email is a separate login. QuickBooks is not updated from this list.
+     */
+    contacts: {
+      type: [
+        new Schema(
+          {
+            name: { type: String, default: "" },
+            email: { type: String, default: "" },
+            phone: { type: String, default: "" },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     address: { type: String, default: "" },
     billingMethod: {
       type: String,

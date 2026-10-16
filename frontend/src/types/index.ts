@@ -28,6 +28,7 @@ export type Customer = {
   email?: string;
   phone?: string;
   contact?: string;
+  contacts?: { name: string; email: string; phone: string }[];
   address?: string;
   active?: boolean;
   since?: string;

@@ -36,8 +36,18 @@ import type { Customer, Invoice, Pallet, WhRequest } from "@/types";
 
 type Charge = { _id: string; description: string; amount: number; type: string; date: string };
 
+type PortalAccess = {
+  email: string;
+  name?: string;
+  active?: boolean;
+  invitePending: boolean;
+  inviteSentAt?: string | null;
+  inviteExpiresAt?: string | null;
+};
+
 type DetailResponse = {
   customer: Customer;
+  portalUsers?: PortalAccess[];
   portal?: {
     email: string;
     name: string;
@@ -145,12 +155,12 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
 
   const c = data?.customer;
   const invoices = invData?.invoices ?? [];
-  /** Hide invite once they have set a portal password (onboarded). */
-  const needsPortalInvite = Boolean(c && !c.portalActivated);
-  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteBusyEmail, setInviteBusyEmail] = useState("");
   const [inviteMsg, setInviteMsg] = useState("");
   const [inviteErr, setInviteErr] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
+  const [newContact, setNewContact] = useState({ name: "", email: "", phone: "" });
+  const [contactBusy, setContactBusy] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
@@ -223,9 +233,43 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
     }
   }
 
-  async function sendPortalInvite() {
+  async function addContact() {
     if (!token || !c) return;
-    setInviteBusy(true);
+    const email = newContact.email.trim().toLowerCase();
+    if (!email.includes("@")) {
+      setInviteErr("Enter a valid email for this contact");
+      return;
+    }
+    const existing = c.contacts || [];
+    if (existing.some((row) => row.email.trim().toLowerCase() === email)) {
+      setInviteErr("That email is already a contact on this account");
+      return;
+    }
+    setContactBusy(true);
+    setInviteErr("");
+    setInviteMsg("");
+    try {
+      await api(`/customers/${c._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          contacts: [...existing, { name: newContact.name.trim(), email, phone: newContact.phone.trim() }],
+        }),
+      });
+      setNewContact({ name: "", email: "", phone: "" });
+      setInviteMsg("Contact added. Use Invite when they should have portal access.");
+      invalidateApiCache(`/customers/${c._id}`);
+      await reload();
+    } catch (ex) {
+      setInviteErr(ex instanceof Error ? ex.message : "Could not add contact");
+    } finally {
+      setContactBusy(false);
+    }
+  }
+
+  async function sendPortalInvite(contact: { name: string; email: string }) {
+    if (!token || !c || !contact.email) return;
+    setInviteBusyEmail(contact.email);
     setInviteErr("");
     setInviteMsg("");
     setInviteUrl("");
@@ -235,10 +279,9 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         {
           method: "POST",
           token,
-          body: JSON.stringify({ email: c.email, name: c.contact || c.name }),
+          body: JSON.stringify({ email: contact.email, name: contact.name || c.name }),
         }
       );
-      setInviteUrl("");
       setInviteMsg(
         result.message ||
           `Invite emailed to ${result.email}. They appear in Customers after setting a password.`
@@ -248,7 +291,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
     } catch (ex) {
       setInviteErr(ex instanceof Error ? ex.message : "Invite failed");
     } finally {
-      setInviteBusy(false);
+      setInviteBusyEmail("");
     }
   }
 
@@ -297,20 +340,6 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                   disabled={!c}
                 >
                   Edit billing & account
-                </Button>
-              ) : null}
-              {needsPortalInvite ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  icon={<Mail className="h-3.5 w-3.5" />}
-                  onClick={() => void sendPortalInvite()}
-                  loading={inviteBusy}
-                  disabled={!c?.email}
-                  title={!c?.email ? "Add an email on this customer first" : undefined}
-                >
-                  {data?.portal?.invitePending ? "Resend portal invite" : "Send portal invite"}
                 </Button>
               ) : null}
               <Button
@@ -422,6 +451,95 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                 </div>
               </CardBody>
             </Card>
+
+            {isStaff ? (
+              <Card className="mb-5" id="customer-contacts">
+                <CardBody>
+                  <CardTitle>Portal contacts</CardTitle>
+                  <p className="mt-1 mb-3 text-xs text-muted">
+                    Each email gets its own Invite button and its own portal login. Invoice email stays on the billing email.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-[10px] font-semibold tracking-wide text-muted uppercase">
+                          <th className="py-2 pr-3">Name</th>
+                          <th className="py-2 pr-3">Email</th>
+                          <th className="py-2 pr-3">Phone</th>
+                          <th className="py-2 pr-3">Portal</th>
+                          <th className="py-2 text-right">Invite</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(c.contacts || []).map((contact) => {
+                          const access = (data?.portalUsers || []).find(
+                            (row) => row.email.toLowerCase() === contact.email.toLowerCase()
+                          );
+                          const portalLabel = !contact.email
+                            ? "No email"
+                            : access?.invitePending
+                              ? "Invite sent"
+                              : access
+                                ? "Has access"
+                                : "Not invited";
+                          return (
+                            <tr key={contact.email || contact.phone} className="border-b border-border/60">
+                              <td className="py-2 pr-3">{contact.name || "—"}</td>
+                              <td className="py-2 pr-3">{contact.email || "—"}</td>
+                              <td className="py-2 pr-3">{contact.phone || "—"}</td>
+                              <td className="py-2 pr-3">
+                                <Badge tone={access && !access.invitePending ? "success" : "neutral"}>
+                                  {portalLabel}
+                                </Badge>
+                              </td>
+                              <td className="py-2 text-right">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  icon={<Mail className="h-3.5 w-3.5" />}
+                                  disabled={!contact.email}
+                                  loading={inviteBusyEmail === contact.email}
+                                  onClick={() => void sendPortalInvite(contact)}
+                                >
+                                  {access ? "Invite again" : "Invite"}
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <FormGrid cols={3} className="mt-4">
+                    <Field label="Name">
+                      <Input
+                        value={newContact.name}
+                        onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <Input
+                        type="email"
+                        value={newContact.email}
+                        onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Phone">
+                      <Input
+                        value={newContact.phone}
+                        onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
+                      />
+                    </Field>
+                  </FormGrid>
+                  <div className="mt-3">
+                    <Button type="button" loading={contactBusy} onClick={() => void addContact()}>
+                      Add contact
+                    </Button>
+                  </div>
+                </CardBody>
+              </Card>
+            ) : null}
 
             <Modal
               open={Boolean(editing && form)}
@@ -619,7 +737,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                         onChange={(e) => setForm({ ...form, phone: e.target.value })}
                       />
                     </Field>
-                    <Field label="Email">
+                    <Field label="Billing email" hint="QuickBooks invoices use this address only.">
                       <Input
                         type="email"
                         value={form.email}
