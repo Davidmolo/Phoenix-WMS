@@ -22,6 +22,18 @@ export function spotLetterOf(spot: number | string | null | undefined): SpotLett
   return "A";
 }
 
+/** Cesar's rack: 26 lanes, 20 columns, 5 levels, spots A and B. Code A05-3B. */
+export const STANDARD_LANES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+export const STANDARD_COLUMNS = 20;
+export const STANDARD_LEVELS = 5;
+
+/** Lane A, column 5, level 3, spot B → A05-3B. */
+export function bayCode(lane: string, column: number, level: number, spot: SpotLetter) {
+  const col = String(Math.min(STANDARD_COLUMNS, Math.max(1, column))).padStart(2, "0");
+  const lvl = Math.min(STANDARD_LEVELS, Math.max(1, level));
+  return `${lane.toUpperCase()}${col}-${lvl}${spot}`;
+}
+
 /** W-1, A-L1-S1, and the extra bay letter (AA1A) all rewrite to lane/level/spot. */
 export function isLegacyFloorCode(code: string): boolean {
   const c = String(code || "").trim();

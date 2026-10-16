@@ -4,7 +4,15 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { Location } from "../models/Location";
 import { Warehouse } from "../models/Warehouse";
 import { Pallet } from "../models/Pallet";
-import { isLegacyFloorCode, structuredSlot, type SpotLetter } from "../services/locationCodes";
+import {
+  bayCode,
+  isLegacyFloorCode,
+  STANDARD_COLUMNS,
+  STANDARD_LANES,
+  STANDARD_LEVELS,
+  structuredSlot,
+  type SpotLetter,
+} from "../services/locationCodes";
 
 const router = Router();
 router.use(requireAuth);
@@ -24,7 +32,7 @@ router.get("/", async (req, res, next) => {
     }
     if (req.query.available === "true") filter.palletId = null;
 
-    const locations = await Location.find(filter).sort({ aisle: 1, code: 1 }).limit(1000);
+    const locations = await Location.find(filter).sort({ aisle: 1, code: 1 }).limit(6000);
     res.json({ locations });
   } catch (err) {
     next(err);
@@ -41,7 +49,10 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
 
     const warehouseId = (req.query.warehouseId as string) || String(warehouses[0]?._id || "");
     const warehouse = warehouses.find((w) => String(w._id) === warehouseId) || warehouses[0];
-    if (warehouseId) await migrateFlatFloorCodes(companyId, warehouseId);
+    if (warehouseId) {
+      await migrateFlatFloorCodes(companyId, warehouseId);
+      await ensureStandardLayout(companyId, warehouseId);
+    }
 
     const locations = warehouseId
       ? await Location.find({ companyId, warehouseId }).sort({ row: 1, col: 1, level: 1, spot: 1 })
@@ -202,6 +213,45 @@ router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) 
   }
 });
 
+/** Cesar layout: lane A–Z, columns 01–20, levels 1–5, spots A and B. Code example A05-3B. */
+async function ensureStandardLayout(companyId: string, warehouseId: string) {
+  const expected = STANDARD_LANES.length * STANDARD_COLUMNS * STANDARD_LEVELS * 2;
+  const have = await Location.countDocuments({
+    companyId,
+    warehouseId,
+    code: /^[A-Z]\d{2}-[1-5][AB]$/,
+  });
+  if (have >= expected) return;
+
+  const existing = await Location.find({ companyId, warehouseId }).select("code").lean();
+  const taken = new Set(existing.map((loc) => loc.code));
+  const toCreate: Array<Record<string, unknown>> = [];
+  STANDARD_LANES.forEach((lane, row) => {
+    for (let column = 1; column <= STANDARD_COLUMNS; column += 1) {
+      for (let level = 1; level <= STANDARD_LEVELS; level += 1) {
+        for (const letter of ["A", "B"] as SpotLetter[]) {
+          const code = bayCode(lane, column, level, letter);
+          if (taken.has(code)) continue;
+          toCreate.push({
+            companyId,
+            warehouseId,
+            code,
+            aisle: lane,
+            type: "inside",
+            level,
+            spot: letter === "B" ? 2 : 1,
+            floorOnly: level === 1,
+            row,
+            col: column,
+            palletId: null,
+          });
+        }
+      }
+    }
+  });
+  if (toCreate.length) await Location.insertMany(toCreate, { ordered: false });
+}
+
 /** Rewrite W-1 and A-L1-S1 labels into lane/section/level/spot (AA1A) and refresh pallet snapshots. */
 async function migrateFlatFloorCodes(companyId: string, warehouseId: string) {
   const locations = await Location.find({ companyId, warehouseId });
@@ -229,12 +279,6 @@ async function migrateFlatFloorCodes(companyId: string, warehouseId: string) {
     );
   }
 
-  await Location.deleteMany({
-    companyId,
-    warehouseId,
-    col: { $gt: 0 },
-    palletId: null,
-  });
 }
 
 /**
