@@ -8,6 +8,7 @@ import {
   bayCode,
   toStandardBayCode,
   isLegacyFloorCode,
+  STANDARD_CODE,
   STANDARD_COLUMNS,
   STANDARD_LANES,
   STANDARD_LEVELS,
@@ -60,7 +61,7 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
       ? await Location.find({ companyId, warehouseId }).sort({ row: 1, col: 1, level: 1, spot: 1 })
       : [];
 
-    const rack = locations.filter((l) => /^[A-Z]\d{2}-[1-5][AB]$/.test(l.code));
+    const rack = locations.filter((l) => STANDARD_CODE.test(l.code));
     const occupied = rack.filter((l) => l.palletId).length;
     const capacitySqft = Number(warehouse?.sqft) || 0;
     const occupiedAgg = warehouseId
@@ -216,13 +217,34 @@ router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) 
   }
 });
 
-/** Cesar layout: lane A–Z, columns 01–20, levels 1–5, spots A and B. Code example A05-3B. */
+/** Cesar layout: lane A–Z, levels 1–5, columns A–T, spots 1 and 2. Code example A-1-A-1. */
 async function ensureStandardLayout(companyId: string, warehouseId: string) {
+  const picture = await Location.find({
+    companyId,
+    warehouseId,
+    code: /^[A-Z]\d{2}-[1-5][AB]$/,
+  }).select("code");
+  if (picture.length) {
+    const renames = picture.flatMap((loc) => {
+      const next = toStandardBayCode(loc.code);
+      if (!next || next === loc.code) return [];
+      return [
+        {
+          updateOne: {
+            filter: { _id: loc._id },
+            update: { $set: { code: next } },
+          },
+        },
+      ];
+    });
+    if (renames.length) await Location.bulkWrite(renames);
+  }
+
   const expected = STANDARD_LANES.length * STANDARD_COLUMNS * STANDARD_LEVELS * 2;
   const have = await Location.countDocuments({
     companyId,
     warehouseId,
-    code: /^[A-Z]\d{2}-[1-5][AB]$/,
+    code: STANDARD_CODE,
   });
   if (have >= expected) return;
 
@@ -289,7 +311,7 @@ async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
   const rack = await Location.find({
     companyId,
     warehouseId,
-    code: /^[A-Z]\d{2}-[1-5][AB]$/,
+    code: STANDARD_CODE,
   }).select("code palletId");
   for (const loc of rack) {
     const owner = filled.get(loc.code) || null;
@@ -303,7 +325,7 @@ async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
     {
       companyId,
       warehouseId,
-      code: { $not: /^[A-Z]\d{2}-[1-5][AB]$/ },
+      code: { $not: STANDARD_CODE },
       palletId: { $ne: null },
     },
     { $set: { palletId: null } }

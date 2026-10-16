@@ -18,6 +18,14 @@ const LANES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const COLUMNS = Array.from({ length: 20 }, (_, i) => i + 1);
 const LEVELS = [5, 4, 3, 2, 1];
 
+function columnLetter(column: number) {
+  return String.fromCharCode(64 + column);
+}
+
+function bayCode(lane: string, column: number, level: number, spot: 1 | 2) {
+  return `${lane}-${level}-${columnLetter(column)}-${spot}`;
+}
+
 type SetupResponse = {
   warehouses: Warehouse[];
   warehouseId: string | null;
@@ -32,14 +40,10 @@ type SetupResponse = {
   };
 };
 
-function bayCode(lane: string, column: number, level: number, spot: "A" | "B") {
-  return `${lane}${String(column).padStart(2, "0")}-${level}${spot}`;
-}
-
 export default function WarehousePage() {
   const { data, error, loading } = useApiQuery<SetupResponse>("/locations/warehouse-setup");
   const [lane, setLane] = useState("A");
-  const [selected, setSelected] = useState("A05-3B");
+  const [selected, setSelected] = useState("A-1-A-1");
 
   const warehouse =
     data?.warehouses?.find((w) => w._id === data.warehouseId) || data?.warehouses?.[0];
@@ -47,28 +51,26 @@ export default function WarehousePage() {
   const occupied = useMemo(() => {
     const codes = new Set<string>();
     for (const loc of data?.locations ?? []) {
-      if (loc.palletId && /^[A-Z]\d{2}-[1-5][AB]$/.test(loc.code)) codes.add(loc.code);
+      if (loc.palletId && /^[A-Z]-[1-5]-[A-T]-[12]$/.test(loc.code)) codes.add(loc.code);
     }
     return codes;
   }, [data]);
 
   const laneFilled = useMemo(() => {
     let n = 0;
-    for (const code of occupied) if (code.startsWith(lane)) n += 1;
+    for (const code of occupied) if (code.startsWith(`${lane}-`)) n += 1;
     return n;
   }, [occupied, lane]);
   const laneSlots = 20 * 5 * 2;
 
   const selectedParts = useMemo(() => {
-    const match = selected.match(/^([A-Z])(\d{2})-(\d)([AB])$/);
+    const match = selected.match(/^([A-Z])-([1-5])-([A-T])-([12])$/);
     if (!match) return null;
     return {
       lane: match[1],
-      column: match[2],
-      level: match[3],
+      level: match[2],
+      column: match[3],
       spot: match[4],
-      bay: `${match[1]}${match[2]}`,
-      shelf: `${match[3]}${match[4]}`,
     };
   }, [selected]);
 
@@ -100,7 +102,7 @@ export default function WarehousePage() {
         <CardBody>
           <CardTitle>Lane {lane} — front view</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">
-            Columns run across the top. Levels run from the floor (L1) up to L5. Each bay has two pallet spots, A and B.
+            Cesar’s address is lane, level, column, then spot 1 or 2. Columns run across the top. L1 is the floor and L5 is the top. Each column holds two pallets.
             Lane {lane}: {laneFilled} filled, {laneSlots - laneFilled} available.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-navy">
@@ -120,7 +122,7 @@ export default function WarehousePage() {
                 type="button"
                 onClick={() => {
                   setLane(letter);
-                  setSelected(`${letter}05-3B`);
+                  setSelected(`${letter}-1-A-1`);
                 }}
                 className={cn(
                   "h-8 w-8 rounded-md border text-xs font-bold",
@@ -139,7 +141,7 @@ export default function WarehousePage() {
               <div />
               {COLUMNS.map((column) => (
                 <div key={column} className="text-center text-[10px] font-bold text-muted">
-                  {String(column).padStart(2, "0")}
+                  {columnLetter(column)}
                 </div>
               ))}
               {LEVELS.flatMap((level) => [
@@ -147,12 +149,11 @@ export default function WarehousePage() {
                   L{level}
                 </div>,
                 ...COLUMNS.map((column) => {
-                    const spots = (["A", "B"] as const).map((spot) => bayCode(lane, column, level, spot));
+                    const spots = [1, 2] as const;
                     return (
                       <div key={`${level}-${column}`} className="grid grid-cols-2 gap-0.5">
-                        {spots.map((code) => {
-                          const spot = code.slice(-1);
-                          const shelf = `${level}${spot}`;
+                        {spots.map((spot) => {
+                          const code = bayCode(lane, column, level, spot);
                           const taken = occupied.has(code);
                           return (
                             <button
@@ -168,8 +169,12 @@ export default function WarehousePage() {
                                 selected === code && "ring-2 ring-navy"
                               )}
                             >
-                              <span className="block font-mono text-[8px] font-semibold">{lane}{String(column).padStart(2, "0")}</span>
-                              <span className="mt-0.5 block font-mono text-[9px] font-bold">{shelf}</span>
+                              <span className="block font-mono text-[8px] font-semibold">
+                                {lane}-{columnLetter(column)}
+                              </span>
+                              <span className="mt-0.5 block font-mono text-[9px] font-bold">
+                                {level}-{spot}
+                              </span>
                             </button>
                           );
                         })}
@@ -183,23 +188,23 @@ export default function WarehousePage() {
           {selectedParts ? (
             <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
               <p className="m-0">
-                <span className="font-mono font-bold text-navy">{selectedParts.bay}</span>
-                <span className="text-muted"> — lane {selectedParts.lane}, column {selectedParts.column}</span>
+                <span className="font-semibold text-navy">Lane {selectedParts.lane}</span>
+                <span className="text-muted"> · Level {selectedParts.level}</span>
               </p>
               <p className="m-0">
-                <span className="font-mono font-bold text-navy">{selectedParts.shelf}</span>
-                <span className="text-muted"> — level {selectedParts.level}, spot {selectedParts.spot}</span>
+                <span className="font-semibold text-navy">Column {selectedParts.column}</span>
+                <span className="text-muted"> · Spot {selectedParts.spot}</span>
               </p>
               <p className="m-0 sm:col-span-2">
                 <span className="font-mono font-bold text-navy">{selected}</span>
                 <span className="text-muted">
                   {" "}
-                  is the full pallet position.
-                  {occupied.has(selected) ? " Occupied." : " Open."}
+                  is lane {selectedParts.lane}, level {selectedParts.level}, column {selectedParts.column}, spot {selectedParts.spot}.
+                  {occupied.has(selected) ? " Filled." : " Available."}
                 </span>
               </p>
               <p className="m-0 text-xs text-muted sm:col-span-2">
-                L1 is the floor. L5 is the top beam. Spot A and spot B share that column and level.
+                The next column is the next bay in that lane. Spot 1 and spot 2 are the two pallets in the same column and level.
               </p>
             </div>
           ) : null}

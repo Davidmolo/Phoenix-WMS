@@ -22,15 +22,38 @@ export function spotLetterOf(spot: number | string | null | undefined): SpotLett
   return "A";
 }
 
-/** Cesar's rack: 26 lanes, 20 columns, 5 levels, spots A and B. Code A05-3B. */
+/**
+ * Cesar: one lane, then levels, then the next column, then two pallet spots.
+ * Spoken order is lane, level, column, spot. Example A-1-A-1.
+ */
 export const STANDARD_LANES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 export const STANDARD_COLUMNS = 20;
 export const STANDARD_LEVELS = 5;
+export const STANDARD_CODE = /^[A-Z]-[1-5]-[A-T]-[12]$/;
 
-/** Older grid labels (A1A, AD1A) become the rack code (A01-1A, A04-1A). */
+export function columnLetter(column: number) {
+  const n = Math.min(STANDARD_COLUMNS, Math.max(1, Math.floor(column)));
+  return String.fromCharCode(64 + n);
+}
+
+/** Lane A, level 1, column A, spot 1 → A-1-A-1. Spot 2 is the other pallet. */
+export function bayCode(
+  lane: string,
+  column: number,
+  level: number,
+  spot: number | SpotLetter | "1" | "2"
+) {
+  const lvl = Math.min(STANDARD_LEVELS, Math.max(1, Math.floor(level) || 1));
+  const spotNo = spot === 2 || spot === "2" || spot === "B" || spot === "b" ? "2" : "1";
+  return `${lane.toUpperCase()}-${lvl}-${columnLetter(column)}-${spotNo}`;
+}
+
+/** Older labels (A1A, AD1A, A05-3B) become lane-level-column-spot. */
 export function toStandardBayCode(code: string): string | null {
   const raw = String(code || "").trim().toUpperCase();
-  if (/^[A-Z]\d{2}-[1-5][AB]$/.test(raw)) return raw;
+  if (STANDARD_CODE.test(raw)) return raw;
+  const picture = raw.match(/^([A-Z])(\d{2})-([1-5])([AB])$/);
+  if (picture) return bayCode(picture[1], Number(picture[2]), Number(picture[3]), picture[4] as SpotLetter);
   const short = raw.match(/^([A-Z])([1-5])([AB])$/);
   if (short) return bayCode(short[1], 1, Number(short[2]), short[3] as SpotLetter);
   const long = raw.match(/^([A-Z])([A-Z])([1-5])([AB])$/);
@@ -39,13 +62,6 @@ export function toStandardBayCode(code: string): string | null {
     return bayCode(long[1], column, Number(long[3]), long[4] as SpotLetter);
   }
   return null;
-}
-
-/** Lane A, column 5, level 3, spot B → A05-3B. */
-export function bayCode(lane: string, column: number, level: number, spot: SpotLetter) {
-  const col = String(Math.min(STANDARD_COLUMNS, Math.max(1, column))).padStart(2, "0");
-  const lvl = Math.min(STANDARD_LEVELS, Math.max(1, level));
-  return `${lane.toUpperCase()}${col}-${lvl}${spot}`;
 }
 
 /** W-1, A-L1-S1, and the extra bay letter (AA1A) all rewrite to lane/level/spot. */
