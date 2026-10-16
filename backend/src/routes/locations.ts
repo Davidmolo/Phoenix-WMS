@@ -6,6 +6,7 @@ import { Warehouse } from "../models/Warehouse";
 import { Pallet } from "../models/Pallet";
 import {
   bayCode,
+  toStandardBayCode,
   isLegacyFloorCode,
   STANDARD_COLUMNS,
   STANDARD_LANES,
@@ -52,13 +53,15 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
     if (warehouseId) {
       await migrateFlatFloorCodes(companyId, warehouseId);
       await ensureStandardLayout(companyId, warehouseId);
+      await syncInventoryOntoLayout(companyId, warehouseId);
     }
 
     const locations = warehouseId
       ? await Location.find({ companyId, warehouseId }).sort({ row: 1, col: 1, level: 1, spot: 1 })
       : [];
 
-    const occupied = locations.filter((l) => l.palletId).length;
+    const rack = locations.filter((l) => /^[A-Z]\d{2}-[1-5][AB]$/.test(l.code));
+    const occupied = rack.filter((l) => l.palletId).length;
     const capacitySqft = Number(warehouse?.sqft) || 0;
     const occupiedAgg = warehouseId
       ? await Pallet.aggregate([
@@ -86,9 +89,9 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
       locations,
       mapLayout,
       summary: {
-        total: locations.length,
+        total: rack.length,
         occupied,
-        available: locations.length - occupied,
+        available: rack.length - occupied,
         capacitySqft,
         occupiedSqft,
         availableSqft,
@@ -250,6 +253,67 @@ async function ensureStandardLayout(companyId: string, warehouseId: string) {
     }
   });
   if (toCreate.length) await Location.insertMany(toCreate, { ordered: false });
+}
+
+/** Point pallets that are still in the building at the rack code, and mark that slot filled. */
+async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
+  const active = await Pallet.find({
+    companyId,
+    warehouseId,
+    status: { $in: ["received", "staged_for_store", "stored", "staged"] },
+  }).select("locationId locationCode secondaryLocationId secondaryLocationCode");
+
+  const filled = new Map<string, string>();
+  for (const pallet of active) {
+    let changed = false;
+    for (const [codeField, idField] of [
+      ["locationCode", "locationId"],
+      ["secondaryLocationCode", "secondaryLocationId"],
+    ] as const) {
+      const next = toStandardBayCode(String(pallet[codeField] || ""));
+      if (!next) continue;
+      if (!filled.has(next)) filled.set(next, String(pallet._id));
+      if (pallet[codeField] !== next) {
+        pallet[codeField] = next;
+        changed = true;
+      }
+      const slot = await Location.findOne({ companyId, warehouseId, code: next }).select("_id");
+      if (slot && String(pallet[idField] || "") !== String(slot._id)) {
+        pallet[idField] = slot._id;
+        changed = true;
+      }
+    }
+    if (changed) await pallet.save();
+  }
+
+  const rack = await Location.find({
+    companyId,
+    warehouseId,
+    code: /^[A-Z]\d{2}-[1-5][AB]$/,
+  }).select("code palletId");
+  const ops = [];
+  for (const loc of rack) {
+    const owner = filled.get(loc.code) || null;
+    const current = loc.palletId ? String(loc.palletId) : null;
+    if (current === owner) continue;
+    ops.push({
+      updateOne: {
+        filter: { _id: loc._id },
+        update: { $set: { palletId: owner } },
+      },
+    });
+  }
+  if (ops.length) await Location.bulkWrite(ops);
+
+  await Location.updateMany(
+    {
+      companyId,
+      warehouseId,
+      code: { $not: /^[A-Z]\d{2}-[1-5][AB]$/ },
+      palletId: { $ne: null },
+    },
+    { $set: { palletId: null } }
+  );
 }
 
 /** Rewrite W-1 and A-L1-S1 labels into lane/section/level/spot (AA1A) and refresh pallet snapshots. */

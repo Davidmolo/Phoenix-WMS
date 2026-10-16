@@ -47,10 +47,17 @@ export default function WarehousePage() {
   const occupied = useMemo(() => {
     const codes = new Set<string>();
     for (const loc of data?.locations ?? []) {
-      if (loc.palletId) codes.add(loc.code);
+      if (loc.palletId && /^[A-Z]\d{2}-[1-5][AB]$/.test(loc.code)) codes.add(loc.code);
     }
     return codes;
   }, [data]);
+
+  const laneFilled = useMemo(() => {
+    let n = 0;
+    for (const code of occupied) if (code.startsWith(lane)) n += 1;
+    return n;
+  }, [occupied, lane]);
+  const laneSlots = 20 * 5 * 2;
 
   const selectedParts = useMemo(() => {
     const match = selected.match(/^([A-Z])(\d{2})-(\d)([AB])$/);
@@ -94,7 +101,18 @@ export default function WarehousePage() {
           <CardTitle>Lane {lane} — front view</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">
             Columns run across the top. Levels run from the floor (L1) up to L5. Each bay has two pallet spots, A and B.
+            Lane {lane}: {laneFilled} filled, {laneSlots - laneFilled} available.
           </p>
+          <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-navy">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded border border-accent/50 bg-accent-bg" />
+              Filled — a pallet in inventory is in this slot
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded border border-border bg-surface-2" />
+              Available
+            </span>
+          </div>
           <div className="mb-3 flex flex-wrap gap-1">
             {LANES.map((letter) => (
               <button

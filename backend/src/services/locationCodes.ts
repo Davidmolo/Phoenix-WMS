@@ -27,6 +27,20 @@ export const STANDARD_LANES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 export const STANDARD_COLUMNS = 20;
 export const STANDARD_LEVELS = 5;
 
+/** Older grid labels (A1A, AD1A) become the rack code (A01-1A, A04-1A). */
+export function toStandardBayCode(code: string): string | null {
+  const raw = String(code || "").trim().toUpperCase();
+  if (/^[A-Z]\d{2}-[1-5][AB]$/.test(raw)) return raw;
+  const short = raw.match(/^([A-Z])([1-5])([AB])$/);
+  if (short) return bayCode(short[1], 1, Number(short[2]), short[3] as SpotLetter);
+  const long = raw.match(/^([A-Z])([A-Z])([1-5])([AB])$/);
+  if (long) {
+    const column = long[2].charCodeAt(0) - 64;
+    return bayCode(long[1], column, Number(long[3]), long[4] as SpotLetter);
+  }
+  return null;
+}
+
 /** Lane A, column 5, level 3, spot B → A05-3B. */
 export function bayCode(lane: string, column: number, level: number, spot: SpotLetter) {
   const col = String(Math.min(STANDARD_COLUMNS, Math.max(1, column))).padStart(2, "0");
