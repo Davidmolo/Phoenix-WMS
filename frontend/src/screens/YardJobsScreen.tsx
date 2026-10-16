@@ -132,7 +132,7 @@ function EditYardJobModal({
                 </Field>
               ) : null}
             </FormGrid>
-            <Field label="Pallet count" hint="Used for crossdock fee math.">
+            <Field label="Pallet count">
               <NumberInput
                 decimal={false}
                 value={palletCountStr}
@@ -352,9 +352,10 @@ export default function YardJobsPage() {
     {
       key: "actions",
       header: "",
+      className: "w-[1%] text-right",
       render: (j) =>
         j.status === "in_progress" || j.status === "open" ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="inline-flex items-center justify-end gap-1.5">
             <Button type="button" size="sm" variant="secondary" onClick={() => setEditingJob(j)}>
               Edit
             </Button>
@@ -371,7 +372,9 @@ export default function YardJobsPage() {
               Cancel
             </Button>
           </div>
-        ) : null,
+        ) : (
+          <span className="inline-block h-8" />
+        ),
     },
   ];
 
@@ -401,14 +404,7 @@ export default function YardJobsPage() {
                 <option value="trailer_rework">Trailer Rework</option>
               </Select>
             </Field>
-            <Field
-              label="From Expected inbound"
-              hint={
-                type === "crossdock"
-                  ? "Shows Crossdock appointments first — selecting pre-fills customer, pallets, truck, notes."
-                  : "Shows Trailer Rework appointments first — selecting pre-fills customer, pallets, truck, notes."
-              }
-            >
+            <Field label="From Expected inbound">
               <SearchableSelect
                 value={expectedShipmentId}
                 onChange={setExpectedShipmentId}
@@ -445,7 +441,7 @@ export default function YardJobsPage() {
                 searchPlaceholder="Search by name or email…"
               />
             </Field>
-            <Field label="Pallet count" hint="Used for crossdock fee math.">
+            <Field label="Pallet count">
               <NumberInput
                 decimal={false}
                 value={palletCountStr}
@@ -476,7 +472,7 @@ export default function YardJobsPage() {
           <Field label="Notes">
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex items-center gap-2">
             <Button type="submit" loading={busy} icon={<Forklift className="h-4 w-4" />}>
               Start {type === "crossdock" ? "crossdock" : "trailer rework"}
             </Button>

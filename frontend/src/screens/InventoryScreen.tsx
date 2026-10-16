@@ -279,9 +279,9 @@ export default function InventoryPage() {
       <Alert>{error || err}</Alert>
       {msg ? <Alert tone="success">{msg}</Alert> : null}
 
-      <div className="mb-4 grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,220px)_minmax(0,240px)_minmax(0,1fr)]">
-        <div className="w-full sm:max-w-xs">
-          <Field label="Search">
+      <div className="mb-4 space-y-3 rounded-[var(--radius)] border border-border bg-white p-3">
+        <div className="grid items-end gap-3 md:grid-cols-2">
+          <Field label="Search" className="min-w-0">
             <Input
               type="search"
               value={search}
@@ -289,11 +289,10 @@ export default function InventoryPage() {
               placeholder="Pallet, job, PO, description…"
             />
           </Field>
-        </div>
-        {isStaff ? (
-          <div className="w-full sm:w-64">
-            <Field label="Customer">
+          {isStaff ? (
+            <Field label="Customer" className="min-w-0">
               <SearchableSelect
+                className="w-full"
                 value={customerId}
                 onChange={setCustomerId}
                 allowEmpty
@@ -307,8 +306,8 @@ export default function InventoryPage() {
                 }))}
               />
             </Field>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
         <ChipGroup
           label="Status"
           size="sm"

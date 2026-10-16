@@ -294,8 +294,8 @@ export default function WarehousePage() {
         <CardBody>
           <CardTitle>Floor map · {rows} lanes × {cols} spots</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">
-            Each cell is a floor bay. Codes read lane + bay + level + spot, for example AA1A
-            (lane A, first bay, level 1, spot A). Click a bay to set levels 1–5 and spot B.
+            Each square is one floor bay. The label is the location code, such as AA1A
+            (lane A, first bay, level 1, spot A). Click a bay to set levels 1–5 and a second spot.
             {editing
               ? selectedId
                 ? ` Moving ${locById.get(selectedId)?.code ?? "slot"} — click a target cell.`
@@ -332,11 +332,8 @@ export default function WarehousePage() {
                   )}
                 >
                   {loc ? (
-                    <span className="flex flex-col items-center leading-none">
-                      <span>{loc.aisle || loc.code}</span>
-                      <span className="mt-0.5 text-[8px] font-medium">
-                        L{loc.level ?? 1}·S{loc.spot ?? 1}
-                      </span>
+                    <span className="max-w-full truncate px-0.5 font-mono text-[10px] leading-none">
+                      {loc.code}
                     </span>
                   ) : editing ? (
                     "·"

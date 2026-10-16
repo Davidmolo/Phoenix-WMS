@@ -27,6 +27,7 @@ import {
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useScreenActive } from "@/lib/screenActive";
 import { dateLabel, money } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
 import type { Customer, Invoice } from "@/types";
@@ -73,6 +74,7 @@ function paidSoFar(inv: InvoiceRow): number | null {
 
 export default function BillingPage() {
   const dialog = useDialog();
+  const screenActive = useScreenActive();
   const { user, token } = useAuth();
   const isStaff = user?.role !== "customer";
   const isAdmin = user?.role === "admin";
@@ -122,6 +124,7 @@ export default function BillingPage() {
   });
 
   useEffect(() => {
+    if (!screenActive) return;
     const raw = sessionStorage.getItem("phoenix.billingFocus");
     if (!raw) return;
     sessionStorage.removeItem("phoenix.billingFocus");
@@ -133,7 +136,7 @@ export default function BillingPage() {
     } catch {
       /* ignore bad focus payload */
     }
-  }, []);
+  }, [screenActive]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
