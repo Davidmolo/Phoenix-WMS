@@ -291,19 +291,13 @@ async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
     warehouseId,
     code: /^[A-Z]\d{2}-[1-5][AB]$/,
   }).select("code palletId");
-  const ops = [];
   for (const loc of rack) {
     const owner = filled.get(loc.code) || null;
     const current = loc.palletId ? String(loc.palletId) : null;
     if (current === owner) continue;
-    ops.push({
-      updateOne: {
-        filter: { _id: loc._id },
-        update: { $set: { palletId: owner } },
-      },
-    });
+    loc.palletId = owner ? new Types.ObjectId(owner) : null;
+    await loc.save();
   }
-  if (ops.length) await Location.bulkWrite(ops);
 
   await Location.updateMany(
     {
