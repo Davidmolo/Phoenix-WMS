@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Warehouse as WarehouseIcon, Pencil, Save } from "lucide-react";
+import { Warehouse as WarehouseIcon } from "lucide-react";
 import {
   Alert,
   Button,
@@ -12,13 +12,15 @@ import {
   FormGrid,
   Input,
   PageHeader,
+  Select,
   SkeletonPage,
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/cn";
 import type { Location, Warehouse } from "@/types";
+
+const LANES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 type SetupResponse = {
   warehouses: Warehouse[];
@@ -35,7 +37,19 @@ type SetupResponse = {
   };
 };
 
-type Placement = { locationId: string; row: number; col: number };
+function laneIndex(letter: string) {
+  const i = letter.toUpperCase().charCodeAt(0) - 65;
+  return i >= 0 && i < 26 ? i : 0;
+}
+
+function codesFor(lane: string, levels: number, spotB: boolean) {
+  const out: string[] = [];
+  for (let level = 1; level <= levels; level++) {
+    out.push(`${lane}${level}A`);
+    if (spotB) out.push(`${lane}${level}B`);
+  }
+  return out;
+}
 
 export default function WarehousePage() {
   const { token } = useAuth();
@@ -44,164 +58,63 @@ export default function WarehousePage() {
   const warehouse =
     data?.warehouses?.find((w) => w._id === data.warehouseId) || data?.warehouses?.[0];
 
-  const [editing, setEditing] = useState(false);
-  const [rows, setRows] = useState(5);
-  const [cols, setCols] = useState(8);
-  const [placements, setPlacements] = useState<Placement[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [stackCell, setStackCell] = useState<{ row: number; col: number } | null>(null);
-  const [stackLevels, setStackLevels] = useState("1");
+  const [lane, setLane] = useState("A");
+  const [levels, setLevels] = useState("1");
   const [spotB, setSpotB] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
+  const locations = data?.locations ?? [];
+
   useEffect(() => {
-    if (!data) return;
-    const r = data.mapLayout?.rows ?? 5;
-    const c = data.mapLayout?.cols ?? 8;
-    setRows(r);
-    setCols(c);
-    setPlacements(
-      (data.locations ?? []).map((l) => ({
-        locationId: l._id,
-        row: l.row,
-        col: l.col,
-      }))
-    );
-    setSelectedId(null);
-  }, [data]);
-
-  const locById = useMemo(() => {
-    const map = new Map<string, Location>();
-    for (const l of data?.locations ?? []) map.set(l._id, l);
-    return map;
-  }, [data]);
-
-  const cellMap = useMemo(() => {
-    const map = new Map<string, Placement>();
-    for (const p of placements) {
-      if (p.row >= 0 && p.col >= 0 && p.row < rows && p.col < cols) {
-        map.set(`${p.row}:${p.col}`, p);
-      }
-    }
-    return map;
-  }, [placements, rows, cols]);
-
-  function beginEdit() {
-    setEditing(true);
-    setMsg("");
-    setErr("");
-  }
-
-  function cancelEdit() {
-    setEditing(false);
-    setSelectedId(null);
-    setErr("");
-    if (data) {
-      setRows(data.mapLayout?.rows ?? 5);
-      setCols(data.mapLayout?.cols ?? 8);
-      setPlacements(
-        (data.locations ?? []).map((l) => ({
-          locationId: l._id,
-          row: l.row,
-          col: l.col,
-        }))
-      );
-    }
-  }
-
-  function onCellClick(row: number, col: number) {
-    if (!editing) {
-      const here = (data?.locations ?? []).filter((l) => l.row === row && l.col === col);
-      setStackCell({ row, col });
-      setStackLevels(String(Math.max(1, ...here.map((l) => l.level || 1), 1)));
-      setSpotB(here.some((l) => (l.spot || 1) === 2));
-      setErr("");
+    const here = locations.filter((l) => (l.aisle || "A") === lane || l.row === laneIndex(lane));
+    if (!here.length) {
+      setLevels("1");
+      setSpotB(false);
       return;
     }
-    const key = `${row}:${col}`;
-    const existing = cellMap.get(key);
+    setLevels(String(Math.min(5, Math.max(1, ...here.map((l) => l.level || 1)))));
+    setSpotB(here.some((l) => (l.spot || 1) === 2));
+  }, [lane, data]);
 
-    if (selectedId) {
-      // Move selected slot onto this cell (swap if occupied)
-      setPlacements((prev) => {
-        const next = prev.map((p) => ({ ...p }));
-        const moving = next.find((p) => p.locationId === selectedId);
-        if (!moving) return prev;
-        if (existing) {
-          const other = next.find((p) => p.locationId === existing.locationId);
-          if (other) {
-            other.row = moving.row;
-            other.col = moving.col;
-          }
-        }
-        moving.row = row;
-        moving.col = col;
-        return next;
-      });
-      setSelectedId(null);
-      return;
-    }
+  const levelCount = Math.min(5, Math.max(1, Number(levels) || 1));
+  const preview = codesFor(lane, levelCount, spotB);
 
-    if (existing) {
-      setSelectedId(existing.locationId);
-    }
-  }
+  const rows = useMemo(() => {
+    return [...locations].sort((a, b) => {
+      const laneCmp = (a.aisle || "").localeCompare(b.aisle || "");
+      if (laneCmp) return laneCmp;
+      if ((a.level || 1) !== (b.level || 1)) return (a.level || 1) - (b.level || 1);
+      return (a.spot || 1) - (b.spot || 1);
+    });
+  }, [locations]);
 
-  async function saveLayout() {
+  async function saveLane() {
     if (!token || !warehouse) return;
-    setErr("");
-    setBusy(true);
-    setMsg("");
-    try {
-      await api("/locations/map-layout", {
-        method: "PUT",
-        token,
-        body: JSON.stringify({
-          warehouseId: warehouse._id,
-          rows,
-          cols,
-          placements,
-        }),
-      });
-      setMsg(`Saved ${rows}×${cols} floor map.`);
-      setEditing(false);
-      setSelectedId(null);
-      invalidateApiCache();
-      await reload();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveStack() {
-    if (!token || !warehouse || !stackCell) return;
     setBusy(true);
     setErr("");
     setMsg("");
     try {
-      const levels = Math.min(5, Math.max(1, Number(stackLevels) || 1));
-      await api("/locations/stack", {
+      const result = await api<{ heldElsewhere?: string[] }>("/locations/stack", {
         method: "PUT",
         token,
         body: JSON.stringify({
           warehouseId: warehouse._id,
-          row: stackCell.row,
-          col: stackCell.col,
-          levels,
+          row: laneIndex(lane),
+          col: 0,
+          levels: levelCount,
           spots: spotB ? ["A", "B"] : ["A"],
         }),
       });
-      setMsg(
-        `Lane updated — ${levels} level${levels === 1 ? "" : "s"}, spot${spotB ? "s A and B" : " A"}`
-      );
+      const held = result.heldElsewhere?.length
+        ? ` Occupied positions still on the old grid: ${result.heldElsewhere.join(", ")}.`
+        : "";
+      setMsg(`Lane ${lane} saved as ${preview.join(", ")}.${held}`);
       invalidateApiCache();
       await reload();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not update lane");
+      setErr(e instanceof Error ? e.message : "Could not save lane");
     } finally {
       setBusy(false);
     }
@@ -218,32 +131,8 @@ export default function WarehousePage() {
         icon={<WarehouseIcon className="h-5 w-5" />}
         description={
           warehouse
-            ? `${warehouse.name} · ${warehouse.sqft?.toLocaleString() ?? "—"} SF · lane, level, and spot on every slot`
-            : "Floor locations"
-        }
-        actions={
-          editing ? (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={cancelEdit} disabled={busy}>
-                Cancel
-              </Button>
-              <Button
-                onClick={saveLayout}
-                loading={busy}
-                icon={<Save className="h-4 w-4" />}
-              >
-                Save layout
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="secondary"
-              onClick={beginEdit}
-              icon={<Pencil className="h-4 w-4" />}
-            >
-              Customize map
-            </Button>
-          )
+            ? `${warehouse.name} · ${warehouse.sqft?.toLocaleString() ?? "—"} SF · each slot is Lane × Level × Spot`
+            : "Lane, level, and spot"
         }
       />
       <Alert>{error || err}</Alert>
@@ -258,128 +147,58 @@ export default function WarehousePage() {
         <Stat label="Available SF" value={data?.summary.availableSqft} />
       </div>
 
-      {editing ? (
-        <Card className="mb-4">
-          <CardBody>
-            <CardTitle>Grid size</CardTitle>
-            <p className="mt-1 mb-3 text-xs text-muted">
-              Grow rows/cols as you add floor space. Expanding fills empty cells with new slots.
-              Select a slot, then click another cell to move or swap it.
-            </p>
-            <FormGrid cols={2}>
-              <Field label="Rows">
-                <Input
-                  type="number"
-                  min={1}
-                  max={40}
-                  value={rows}
-                  onChange={(e) => setRows(Math.max(1, Math.min(40, Number(e.target.value) || 1)))}
+      <Card className="mb-4">
+        <CardBody>
+          <CardTitle>Lane structure</CardTitle>
+          <p className="mt-1 mb-3 text-xs text-muted">
+            A slot is a lane (A–Z), a level (1–5), and a spot (A or B on that level). A1A is lane A,
+            level 1, spot A. Saving a lane replaces the flat numbered grid for that lane.
+          </p>
+          <FormGrid cols={3}>
+            <Field label="Lane">
+              <Select value={lane} onChange={(e) => setLane(e.target.value)}>
+                {LANES.map((letter) => (
+                  <option key={letter} value={letter}>
+                    Lane {letter}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Levels">
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                value={levels}
+                onChange={(e) => setLevels(e.target.value)}
+              />
+            </Field>
+            <Field label="Spots">
+              <label className="flex h-[34px] items-center gap-2 text-sm text-navy">
+                <input type="checkbox" checked disabled />
+                A
+                <input
+                  type="checkbox"
+                  className="ml-3"
+                  checked={spotB}
+                  onChange={(e) => setSpotB(e.target.checked)}
                 />
-              </Field>
-              <Field label="Columns">
-                <Input
-                  type="number"
-                  min={1}
-                  max={40}
-                  value={cols}
-                  onChange={(e) => setCols(Math.max(1, Math.min(40, Number(e.target.value) || 1)))}
-                />
-              </Field>
-            </FormGrid>
-          </CardBody>
-        </Card>
-      ) : null}
+                B
+              </label>
+            </Field>
+          </FormGrid>
+          <p className="mt-3 mb-3 font-mono text-sm text-navy">{preview.join("  ·  ")}</p>
+          <Button type="button" loading={busy} onClick={() => void saveLane()}>
+            Save lane {lane}
+          </Button>
+        </CardBody>
+      </Card>
 
       <Card lift={false}>
         <CardBody>
-          <CardTitle>Floor map · {rows} lanes × {cols} spots</CardTitle>
-          <p className="mt-1 mb-3 text-xs text-muted">
-            Each square is one floor bay. The label is the location code, such as AA1A
-            (lane A, first bay, level 1, spot A). Click a bay to set levels 1–5 and a second spot.
-            {editing
-              ? selectedId
-                ? ` Moving ${locById.get(selectedId)?.code ?? "slot"} — click a target cell.`
-                : " Click a slot to select, then click a cell to place it."
-              : " Gold = occupied · Gray = open."}
-          </p>
-          <div
-            className="grid gap-1.5"
-            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-          >
-            {Array.from({ length: rows * cols }, (_, i) => {
-              const row = Math.floor(i / cols);
-              const col = i % cols;
-              const placement = cellMap.get(`${row}:${col}`);
-              const loc = placement ? locById.get(placement.locationId) : undefined;
-              const occupied = Boolean(loc?.palletId);
-              const selected = placement?.locationId === selectedId;
-              const isEmpty = !placement;
-
-              return (
-                <button
-                  key={`${row}-${col}`}
-                  type="button"
-                  title={loc?.code || `Lane bay ${row + 1},${col + 1}`}
-                  onClick={() => onCellClick(row, col)}
-                  className={cn(
-                    "flex aspect-square items-center justify-center rounded-md border text-[10px] font-semibold transition-colors",
-                    isEmpty && "border-dashed border-border bg-white text-muted",
-                    !isEmpty && occupied && "border-accent/40 bg-accent-bg text-accent-dark",
-                    !isEmpty && !occupied && "border-border bg-surface-2 text-muted",
-                    selected && "ring-2 ring-accent ring-offset-1",
-                    "cursor-pointer hover:border-accent",
-                    stackCell?.row === row && stackCell?.col === col && !editing && "ring-2 ring-navy"
-                  )}
-                >
-                  {loc ? (
-                    <span className="max-w-full truncate px-0.5 font-mono text-[10px] leading-none">
-                      {loc.code}
-                    </span>
-                  ) : editing ? (
-                    "·"
-                  ) : (
-                    ""
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {stackCell && !editing ? (
-            <div className="mt-4 rounded-lg border border-border bg-surface-2/40 p-3">
-              <p className="m-0 text-sm font-semibold text-navy">
-                Bay row {stackCell.row + 1}, column {stackCell.col + 1}
-              </p>
-              <p className="mt-1 mb-3 text-xs text-muted">
-                Level is 1–5. Spot A is the default; turn on spot B for a second position on that level.
-              </p>
-              <div className="flex flex-wrap items-end gap-3">
-                <Field label="Levels">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={5}
-                    value={stackLevels}
-                    onChange={(e) => setStackLevels(e.target.value)}
-                  />
-                </Field>
-                <label className="flex items-center gap-2 pb-2 text-sm text-navy">
-                  <input
-                    type="checkbox"
-                    checked={spotB}
-                    onChange={(e) => setSpotB(e.target.checked)}
-                  />
-                  Spot B
-                </label>
-                <Button type="button" loading={busy} onClick={() => void saveStack()}>
-                  Save lane structure
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
+          <CardTitle>Locations</CardTitle>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[520px] border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-border text-[10px] font-semibold tracking-wide text-muted uppercase">
                   <th className="py-1.5 pr-3">Code</th>
@@ -390,7 +209,7 @@ export default function WarehousePage() {
                 </tr>
               </thead>
               <tbody>
-                {(data?.locations ?? []).map((loc) => (
+                {rows.map((loc) => (
                   <tr key={loc._id} className="border-b border-border/60">
                     <td className="py-1.5 pr-3 font-mono font-semibold text-navy">{loc.code}</td>
                     <td className="py-1.5 pr-3">{loc.aisle || "—"}</td>

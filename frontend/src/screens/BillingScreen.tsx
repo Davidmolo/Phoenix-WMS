@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   CardBody,
+  ChipGroup,
   DataTable,
   Field,
   FormGrid,
@@ -677,7 +678,7 @@ export default function BillingPage() {
       <Card className="mb-5">
         <CardBody>
           <FormGrid cols={isStaff ? 4 : 3}>
-            <Field label="From" htmlFor="billing-from" hint="Leave blank for all dates.">
+            <Field label="From" htmlFor="billing-from">
               <Input
                 id="billing-from"
                 type="date"
@@ -688,7 +689,7 @@ export default function BillingPage() {
                 }}
               />
             </Field>
-            <Field label="To" htmlFor="billing-to" hint="Leave blank for all dates.">
+            <Field label="To" htmlFor="billing-to">
               <Input
                 id="billing-to"
                 type="date"
@@ -700,7 +701,7 @@ export default function BillingPage() {
               />
             </Field>
             {isStaff ? (
-              <Field label="Customer" htmlFor="billing-customer" hint="Optional filter.">
+              <Field label="Customer" htmlFor="billing-customer">
                 <SearchableSelect
                   id="billing-customer"
                   value={customerId}
@@ -720,7 +721,7 @@ export default function BillingPage() {
                 />
               </Field>
             ) : null}
-            <Field label="Search" htmlFor="billing-search" hint="Invoice #, company, or status.">
+            <Field label="Search" htmlFor="billing-search">
               <Input
                 id="billing-search"
                 type="search"
@@ -729,16 +730,26 @@ export default function BillingPage() {
                   setSearch(e.target.value);
                   setPage(1);
                 }}
-                placeholder="Search invoices…"
+                placeholder="Invoice #, company, or status"
                 icon={<Search className="h-3.5 w-3.5" />}
               />
             </Field>
           </FormGrid>
-          {balance ? (
-            <p className="m-0 mt-3 text-xs text-muted">
-              {balance === "past_due" ? "Past due" : "Unpaid"} invoices for this customer. These rows are the amount on the customer tile.
-            </p>
-          ) : null}
+          <div className="mt-4 border-t border-border pt-3">
+            <ChipGroup
+              label="Balance"
+              options={[
+                { id: "", label: "All invoices" },
+                { id: "unpaid", label: "Unpaid" },
+                { id: "past_due", label: "Past due" },
+              ]}
+              value={balance}
+              onChange={(id) => {
+                setBalance(id);
+                setPage(1);
+              }}
+            />
+          </div>
           {(fromDate || toDate || customerId || search.trim() || balance) && (
             <div className="mt-3">
               <Button type="button" size="sm" variant="ghost" onClick={clearFilters}>

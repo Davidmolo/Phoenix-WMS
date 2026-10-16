@@ -1,6 +1,7 @@
 /**
- * Floor identity: Lane (row A–Z) × section (column A–Z) × Level (1–5) × Spot (A/B).
- * Example AA1A = lane A, first bay, level 1, spot A. AA1B is the pair beside it.
+ * Floor identity: Lane (A–Z) × Level (1–5) × Spot (A/B).
+ * Example A1A = lane A, level 1, spot A. A1B is the pair on that level.
+ * Column is only kept so older grid rows stay unique until a lane is saved.
  */
 
 export type SpotLetter = "A" | "B";
@@ -21,10 +22,10 @@ export function spotLetterOf(spot: number | string | null | undefined): SpotLett
   return "A";
 }
 
-/** W-1 and the earlier A-L1-S1 labels both get rewritten to lane/level/spot. */
+/** W-1, A-L1-S1, and the extra bay letter (AA1A) all rewrite to lane/level/spot. */
 export function isLegacyFloorCode(code: string): boolean {
   const c = String(code || "").trim();
-  return /^W-\d+$/.test(c) || /^[A-Z]+-L\d+-S\d+$/.test(c);
+  return /^W-\d+$/.test(c) || /^[A-Z]+-L\d+-S\d+$/.test(c) || /^[A-Z]{2,}\d[AB]$/.test(c);
 }
 
 export function structuredSlot(
@@ -37,6 +38,7 @@ export function structuredSlot(
   const section = laneFromIndex(col);
   const lvl = Math.min(5, Math.max(1, Math.floor(level) || 1));
   const letter = spotLetterOf(spot);
+  const code = col > 0 ? `${lane}${section}${lvl}${letter}` : `${lane}${lvl}${letter}`;
   return {
     aisle: lane,
     section,
@@ -44,6 +46,6 @@ export function structuredSlot(
     spot: letter === "B" ? 2 : 1,
     spotLetter: letter,
     floorOnly: lvl === 1,
-    code: `${lane}${section}${lvl}${letter}`,
+    code,
   };
 }

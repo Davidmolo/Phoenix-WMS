@@ -228,6 +228,13 @@ async function migrateFlatFloorCodes(companyId: string, warehouseId: string) {
       { $set: { secondaryLocationCode: slot.code } }
     );
   }
+
+  await Location.deleteMany({
+    companyId,
+    warehouseId,
+    col: { $gt: 0 },
+    palletId: null,
+  });
 }
 
 /**
@@ -326,11 +333,29 @@ router.put("/stack", requireRole("admin", "staff"), async (req, res, next) => {
       await loc.deleteOne();
     }
 
+    await Location.deleteMany({
+      companyId,
+      warehouseId,
+      row,
+      col: { $ne: col },
+      palletId: null,
+    });
+
     const locations = await Location.find({ companyId, warehouseId, row, col }).sort({
       level: 1,
       spot: 1,
     });
-    res.json({ locations });
+    const held = await Location.find({
+      companyId,
+      warehouseId,
+      row,
+      col: { $ne: col },
+      palletId: { $ne: null },
+    }).select("code");
+    res.json({
+      locations,
+      heldElsewhere: held.map((loc) => loc.code),
+    });
   } catch (err) {
     next(err);
   }
