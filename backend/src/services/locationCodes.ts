@@ -44,7 +44,8 @@ export function bayCode(
   spot: number | SpotLetter | "1" | "2"
 ) {
   const lvl = Math.min(STANDARD_LEVELS, Math.max(1, Math.floor(level) || 1));
-  const spotNo = spot === 2 || spot === "2" || spot === "B" || spot === "b" ? "2" : "1";
+  const spotText = String(spot).toUpperCase();
+  const spotNo = spotText === "2" || spotText === "B" ? "2" : "1";
   return `${lane.toUpperCase()}-${lvl}-${columnLetter(column)}-${spotNo}`;
 }
 
