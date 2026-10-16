@@ -187,13 +187,13 @@ router.get("/:id", async (req, res, next) => {
       }
     }
     if (!customer.contacts?.length && (customer.email || customer.phone || customer.contact)) {
-      customer.contacts = [
+      customer.set("contacts", [
         {
           name: customer.contact || "",
           email: String(customer.email || "").trim().toLowerCase(),
           phone: customer.phone || "",
         },
-      ];
+      ]);
       await customer.save();
     }
 
@@ -369,7 +369,7 @@ router.patch("/:id", async (req, res, next) => {
         if (email) seen.add(email);
         next.push({ name, email, phone });
       }
-      customer.contacts = next;
+      customer.set("contacts", next);
       customer.markModified("contacts");
     }
     if (req.body.active !== undefined) customer.active = Boolean(req.body.active);
