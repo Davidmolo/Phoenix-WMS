@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Forklift, X } from "lucide-react";
+import { CircleCheck, Forklift, Loader2, Pencil, X } from "lucide-react";
 import {
   Alert,
   Badge,
@@ -260,7 +260,7 @@ export default function YardJobsPage() {
 
   async function endJob(jobId: string) {
     if (!token) return;
-    setBusy(true);
+    setActionId(jobId);
     setErr("");
     try {
       const result = await api<{ job: YardJob }>(`/yard-jobs/${jobId}`, {
@@ -278,7 +278,7 @@ export default function YardJobsPage() {
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Could not complete job");
     } finally {
-      setBusy(false);
+      setActionId(null);
     }
   }
 
@@ -355,22 +355,51 @@ export default function YardJobsPage() {
       className: "w-[1%] text-right",
       render: (j) =>
         j.status === "in_progress" || j.status === "open" ? (
-          <div className="inline-flex items-center justify-end gap-1.5">
-            <Button type="button" size="sm" variant="secondary" onClick={() => setEditingJob(j)}>
-              Edit
-            </Button>
-            <Button type="button" size="sm" loading={busy} onClick={() => void endJob(j._id)}>
-              End job
-            </Button>
+          <div className="inline-flex items-center justify-end gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-8 w-8 px-0"
+              title="Edit"
+              aria-label="Edit job"
+              disabled={actionId === j._id}
+              icon={<Pencil className="h-3.5 w-3.5" />}
+              onClick={() => setEditingJob(j)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 w-8 px-0"
+              title="End job"
+              aria-label="End job"
+              disabled={actionId === j._id}
+              icon={
+                actionId === j._id && !cancelTarget ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CircleCheck className="h-3.5 w-3.5" />
+                )
+              }
+              onClick={() => void endJob(j._id)}
+            />
             <Button
               type="button"
               size="sm"
               variant="danger"
-              loading={actionId === j._id}
+              className="h-8 w-8 px-0"
+              title="Cancel"
+              aria-label="Cancel job"
+              disabled={actionId === j._id}
+              icon={
+                actionId === j._id && cancelTarget?._id === j._id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )
+              }
               onClick={() => setCancelTarget(j)}
-            >
-              Cancel
-            </Button>
+            />
           </div>
         ) : (
           <span className="inline-block h-8" />
