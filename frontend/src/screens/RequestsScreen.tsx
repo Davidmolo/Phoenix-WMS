@@ -11,6 +11,7 @@ import {
   FormGrid,
   FormSection,
   Input,
+  Modal,
   PageHeader,
   Select,
   statusTone,
@@ -49,6 +50,7 @@ export default function RequestsPage() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [openRequest, setOpenRequest] = useState<WhRequest | null>(null);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -308,7 +310,28 @@ export default function RequestsPage() {
         }
         pagination={paginationFrom(data)}
         onPageChange={setPage}
+        onRowClick={setOpenRequest}
       />
+      <Modal
+        open={Boolean(openRequest)}
+        onClose={() => setOpenRequest(null)}
+        title={openRequest ? `${openRequest.type} request` : "Request"}
+        description={openRequest ? companyName(openRequest) : undefined}
+        size="md"
+      >
+        {openRequest ? (
+          <div className="space-y-2 text-sm text-muted">
+            <p className="m-0"><span className="font-semibold text-navy">Status: </span>{openRequest.status}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Qty: </span>{openRequest.qty}</p>
+            <p className="m-0"><span className="font-semibold text-navy">PO / Job: </span>{openRequest.jobName || openRequest.poNumber || openRequest.ref || "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Requested: </span>{dateLabel(openRequest.dateRequested)}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Notes: </span>{openRequest.notes || "—"}</p>
+            {openRequest.abnormalPallets ? (
+              <p className="m-0"><span className="font-semibold text-navy">Abnormal size: </span>{openRequest.abnormalPalletSize || "Yes"}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 }

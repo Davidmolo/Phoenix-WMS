@@ -27,6 +27,8 @@ const customerSchema = new Schema(
             phone: { type: String, default: "" },
             /** Invoice and QuickBooks email. Only one contact should be primary. */
             primary: { type: Boolean, default: false },
+            /** Set when this contact is invited. Independent of other contacts. */
+            invitedAt: { type: Date, default: null },
           },
           { _id: false }
         ),

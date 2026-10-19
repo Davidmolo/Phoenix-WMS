@@ -88,6 +88,10 @@ const shipmentSchema = new Schema(
     scheduledAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     notes: { type: String, default: "" },
+    /** Packing slip / damage photos captured at receive. */
+    receiptPhotoPaths: { type: [String], default: [] },
+    trackingNumber: { type: String, default: "" },
+    receiptKind: { type: String, enum: ["pallet", "parcel"], default: "pallet" },
     jobName: { type: String, default: "" },
     poNumber: { type: String, default: "" },
     /**

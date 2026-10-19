@@ -512,8 +512,10 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                           );
                           const portalLabel = !contact.email
                             ? "No email"
-                            : access?.invitePending
-                              ? "Invite sent"
+                            : access?.invitePending || contact.invitedAt
+                              ? access && !access.invitePending
+                                ? "Has access"
+                                : "Invite sent"
                               : access
                                 ? "Has access"
                                 : "Not invited";

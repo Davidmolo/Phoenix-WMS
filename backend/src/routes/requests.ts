@@ -63,6 +63,22 @@ router.post("/", async (req, res, next) => {
       "customerId",
       "name billingMethod"
     );
+    try {
+      const { sendWarehouseRequestEmail } = await import("../services/mail");
+      const customerName =
+        populated?.customerId && typeof populated.customerId === "object"
+          ? String((populated.customerId as { name?: string }).name || "Customer")
+          : "Customer";
+      await sendWarehouseRequestEmail({
+        customerName,
+        type: String(request.type || "Request"),
+        qty: Number(request.qty) || 1,
+        ref: request.ref || request.jobName || request.poNumber || "",
+        notes: request.notes || "",
+      });
+    } catch (mailErr) {
+      console.error("[requests] notify email failed", mailErr);
+    }
     res.status(201).json({ request: populated });
   } catch (err) {
     next(err);

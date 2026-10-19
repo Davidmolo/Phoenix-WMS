@@ -135,6 +135,20 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
   const bolClosed = shipment?.bol?.status === "closed";
   const lien = data?.lien;
 
+  const bolServerKey = shipment
+    ? JSON.stringify({
+        driverName: shipment.bol?.driverName || "",
+        truckNumber: shipment.bol?.truckNumber || "",
+        countVerified: Boolean(shipment.bol?.countVerified),
+        actualCount: shipment.bol?.actualCount != null ? String(shipment.bol.actualCount) : "",
+        rewrapBanding: Boolean(shipment.bol?.rewrapBanding),
+        condition: shipment.bol?.condition || "No exceptions",
+        exceptionNotes: shipment.bol?.exceptionNotes || "",
+        refInboundBol: shipment.bol?.refInboundBol || "",
+      })
+    : "";
+  const appliedBolKey = useRef("");
+
   useEffect(() => {
     if (!shipment) return;
     setCarrier(shipment.carrier || "");
@@ -146,15 +160,19 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setNotes(shipment.notes || "");
     setWeightLbs(shipment.weightLbs != null ? String(shipment.weightLbs) : "");
     setStatus(shipment.status || "expected");
-    setDriverName(shipment.bol?.driverName || "");
-    setTruckNumber(shipment.bol?.truckNumber || "");
-    setCountVerified(Boolean(shipment.bol?.countVerified));
-    setActualCount(shipment.bol?.actualCount != null ? String(shipment.bol.actualCount) : "");
-    setRewrapBanding(Boolean(shipment.bol?.rewrapBanding));
-    setCondition(shipment.bol?.condition || "No exceptions");
-    setExceptionNotes(shipment.bol?.exceptionNotes || "");
-    setRefInboundBol(shipment.bol?.refInboundBol || "");
-  }, [shipment]);
+    // Edit Shipment refetch must not wipe unsaved BOL typing.
+    if (appliedBolKey.current === bolServerKey) return;
+    appliedBolKey.current = bolServerKey;
+    const bol = shipment.bol;
+    setDriverName(bol?.driverName || "");
+    setTruckNumber(bol?.truckNumber || "");
+    setCountVerified(Boolean(bol?.countVerified));
+    setActualCount(bol?.actualCount != null ? String(bol.actualCount) : "");
+    setRewrapBanding(Boolean(bol?.rewrapBanding));
+    setCondition(bol?.condition || "No exceptions");
+    setExceptionNotes(bol?.exceptionNotes || "");
+    setRefInboundBol(bol?.refInboundBol || "");
+  }, [shipment, bolServerKey]);
 
   async function runPrintBol() {
     if (!shipmentId) return;

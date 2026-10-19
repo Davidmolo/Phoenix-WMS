@@ -130,6 +130,11 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   /** Cesar #9: one weight per pallet on receive (prefilled from Expected total ÷ count). */
   const [palletWeights, setPalletWeights] = useState<string[]>([""]);
   const [billAsFtl, setBillAsFtl] = useState(false);
+  const [receiptKind, setReceiptKind] = useState<"pallet" | "parcel">("pallet");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [parcelCarrier, setParcelCarrier] = useState("UPS");
+  const [receiptPhotos, setReceiptPhotos] = useState<string[]>([]);
+  const [storedAwayIds, setStoredAwayIds] = useState<string[]>([]);
   const [carrier, setCarrier] = useState("");
   const [locationMode, setLocationMode] = useState<"next_available" | "choose">("next_available");
   const [chosenLocationIds, setChosenLocationIds] = useState<string[]>([]);
@@ -227,8 +232,11 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   );
 
   const pendingStore = useMemo(
-    () => (palletData?.pallets ?? []).filter((p) => p.status === "staged_for_store"),
-    [palletData]
+    () =>
+      (palletData?.pallets ?? []).filter(
+        (p) => p.status === "staged_for_store" && !storedAwayIds.includes(p._id)
+      ),
+    [palletData, storedAwayIds]
   );
 
   /** Only this customer's pallets are shippable at once — matches the backend's single-customer rule. */
@@ -281,11 +289,27 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   async function onReceive(e: FormEvent) {
     e.preventDefault();
     if (!token || !warehouse || !customerId) return;
-    if (locationMode === "choose" && chosenLocationIds.length !== slotsNeeded) {
+    if (
+      receiptKind === "pallet" &&
+      locationMode === "choose" &&
+      chosenLocationIds.length !== slotsNeeded
+    ) {
       setError(
         `Choose exactly ${slotsNeeded} location(s) (selected ${chosenLocationIds.length}).`
       );
       return;
+    }
+    if (expectedShipmentId) {
+      const exp = (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId);
+      const planned = expectedPalletCountOf(exp);
+      if (planned != null && palletCount > planned) {
+        const ok = await dialog.confirm({
+          title: "Over expected quantity",
+          message: `Expected inbound is ${planned} pallet(s). You are receiving ${palletCount}. Continue and flag this as over-receipt?`,
+          confirmLabel: "Receive overage",
+        });
+        if (!ok) return;
+      }
     }
     setBusy(true);
     setError("");
@@ -313,9 +337,16 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           weightLbsEach: weightLbsEach === "" ? undefined : Number(weightLbsEach),
           weightLbsByPallet: palletWeights.map((w) => (w === "" ? null : Number(w))),
           billAsFtl,
-          carrier,
-          locationMode,
-          locationIds: locationMode === "choose" ? chosenLocationIds.slice(0, slotsNeeded) : [],
+          carrier: receiptKind === "parcel" ? parcelCarrier : carrier,
+          trackingNumber: receiptKind === "parcel" ? trackingNumber : undefined,
+          receiptKind,
+          overReceipt: true,
+          receiptPhotos,
+          locationMode: receiptKind === "parcel" ? "hold" : locationMode,
+          locationIds:
+            receiptKind === "pallet" && locationMode === "choose"
+              ? chosenLocationIds.slice(0, slotsNeeded)
+              : [],
           expectedShipmentId: expectedShipmentId || undefined,
         }),
       });
@@ -333,6 +364,14 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       // Cesar: inbound has no BOL — bolInfo is only set after outbound ship
       setDescription("");
       setRef("");
+      setPoOrJob("");
+      setCarrier("");
+      setTrackingNumber("");
+      setReceiptPhotos([]);
+      setBillAsFtl(false);
+      setDimLengthStr("48");
+      setDimWidthStr("48");
+      setLocationMode("next_available");
       setExpectedShipmentId("");
       setWeightLbsEach("");
       setPalletWeights([""]);
@@ -361,7 +400,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     setError("");
     setMessage("");
     try {
-      const result = await api<{ message: string }>("/pallets/store", {
+      const result = await api<{ message: string; pallet?: { _id?: string } }>("/pallets/store", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -370,6 +409,10 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
         }),
       });
       setMessage(result.message || "Pallet stored");
+      if (result.pallet?._id) {
+        const id = result.pallet._id;
+        setStoredAwayIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+      }
       setStorePalletCode("");
       setStoreLocationCode("");
       invalidateApiCache();
@@ -602,6 +645,15 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           className={mode === "receive" ? "w-full" : undefined}
         >
           <form onSubmit={onReceive} className="space-y-4">
+            <Field label="Receipt type">
+              <Select
+                value={receiptKind}
+                onChange={(e) => setReceiptKind(e.target.value as "pallet" | "parcel")}
+              >
+                <option value="pallet">Pallet</option>
+                <option value="parcel">Small parcel (box / envelope)</option>
+              </Select>
+            </Field>
             <FormGrid cols={mode === "receive" ? 3 : 2}>
               <Field label="From Expected inbound" hint="Optional — type to search Expected loads.">
                 <SearchableSelect
@@ -671,6 +723,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
               </Field>
             </FormGrid>
 
+            {receiptKind === "pallet" ? (
             <div
               className={
                 mode === "receive"
@@ -822,6 +875,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 </div>
               </div>
             </div>
+            ) : null}
 
             <FormGrid cols={mode === "receive" ? 2 : 2}>
               <Field label="Description">
@@ -835,9 +889,45 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
               </div>
             </FormGrid>
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" loading={busy} icon={<PackagePlus className="h-4 w-4" />}>
-                Receive & print labels
-              </Button>
+            {receiptKind === "parcel" ? (
+              <FormGrid cols={2}>
+                <Field label="Parcel carrier">
+                  <Select value={parcelCarrier} onChange={(e) => setParcelCarrier(e.target.value)}>
+                    <option>UPS</option>
+                    <option>FedEx</option>
+                    <option>USPS</option>
+                    <option>Other</option>
+                  </Select>
+                </Field>
+                <Field label="Tracking #">
+                  <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
+                </Field>
+              </FormGrid>
+            ) : null}
+            <Field label="Packing slip / condition photos" hint="Optional. Attached to this receipt.">
+              <Input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []).slice(0, 8);
+                  void Promise.all(
+                    files.map(
+                      (file) =>
+                        new Promise<string>((resolve, reject) => {
+                          const reader = new FileReader();
+                          reader.onload = () => resolve(String(reader.result || ""));
+                          reader.onerror = () => reject(new Error("Could not read photo"));
+                          reader.readAsDataURL(file);
+                        })
+                    )
+                  ).then(setReceiptPhotos);
+                }}
+              />
+            </Field>
+            <Button type="submit" loading={busy} icon={<PackagePlus className="h-4 w-4" />}>
+              {receiptKind === "parcel" ? "Receive parcel" : "Receive & print labels"}
+            </Button>
               <Button
                 type="button"
                 variant="secondary"

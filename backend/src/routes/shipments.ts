@@ -373,6 +373,9 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       billAsFtl = false,
       locationIds: bodyLocationIds = [],
       locationMode = "next_available",
+      receiptKind = "pallet",
+      trackingNumber = "",
+      receiptPhotos = [],
       expectedShipmentId = null,
       carrier = "",
       trailerNumber = "",
@@ -432,23 +435,28 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       return (s ?? 0) + w;
     }, null);
 
+    const isParcel = receiptKind === "parcel";
     let locationGroups: string[][];
-    try {
-      locationGroups = await assignLocationGroups({
-        companyId,
-        warehouseId,
-        palletCount: count,
-        slotsEach,
-        preferredIds:
-          locationMode === "choose" && Array.isArray(bodyLocationIds)
-            ? bodyLocationIds.map(String)
-            : [],
-      });
-    } catch (assignErr) {
-      res.status(400).json({
-        error: assignErr instanceof Error ? assignErr.message : "Could not assign locations",
-      });
-      return;
+    if (isParcel) {
+      locationGroups = Array.from({ length: count }, () => [] as string[]);
+    } else {
+      try {
+        locationGroups = await assignLocationGroups({
+          companyId,
+          warehouseId,
+          palletCount: count,
+          slotsEach,
+          preferredIds:
+            locationMode === "choose" && Array.isArray(bodyLocationIds)
+              ? bodyLocationIds.map(String)
+              : [],
+        });
+      } catch (assignErr) {
+        res.status(400).json({
+          error: assignErr instanceof Error ? assignErr.message : "Could not assign locations",
+        });
+        return;
+      }
     }
 
     const st = SERVICE_TYPES.includes(serviceType) ? serviceType : "drop_and_store";
@@ -536,8 +544,12 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         locationCode: reservedLocs[0]?.code || "",
         secondaryLocationCode: reservedLocs[1]?.code || "",
         externalId,
-        status: locationId ? "staged_for_store" : "received",
-        description: description || `Inbound receipt ${ref || shipment.id}`,
+        status: isParcel ? "received" : locationId ? "staged_for_store" : "received",
+        description:
+          description ||
+          (isParcel
+            ? `Parcel ${carrier || ""} ${trackingNumber || ""}`.trim()
+            : `Inbound receipt ${ref || shipment.id}`),
         poNumber: refs.poNumber,
         jobName: refs.jobName,
         dimLength: footprint.dimLength,
@@ -647,6 +659,23 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
     // Cesar: no inbound BOL — clear any leftover draft fields from Expected templates
     shipment.bolNumber = "";
     shipment.set("bol", undefined);
+    shipment.receiptKind = isParcel ? "parcel" : "pallet";
+    shipment.trackingNumber = String(trackingNumber || "");
+    if (Array.isArray(receiptPhotos) && receiptPhotos.length) {
+      const { saveDataUrlImage } = await import("../services/bolStorage");
+      const paths: string[] = [];
+      for (const dataUrl of receiptPhotos.slice(0, 8)) {
+        if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) continue;
+        paths.push(
+          saveDataUrlImage({
+            shipmentId: String(shipment._id),
+            dataUrl,
+            prefix: "receipt",
+          })
+        );
+      }
+      shipment.receiptPhotoPaths = paths;
+    }
     await shipment.save();
 
     let billing: {

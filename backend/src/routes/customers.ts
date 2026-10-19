@@ -316,6 +316,22 @@ router.post("/:id/invite", requireRole("admin", "staff"), async (req, res, next)
         email,
         name,
       });
+      const invitedEmail = invite.email.trim().toLowerCase();
+      const rows = (customer.contacts || []).map((row) => ({
+        name: row.name || "",
+        email: row.email || "",
+        phone: row.phone || "",
+        primary: Boolean(row.primary),
+        invitedAt:
+          String(row.email || "").trim().toLowerCase() === invitedEmail
+            ? new Date()
+            : row.invitedAt || null,
+      }));
+      if (rows.some((row) => String(row.email).trim().toLowerCase() === invitedEmail)) {
+        customer.set("contacts", rows);
+        customer.markModified("contacts");
+        await customer.save();
+      }
       res.json({
         ok: true,
         message: `Invite emailed to ${invite.email}. They appear in Customers after setting a password.`,
@@ -370,7 +386,13 @@ router.patch("/:id", async (req, res, next) => {
     if (req.body.address !== undefined) customer.address = String(req.body.address ?? "").trim();
     if (Array.isArray(req.body.contacts)) {
       const seen = new Set<string>();
-      const next: { name: string; email: string; phone: string; primary: boolean }[] = [];
+      const next: {
+        name: string;
+        email: string;
+        phone: string;
+        primary: boolean;
+        invitedAt: Date | null;
+      }[] = [];
       for (const raw of req.body.contacts) {
         const email = String(raw?.email || "").trim().toLowerCase();
         const name = String(raw?.name || "").trim();
@@ -382,7 +404,18 @@ router.patch("/:id", async (req, res, next) => {
         }
         if (email && seen.has(email)) continue;
         if (email) seen.add(email);
-        next.push({ name, email, phone, primary: Boolean(raw?.primary) });
+        const prior = (customer.contacts || []).find(
+          (row) => email && String(row.email || "").trim().toLowerCase() === email
+        );
+        next.push({
+          name,
+          email,
+          phone,
+          primary: Boolean(raw?.primary),
+          invitedAt: raw?.invitedAt
+            ? new Date(raw.invitedAt)
+            : prior?.invitedAt || null,
+        });
       }
       const primaryIndex = next.findIndex((row) => row.primary && row.email);
       next.forEach((row, index) => {

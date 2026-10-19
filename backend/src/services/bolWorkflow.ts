@@ -337,8 +337,8 @@ export async function closeBol(opts: {
   if (shipment.direction === "outbound" && !String(bol.refInboundBol || "").trim()) {
     // Try auto-resolve once more
     const refs = await resolveInboundBolRefs({
-      companyId: String(shipment.companyId),
-      customerId: String(shipment.customerId),
+      companyId: refId(shipment.companyId),
+      customerId: refId(shipment.customerId),
       palletIds: shipment.palletIds || [],
     });
     bol.refInboundBol = refs.refInboundBol;
@@ -447,12 +447,24 @@ export async function amendBol(opts: {
   };
 }
 
+/** Populated refs stringify as the whole document — always take `_id`. */
+function refId(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "_id" in value) {
+    return String((value as { _id: unknown })._id || "");
+  }
+  return "";
+}
+
 async function invoiceFromClosedBol(shipment: InstanceType<typeof Shipment>) {
   const palletCount = (shipment.palletIds || []).length || 1;
+  const companyId = refId(shipment.companyId);
+  const customerId = refId(shipment.customerId);
   if (shipment.direction === "outbound") {
     return invoiceOutboundShipment({
-      companyId: String(shipment.companyId),
-      customerId: String(shipment.customerId),
+      companyId,
+      customerId,
       shipmentId: String(shipment._id),
       palletCount,
       carrier: shipment.carrier || "",
@@ -464,8 +476,8 @@ async function invoiceFromClosedBol(shipment: InstanceType<typeof Shipment>) {
   // Cesar: inbound has no BOL — invoicing happens on receive. Legacy inbound BOL close
   // still runs the same idempotent inbound invoice helper.
   return invoiceInboundShipment({
-    companyId: String(shipment.companyId),
-    customerId: String(shipment.customerId),
+    companyId,
+    customerId,
     shipmentId: String(shipment._id),
     palletCount,
     carrier: shipment.carrier || "",

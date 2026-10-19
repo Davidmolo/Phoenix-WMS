@@ -279,6 +279,39 @@ export async function sendInquiryNotifyEmail(opts: {
   return info;
 }
 
+export async function sendWarehouseRequestEmail(opts: {
+  to?: string;
+  customerName: string;
+  type: string;
+  qty: number;
+  ref?: string;
+  notes?: string;
+}) {
+  if (!smtpConfigured()) {
+    console.warn("[mail] request notify skipped — SMTP not configured");
+    return null;
+  }
+  const to = String(opts.to || env.bookingNotifyEmail || "").trim();
+  if (!to) return null;
+  const info = await transporter().sendMail({
+    from: env.mailFrom || env.smtpUser,
+    to,
+    subject: `New ${opts.type} request — ${opts.customerName}`,
+    text: [
+      `New warehouse request`,
+      `Customer: ${opts.customerName}`,
+      `Type: ${opts.type}`,
+      `Qty: ${opts.qty}`,
+      opts.ref ? `PO / Job: ${opts.ref}` : null,
+      opts.notes ? `Notes: ${opts.notes}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+  console.info(`[mail] request notify → ${to} messageId=${info.messageId}`);
+  return info;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
