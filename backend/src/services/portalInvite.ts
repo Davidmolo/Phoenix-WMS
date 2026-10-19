@@ -52,10 +52,7 @@ export async function issuePortalInvite(opts: {
     }
   }
 
-  let user = await User.findOne({ companyId: opts.companyId, customerId: customer._id, role: "customer" });
-  if (!user) {
-    user = await User.findOne({ companyId: opts.companyId, email, role: "customer" });
-  }
+  let user = await User.findOne({ companyId: opts.companyId, email });
 
   const token = crypto.randomBytes(32).toString("hex");
   const placeholderHash = await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10);
@@ -87,10 +84,10 @@ export async function issuePortalInvite(opts: {
     });
   }
 
-  customer.email = email;
-  if (!customer.contact && name) customer.contact = name;
-  customer.portalActivated = false;
-  await customer.save();
+  if (!customer.contact && name && email === String(customer.email || "").trim().toLowerCase()) {
+    customer.contact = name;
+    await customer.save();
+  }
 
   const url = inviteUrl(token);
   await sendPortalInviteEmail({

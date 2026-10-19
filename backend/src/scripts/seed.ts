@@ -145,7 +145,7 @@ async function seed() {
       email: "cesar@phoenixcrossdock.com",
       passwordHash,
       name: "Cesar Ramirez",
-      role: "staff",
+      role: "admin",
     },
     {
       companyId: company._id,

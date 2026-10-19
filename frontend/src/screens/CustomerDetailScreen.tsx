@@ -159,7 +159,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
   const [inviteMsg, setInviteMsg] = useState("");
   const [inviteErr, setInviteErr] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
-  const [newContact, setNewContact] = useState({ name: "", email: "", phone: "" });
+  const [newContact, setNewContact] = useState({ name: "", email: "", phone: "", primary: false });
   const [contactBusy, setContactBusy] = useState(false);
 
   const [editing, setEditing] = useState(false);
@@ -253,15 +253,49 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         method: "PATCH",
         token,
         body: JSON.stringify({
-          contacts: [...existing, { name: newContact.name.trim(), email, phone: newContact.phone.trim() }],
+          contacts: [
+            ...existing.map((row) => ({ ...row, primary: newContact.primary ? false : Boolean(row.primary) })),
+            {
+              name: newContact.name.trim(),
+              email,
+              phone: newContact.phone.trim(),
+              primary: newContact.primary,
+            },
+          ],
         }),
       });
-      setNewContact({ name: "", email: "", phone: "" });
+      setNewContact({ name: "", email: "", phone: "", primary: false });
       setInviteMsg("Contact added. Use Invite when they should have portal access.");
       invalidateApiCache(`/customers/${c._id}`);
       await reload();
     } catch (ex) {
       setInviteErr(ex instanceof Error ? ex.message : "Could not add contact");
+    } finally {
+      setContactBusy(false);
+    }
+  }
+
+  async function setPrimaryContact(email: string) {
+    if (!token || !c || !email) return;
+    setContactBusy(true);
+    setInviteErr("");
+    setInviteMsg("");
+    try {
+      await api(`/customers/${c._id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          contacts: (c.contacts || []).map((row) => ({
+            ...row,
+            primary: row.email.trim().toLowerCase() === email.trim().toLowerCase(),
+          })),
+        }),
+      });
+      setInviteMsg("Primary contact updated. QuickBooks invoices use this email.");
+      invalidateApiCache(`/customers/${c._id}`);
+      await reload();
+    } catch (ex) {
+      setInviteErr(ex instanceof Error ? ex.message : "Could not set the primary contact");
     } finally {
       setContactBusy(false);
     }
@@ -457,12 +491,13 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                 <CardBody>
                   <CardTitle>Portal contacts</CardTitle>
                   <p className="mt-1 mb-3 text-xs text-muted">
-                    Each email gets its own Invite button and its own portal login. Invoice email stays on the billing email.
+                    Each email gets its own Invite button and its own portal login. Check Primary on the one email QuickBooks should use for invoices.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-border text-[10px] font-semibold tracking-wide text-muted uppercase">
+                          <th className="py-2 pr-3">Primary</th>
                           <th className="py-2 pr-3">Name</th>
                           <th className="py-2 pr-3">Email</th>
                           <th className="py-2 pr-3">Phone</th>
@@ -484,6 +519,15 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                                 : "Not invited";
                           return (
                             <tr key={contact.email || contact.phone} className="border-b border-border/60">
+                              <td className="py-2 pr-3">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(contact.primary)}
+                                  disabled={!contact.email || contactBusy}
+                                  aria-label={`Primary invoice email ${contact.email}`}
+                                  onChange={() => void setPrimaryContact(contact.email)}
+                                />
+                              </td>
                               <td className="py-2 pr-3">{contact.name || "—"}</td>
                               <td className="py-2 pr-3">{contact.email || "—"}</td>
                               <td className="py-2 pr-3">{contact.phone || "—"}</td>
@@ -532,6 +576,14 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                       />
                     </Field>
                   </FormGrid>
+                  <label className="mt-3 flex items-center gap-2 text-sm text-navy">
+                    <input
+                      type="checkbox"
+                      checked={newContact.primary}
+                      onChange={(e) => setNewContact({ ...newContact, primary: e.target.checked })}
+                    />
+                    Primary — QuickBooks invoices go to this email
+                  </label>
                   <div className="mt-3">
                     <Button type="button" loading={contactBusy} onClick={() => void addContact()}>
                       Add contact

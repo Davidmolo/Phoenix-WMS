@@ -25,6 +25,8 @@ const customerSchema = new Schema(
             name: { type: String, default: "" },
             email: { type: String, default: "" },
             phone: { type: String, default: "" },
+            /** Invoice and QuickBooks email. Only one contact should be primary. */
+            primary: { type: Boolean, default: false },
           },
           { _id: false }
         ),

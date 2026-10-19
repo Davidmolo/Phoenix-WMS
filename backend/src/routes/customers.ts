@@ -192,9 +192,24 @@ router.get("/:id", async (req, res, next) => {
           name: customer.contact || "",
           email: String(customer.email || "").trim().toLowerCase(),
           phone: customer.phone || "",
+          primary: true,
         },
       ]);
       await customer.save();
+    }
+
+    const billingEmail = String(customer.email || "").trim().toLowerCase();
+    if (billingEmail && !(customer.contacts || []).some((row) => row.primary)) {
+      const match = (customer.contacts || []).find(
+        (row) => String(row.email || "").trim().toLowerCase() === billingEmail
+      );
+      if (match) {
+        for (const row of customer.contacts || []) {
+          row.primary = String(row.email || "").trim().toLowerCase() === billingEmail;
+        }
+        customer.markModified("contacts");
+        await customer.save();
+      }
     }
 
     const portalUsers = await User.find({
@@ -355,7 +370,7 @@ router.patch("/:id", async (req, res, next) => {
     if (req.body.address !== undefined) customer.address = String(req.body.address ?? "").trim();
     if (Array.isArray(req.body.contacts)) {
       const seen = new Set<string>();
-      const next: { name: string; email: string; phone: string }[] = [];
+      const next: { name: string; email: string; phone: string; primary: boolean }[] = [];
       for (const raw of req.body.contacts) {
         const email = String(raw?.email || "").trim().toLowerCase();
         const name = String(raw?.name || "").trim();
@@ -367,7 +382,16 @@ router.patch("/:id", async (req, res, next) => {
         }
         if (email && seen.has(email)) continue;
         if (email) seen.add(email);
-        next.push({ name, email, phone });
+        next.push({ name, email, phone, primary: Boolean(raw?.primary) });
+      }
+      const primaryIndex = next.findIndex((row) => row.primary && row.email);
+      next.forEach((row, index) => {
+        row.primary = primaryIndex === -1 ? false : index === primaryIndex;
+      });
+      if (primaryIndex >= 0) {
+        customer.email = next[primaryIndex].email;
+        if (next[primaryIndex].name) customer.contact = next[primaryIndex].name;
+        if (next[primaryIndex].phone) customer.phone = next[primaryIndex].phone;
       }
       customer.set("contacts", next);
       customer.markModified("contacts");
