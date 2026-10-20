@@ -411,7 +411,10 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
 
     const { resolvePalletSqft, splitClientReference } = await import("../services/palletSpace");
     const refs = splitClientReference(poOrJob || poNumber || jobName);
-    const footprint = resolvePalletSqft({ sqft, dimLength, dimWidth });
+    const isParcel = receiptKind === "parcel";
+    const footprint = isParcel
+      ? { sqft: null as number | null, dimLength: null as number | null, dimWidth: null as number | null }
+      : resolvePalletSqft({ sqft, dimLength, dimWidth });
 
     const count = Math.max(1, Math.min(50, Number(palletCount) || 1));
     const slotsEach = slotsPerPallet(footprint.dimLength, footprint.dimWidth);
@@ -435,10 +438,12 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       return (s ?? 0) + w;
     }, null);
 
-    const isParcel = receiptKind === "parcel";
     let locationGroups: string[][];
-    if (isParcel) {
+    if (isParcel && locationMode !== "choose") {
       locationGroups = Array.from({ length: count }, () => [] as string[]);
+    } else if (isParcel) {
+      const ids = Array.isArray(bodyLocationIds) ? bodyLocationIds.map(String).filter(Boolean) : [];
+      locationGroups = Array.from({ length: count }, (_, i) => (ids[i] ? [ids[i]] : []));
     } else {
       try {
         locationGroups = await assignLocationGroups({
@@ -476,6 +481,16 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       if (String(shipment.customerId) !== String(customerId)) {
         res.status(400).json({ error: "Customer does not match the expected shipment" });
         return;
+      }
+      const planned = Number(shipment.expectedPalletCount || 0);
+      if (planned > 0 && count > planned && req.body.overReceipt !== true) {
+        res.status(409).json({
+          error: `Expected ${planned}. Receiving ${count} needs over-receipt confirmation.`,
+        });
+        return;
+      }
+      if (planned > 0 && count > planned) {
+        shipment.notes = `${shipment.notes || ""}\nOver-receipt: received ${count}, expected ${planned}`.trim();
       }
       shipment.status = "in_progress";
       shipment.carrier = carrier || shipment.carrier;
@@ -675,6 +690,12 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         );
       }
       shipment.receiptPhotoPaths = paths;
+      if (paths.length) {
+        await Pallet.updateMany(
+          { _id: { $in: createdPallets.map((p) => p._id) } },
+          { $set: { receiptPhotoPaths: paths } }
+        );
+      }
     }
     await shipment.save();
 
@@ -879,8 +900,8 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       if (p.secondaryLocationId) {
         await Location.findByIdAndUpdate(p.secondaryLocationId, { palletId: null });
       }
-      p.status = "shipped";
-      p.shippedAt = new Date();
+      p.status = "staged_for_shipping";
+      p.shippedAt = null;
       // Free live slot pointers; keep locationCode / secondaryLocationCode for reprints
       p.locationId = null;
       p.secondaryLocationId = null;
@@ -892,7 +913,7 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
         companyId,
         $or: [{ palletId: { $in: palletIds } }, { palletIds: { $in: palletIds } }],
       },
-      { $set: { status: "shipped" } }
+      { $set: { status: "staged" } }
     );
 
     if (customer?.billingMethod === "contract" && billAsFtl && customer.contractFtlRate) {

@@ -217,8 +217,22 @@ router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) 
   }
 });
 
-/** Cesar layout: lane A–Z, levels 1–5, columns A–T, spots 1 and 2. Code example A-1-A-1. */
+/** Cesar layout: lane A–Z, levels 1–5, columns A–T, spots 1 and 2. Code example A1A-1. */
 async function ensureStandardLayout(companyId: string, warehouseId: string) {
+  const dashed = await Location.find({
+    companyId,
+    warehouseId,
+    code: /^[A-Z]-[1-5]-[A-T]-[12]$/,
+  }).select("code");
+  if (dashed.length) {
+    const renames = dashed.flatMap((loc) => {
+      const next = toStandardBayCode(loc.code);
+      if (!next || next === loc.code) return [];
+      return [{ updateOne: { filter: { _id: loc._id }, update: { $set: { code: next } } } }];
+    });
+    if (renames.length) await Location.bulkWrite(renames);
+  }
+
   const picture = await Location.find({
     companyId,
     warehouseId,

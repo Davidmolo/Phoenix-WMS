@@ -82,6 +82,7 @@ export type Pallet = {
   poNumber?: string;
   ref?: string;
   notes?: string;
+  receiptPhotoPaths?: string[];
 };
 
 export type WhRequest = {

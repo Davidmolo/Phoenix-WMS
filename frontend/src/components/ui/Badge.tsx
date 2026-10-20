@@ -39,7 +39,7 @@ export function statusTone(status?: string): Tone {
   const s = (status || "").toLowerCase();
   if (["paid", "completed", "stored", "received", "approved"].includes(s)) return "success";
   if (
-    ["pending", "draft", "expected", "staged", "staged_for_store", "open", "in_progress", "unpaid", "sent"].includes(
+    ["pending", "draft", "expected", "staged", "staged_for_store", "staged_for_shipping", "open", "in_progress", "unpaid", "sent"].includes(
       s
     )
   )
@@ -52,6 +52,7 @@ export function statusTone(status?: string): Tone {
 export function statusLabel(status?: string): string {
   if (!status) return "—";
   if (status === "staged_for_store") return "Staged for Store";
+  if (status === "staged_for_shipping") return "Staged for Shipping";
   if (status === "trailer_rework") return "Trailer Rework";
   if (status === "crossdock") return "Crossdock";
   if (status === "in_progress") return "In progress";

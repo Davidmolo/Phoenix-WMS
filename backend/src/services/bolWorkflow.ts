@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Types } from "mongoose";
 import { BolRecord } from "../models/BolRecord";
 import { Invoice } from "../models/Invoice";
+import { Lpn } from "../models/Lpn";
 import { Pallet } from "../models/Pallet";
 import { Shipment } from "../models/Shipment";
 import {
@@ -414,6 +415,17 @@ export async function closeBol(opts: {
   }
 
   await shipment.save();
+  if (shipment.direction === "outbound" && (shipment.palletIds || []).length) {
+    const ids = shipment.palletIds;
+    await Pallet.updateMany(
+      { _id: { $in: ids } },
+      { $set: { status: "shipped", shippedAt: new Date() } }
+    );
+    await Lpn.updateMany(
+      { $or: [{ palletId: { $in: ids } }, { palletIds: { $in: ids } }] },
+      { $set: { status: "shipped" } }
+    );
+  }
   return { shipment, record, document: doc, html, billing };
 }
 

@@ -676,14 +676,14 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                     </Field>
                   </FormGrid>
                   <div className="mt-4 space-y-3">
-                    {isAdmin && lien?.hold ? (
+                    {isAdmin ? (
                       <label className="flex items-center gap-2 text-sm text-navy">
                         <input
                           type="checkbox"
                           checked={lienOverride}
                           onChange={(e) => setLienOverride(e.target.checked)}
                         />
-                        Admin override — close BOL despite the lien hold
+                        Admin override — close this BOL even if the customer is past due
                       </label>
                     ) : null}
                     <Button

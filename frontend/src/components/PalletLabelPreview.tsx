@@ -37,6 +37,7 @@ function secondaryLocationCode(p: Pallet): string {
 
 function statusDisplay(status?: string) {
   if (status === "staged_for_store") return "Staged for Store";
+  if (status === "staged_for_shipping") return "Staged for Shipping";
   return titleCase(status);
 }
 

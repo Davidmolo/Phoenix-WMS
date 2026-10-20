@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { Lpn } from "../models/Lpn";
 import { Pallet } from "../models/Pallet";
 import { Location } from "../models/Location";
+import { Shipment } from "../models/Shipment";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
@@ -26,7 +28,10 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
       return;
     }
 
-    const pallet = await Pallet.findOne({ companyId, externalId: palletCode });
+    const pallet = await Pallet.findOne({
+      companyId,
+      externalId: new RegExp(`^${palletCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
+    });
     if (!pallet) {
       res.status(404).json({
         error: scannedSecondary
@@ -45,7 +50,7 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
     const location = await Location.findOne({
       companyId,
       warehouseId: pallet.warehouseId,
-      code: locationCode,
+      code: new RegExp(`^${locationCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
     });
     if (!location) {
       res.status(404).json({ error: `Location ${locationCode} not found` });
@@ -110,6 +115,26 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
 
 router.get("/", async (req, res, next) => {
   try {
+    const openBol = await Shipment.find({
+      companyId: req.auth!.companyId,
+      direction: "outbound",
+      "bol.status": "open",
+    }).select("palletIds");
+    const openIds = openBol.flatMap((s) => s.palletIds || []);
+    if (openIds.length) {
+      await Pallet.updateMany(
+        { _id: { $in: openIds }, status: "shipped" },
+        { $set: { status: "staged_for_shipping", shippedAt: null } }
+      );
+      await Lpn.updateMany(
+        {
+          status: "shipped",
+          $or: [{ palletId: { $in: openIds } }, { palletIds: { $in: openIds } }],
+        },
+        { $set: { status: "staged" } }
+      );
+    }
+
     const filter: Record<string, unknown> = { companyId: req.auth!.companyId };
     if (req.auth!.role === "customer") {
       filter.customerId = req.auth!.customerId;

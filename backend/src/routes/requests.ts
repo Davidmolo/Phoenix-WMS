@@ -69,7 +69,22 @@ router.post("/", async (req, res, next) => {
         populated?.customerId && typeof populated.customerId === "object"
           ? String((populated.customerId as { name?: string }).name || "Customer")
           : "Customer";
+      const { User } = await import("../models/User");
+      const { env } = await import("../config/env");
+      const staff = await User.find({
+        companyId: req.auth!.companyId,
+        role: { $in: ["admin", "staff"] },
+        active: true,
+      }).select("email");
+      const to = [
+        ...new Set(
+          [env.bookingNotifyEmail, ...staff.map((u) => u.email)]
+            .map((e) => String(e || "").trim())
+            .filter(Boolean)
+        ),
+      ].join(", ");
       await sendWarehouseRequestEmail({
+        to,
         customerName,
         type: String(request.type || "Request"),
         qty: Number(request.qty) || 1,

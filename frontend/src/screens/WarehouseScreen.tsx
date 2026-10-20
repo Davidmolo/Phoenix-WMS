@@ -23,7 +23,7 @@ function columnLetter(column: number) {
 }
 
 function bayCode(lane: string, column: number, level: number, spot: 1 | 2) {
-  return `${lane}-${level}-${columnLetter(column)}-${spot}`;
+  return `${lane}${level}${columnLetter(column)}-${spot}`;
 }
 
 type SetupResponse = {
@@ -43,7 +43,7 @@ type SetupResponse = {
 export default function WarehousePage() {
   const { data, error, loading } = useApiQuery<SetupResponse>("/locations/warehouse-setup");
   const [lane, setLane] = useState("A");
-  const [selected, setSelected] = useState("A-1-A-1");
+  const [selected, setSelected] = useState("A1A-1");
 
   const warehouse =
     data?.warehouses?.find((w) => w._id === data.warehouseId) || data?.warehouses?.[0];
@@ -51,20 +51,20 @@ export default function WarehousePage() {
   const occupied = useMemo(() => {
     const codes = new Set<string>();
     for (const loc of data?.locations ?? []) {
-      if (loc.palletId && /^[A-Z]-[1-5]-[A-T]-[12]$/.test(loc.code)) codes.add(loc.code);
+      if (loc.palletId && /^[A-Z][1-5][A-T]-[12]$/.test(loc.code)) codes.add(loc.code);
     }
     return codes;
   }, [data]);
 
   const laneFilled = useMemo(() => {
     let n = 0;
-    for (const code of occupied) if (code.startsWith(`${lane}-`)) n += 1;
+    for (const code of occupied) if (code.startsWith(`${lane}`) && /^[A-Z][1-5]/.test(code) && code[0] === lane) n += 1;
     return n;
   }, [occupied, lane]);
   const laneSlots = 20 * 5 * 2;
 
   const selectedParts = useMemo(() => {
-    const match = selected.match(/^([A-Z])-([1-5])-([A-T])-([12])$/);
+    const match = selected.match(/^([A-Z])([1-5])([A-T])-([12])$/);
     if (!match) return null;
     return {
       lane: match[1],
@@ -102,7 +102,7 @@ export default function WarehousePage() {
         <CardBody>
           <CardTitle>Lane {lane} — front view</CardTitle>
           <p className="mt-1 mb-3 text-xs text-muted">
-            Cesar’s address is lane, level, column, then spot 1 or 2. Columns run across the top. L1 is the floor and L5 is the top. Each column holds two pallets.
+            A code reads lane, level, and column, then the spot. A1A-1 is lane A, level 1, column A, spot 1. Columns run across the top. L1 is the floor and L5 is the top. Each column holds two pallets.
             Lane {lane}: {laneFilled} filled, {laneSlots - laneFilled} available.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-navy">
@@ -122,7 +122,7 @@ export default function WarehousePage() {
                 type="button"
                 onClick={() => {
                   setLane(letter);
-                  setSelected(`${letter}-1-A-1`);
+                  setSelected(`${letter}1A-1`);
                 }}
                 className={cn(
                   "h-8 w-8 rounded-md border text-xs font-bold",
@@ -170,10 +170,10 @@ export default function WarehousePage() {
                               )}
                             >
                               <span className="block font-mono text-[8px] font-semibold">
-                                {lane}-{columnLetter(column)}
+                                {lane}{level}{columnLetter(column)}
                               </span>
                               <span className="mt-0.5 block font-mono text-[9px] font-bold">
-                                {level}-{spot}
+                                -{spot}
                               </span>
                             </button>
                           );

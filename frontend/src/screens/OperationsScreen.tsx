@@ -131,6 +131,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [palletWeights, setPalletWeights] = useState<string[]>([""]);
   const [billAsFtl, setBillAsFtl] = useState(false);
   const [receiptKind, setReceiptKind] = useState<"pallet" | "parcel">("pallet");
+  const [parcelHold, setParcelHold] = useState(true);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [parcelCarrier, setParcelCarrier] = useState("UPS");
   const [receiptPhotos, setReceiptPhotos] = useState<string[]>([]);
@@ -299,16 +300,26 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       );
       return;
     }
+    let overReceipt = false;
+    if (receiptKind === "parcel" && !trackingNumber.trim()) {
+      setError("Tracking number is required for a small parcel.");
+      return;
+    }
+    if (receiptKind === "parcel" && !parcelHold && chosenLocationIds.length < palletCount) {
+      setError("Choose a location for the parcel, or hold it for pickup.");
+      return;
+    }
     if (expectedShipmentId) {
       const exp = (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId);
       const planned = expectedPalletCountOf(exp);
       if (planned != null && palletCount > planned) {
         const ok = await dialog.confirm({
           title: "Over expected quantity",
-          message: `Expected inbound is ${planned} pallet(s). You are receiving ${palletCount}. Continue and flag this as over-receipt?`,
+          message: `Expected inbound is ${planned}. You are receiving ${palletCount}. Continue and flag this as over-receipt?`,
           confirmLabel: "Receive overage",
         });
         if (!ok) return;
+        overReceipt = true;
       }
     }
     setBusy(true);
@@ -340,13 +351,16 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           carrier: receiptKind === "parcel" ? parcelCarrier : carrier,
           trackingNumber: receiptKind === "parcel" ? trackingNumber : undefined,
           receiptKind,
-          overReceipt: true,
+          overReceipt,
           receiptPhotos,
-          locationMode: receiptKind === "parcel" ? "hold" : locationMode,
+          locationMode:
+            receiptKind === "parcel" ? (parcelHold ? "hold" : "choose") : locationMode,
           locationIds:
-            receiptKind === "pallet" && locationMode === "choose"
-              ? chosenLocationIds.slice(0, slotsNeeded)
-              : [],
+            receiptKind === "parcel" && !parcelHold
+              ? chosenLocationIds.slice(0, palletCount)
+              : receiptKind === "pallet" && locationMode === "choose"
+                ? chosenLocationIds.slice(0, slotsNeeded)
+                : [],
           expectedShipmentId: expectedShipmentId || undefined,
         }),
       });
@@ -368,6 +382,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       setCarrier("");
       setTrackingNumber("");
       setReceiptPhotos([]);
+      setReceiptKind("pallet");
+      setParcelHold(true);
       setBillAsFtl(false);
       setDimLengthStr("48");
       setDimWidthStr("48");
@@ -899,10 +915,40 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                     <option>Other</option>
                   </Select>
                 </Field>
-                <Field label="Tracking #">
-                  <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
+                <Field label="Tracking #" required>
+                  <Input
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    required
+                  />
                 </Field>
               </FormGrid>
+            ) : null}
+            {receiptKind === "parcel" ? (
+              <Field label="Where it goes">
+                <Select
+                  value={parcelHold ? "hold" : "location"}
+                  onChange={(e) => setParcelHold(e.target.value === "hold")}
+                >
+                  <option value="hold">Hold for pickup</option>
+                  <option value="location">Assign a location</option>
+                </Select>
+              </Field>
+            ) : null}
+            {receiptKind === "parcel" && !parcelHold ? (
+              <Field label="Location" hint="One open slot. Search by code, for example A1A-1.">
+                <SearchableSelect
+                  value={chosenLocationIds[0] || ""}
+                  onChange={(id) => setChosenLocationIds(id ? [id] : [])}
+                  options={availableLocations
+                    .filter((loc) => !loc.palletId)
+                    .map((loc) => ({ value: loc._id, label: loc.code }))}
+                  allowEmpty
+                  emptyOptionLabel="Select a location"
+                  placeholder="Search location…"
+                  searchPlaceholder="Lane, level, column…"
+                />
+              </Field>
             ) : null}
             <Field label="Packing slip / condition photos" hint="Optional. Attached to this receipt.">
               <Input

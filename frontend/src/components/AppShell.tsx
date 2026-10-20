@@ -46,6 +46,7 @@ const STAFF_NAV_GROUPS: NavGroup[] = [
       { href: "/ship", label: "Ship", icon: Truck },
       { href: "/yard-jobs", label: "Crossdock / Rework", icon: Forklift },
       { href: "/shipments", label: "Shipments / BOLs", icon: FileText },
+      { href: "/lpns", label: "LPNs", icon: ScanBarcode },
     ],
   },
   {
@@ -59,7 +60,6 @@ const STAFF_NAV_GROUPS: NavGroup[] = [
     label: "Inventory & Warehouse",
     items: [
       { href: "/inventory", label: "Inventory", icon: Package },
-      { href: "/lpns", label: "LPNs", icon: ScanBarcode },
       { href: "/warehouse", label: "Warehouse", icon: Warehouse },
     ],
   },

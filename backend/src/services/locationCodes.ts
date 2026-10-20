@@ -24,19 +24,19 @@ export function spotLetterOf(spot: number | string | null | undefined): SpotLett
 
 /**
  * Cesar: one lane, then levels, then the next column, then two pallet spots.
- * Spoken order is lane, level, column, spot. Example A-1-A-1.
+ * Spoken order is lane, level, column, spot. Printed code A1A-1.
  */
 export const STANDARD_LANES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 export const STANDARD_COLUMNS = 20;
 export const STANDARD_LEVELS = 5;
-export const STANDARD_CODE = /^[A-Z]-[1-5]-[A-T]-[12]$/;
+export const STANDARD_CODE = /^[A-Z][1-5][A-T]-[12]$/;
 
 export function columnLetter(column: number) {
   const n = Math.min(STANDARD_COLUMNS, Math.max(1, Math.floor(column)));
   return String.fromCharCode(64 + n);
 }
 
-/** Lane A, level 1, column A, spot 1 → A-1-A-1. Spot 2 is the other pallet. */
+/** Lane A, level 1, column A, spot 1 → A1A-1. Spot 2 is the other pallet. */
 export function bayCode(
   lane: string,
   column: number,
@@ -46,13 +46,15 @@ export function bayCode(
   const lvl = Math.min(STANDARD_LEVELS, Math.max(1, Math.floor(level) || 1));
   const spotText = String(spot).toUpperCase();
   const spotNo = spotText === "2" || spotText === "B" ? "2" : "1";
-  return `${lane.toUpperCase()}-${lvl}-${columnLetter(column)}-${spotNo}`;
+  return `${lane.toUpperCase()}${lvl}${columnLetter(column)}-${spotNo}`;
 }
 
 /** Older labels (A1A, AD1A, A05-3B) become lane-level-column-spot. */
 export function toStandardBayCode(code: string): string | null {
   const raw = String(code || "").trim().toUpperCase();
   if (STANDARD_CODE.test(raw)) return raw;
+  const dashed = raw.match(/^([A-Z])-([1-5])-([A-T])-([12])$/);
+  if (dashed) return bayCode(dashed[1], dashed[3].charCodeAt(0) - 64, Number(dashed[2]), dashed[4]);
   const picture = raw.match(/^([A-Z])(\d{2})-([1-5])([AB])$/);
   if (picture) return bayCode(picture[1], Number(picture[2]), Number(picture[3]), picture[4] as SpotLetter);
   const short = raw.match(/^([A-Z])([1-5])([AB])$/);

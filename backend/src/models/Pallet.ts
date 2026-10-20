@@ -15,7 +15,7 @@ const palletSchema = new Schema(
     status: {
       type: String,
       // staged_for_store = received + label printed, awaiting putaway scan (Cesar receiving flow)
-      enum: ["expected", "received", "staged_for_store", "stored", "staged", "shipped", "void"],
+      enum: ["expected", "received", "staged_for_store", "stored", "staged", "staged_for_shipping", "shipped", "void"],
       default: "received",
       index: true,
     },
@@ -34,6 +34,7 @@ const palletSchema = new Schema(
     customRateOutside: { type: Number, default: null },
     lpnIds: [{ type: Schema.Types.ObjectId, ref: "Lpn" }],
     notes: { type: String, default: "" },
+    receiptPhotoPaths: { type: [String], default: [] },
   },
   { timestamps: true }
 );

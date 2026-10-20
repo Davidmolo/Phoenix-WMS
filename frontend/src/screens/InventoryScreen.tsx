@@ -25,6 +25,11 @@ import {
   type Column,
 } from "@/components/ui";
 import { api } from "@/lib/api";
+
+function uploadUrl(rel: string) {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+  return `${apiBase.replace(/\/$/, "")}/uploads/${rel.replace(/^\//, "")}`;
+}
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { useAuth } from "@/lib/auth";
 import { dateLabel } from "@/lib/format";
@@ -32,7 +37,7 @@ import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination
 import { downloadCsv } from "@/lib/csv";
 import type { Customer, Pallet, PalletLocation } from "@/types";
 
-const FILTERS = ["all", "staged_for_store", "stored", "staged", "received", "shipped"] as const;
+const FILTERS = ["all", "staged_for_store", "stored", "staged", "staged_for_shipping", "shipped"] as const;
 
 function locationCode(p: Pallet): string {
   if (p.locationCode) {
@@ -390,6 +395,19 @@ export default function InventoryPage() {
                     label="PO / Job"
                     value={selected.jobName || selected.poNumber || "—"}
                   />
+                  {selected.receiptPhotoPaths && selected.receiptPhotoPaths.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2 py-2">
+                      {selected.receiptPhotoPaths.map((rel) => (
+                        <a key={rel} href={uploadUrl(rel)} target="_blank" rel="noreferrer">
+                          <img
+                            src={uploadUrl(rel)}
+                            alt="Receipt photo"
+                            className="h-20 w-full rounded object-cover"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
                   <DetailRow
                     label="Footprint"
                     value={
