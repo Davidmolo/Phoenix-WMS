@@ -63,7 +63,7 @@ export default function RequestsPage() {
     setErr("");
     setMsg("");
     try {
-      await api("/requests", {
+      const created = await api<{ notified?: boolean }>("/requests", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -79,7 +79,11 @@ export default function RequestsPage() {
           abnormalPalletSize: abnormalPallets ? abnormalPalletSize.trim() : "",
         }),
       });
-      setMsg("Request submitted");
+      setMsg(
+        created.notified
+          ? "Request submitted. Admin and staff were emailed."
+          : "Request submitted. The staff email did not send — check SMTP on the server."
+      );
       setPoOrJob("");
       setNotes("");
       setAbnormalPallets(false);

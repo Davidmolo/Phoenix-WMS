@@ -4,13 +4,16 @@ import { useMemo, useState } from "react";
 import { Warehouse as WarehouseIcon } from "lucide-react";
 import {
   Alert,
+  Button,
   Card,
   CardBody,
   CardTitle,
   PageHeader,
   SkeletonPage,
 } from "@/components/ui";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Location, Warehouse } from "@/types";
 
@@ -41,9 +44,12 @@ type SetupResponse = {
 };
 
 export default function WarehousePage() {
-  const { data, error, loading } = useApiQuery<SetupResponse>("/locations/warehouse-setup");
+  const { token } = useAuth();
+  const { data, error, loading, reload } = useApiQuery<SetupResponse>("/locations/warehouse-setup");
   const [lane, setLane] = useState("A");
   const [selected, setSelected] = useState("A1A-1");
+  const [activeBusy, setActiveBusy] = useState(false);
+  const [activeErr, setActiveErr] = useState("");
 
   const warehouse =
     data?.warehouses?.find((w) => w._id === data.warehouseId) || data?.warehouses?.[0];
@@ -52,6 +58,13 @@ export default function WarehousePage() {
     const codes = new Set<string>();
     for (const loc of data?.locations ?? []) {
       if (loc.palletId && /^[A-Z][1-5][A-T]-[12]$/.test(loc.code)) codes.add(loc.code);
+    }
+    return codes;
+  }, [data]);
+  const inactive = useMemo(() => {
+    const codes = new Set<string>();
+    for (const loc of data?.locations ?? []) {
+      if (loc.active === false) codes.add(loc.code);
     }
     return codes;
   }, [data]);
@@ -73,6 +86,25 @@ export default function WarehousePage() {
       spot: match[4],
     };
   }, [selected]);
+
+  async function setLocationActive(body: { code?: string; level?: number; active: boolean }) {
+    if (!token || !data?.warehouseId) return;
+    setActiveBusy(true);
+    setActiveErr("");
+    try {
+      await api("/locations/active", {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ warehouseId: data.warehouseId, ...body }),
+      });
+      invalidateApiCache();
+      await reload();
+    } catch (err) {
+      setActiveErr(err instanceof Error ? err.message : "Could not update the location");
+    } finally {
+      setActiveBusy(false);
+    }
+  }
 
   if (loading) return <SkeletonPage variant="table" />;
 
@@ -110,9 +142,13 @@ export default function WarehousePage() {
               <span className="h-3 w-3 rounded border border-accent/50 bg-accent-bg" />
               Filled — a pallet in inventory is in this slot
             </span>
-            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5">
               <span className="h-3 w-3 rounded border border-border bg-surface-2" />
               Available
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded border border-dashed border-border bg-surface" />
+              Inactive — skipped by Next available
             </span>
           </div>
           <div className="mb-3 flex flex-wrap gap-1">
@@ -155,6 +191,7 @@ export default function WarehousePage() {
                         {spots.map((spot) => {
                           const code = bayCode(lane, column, level, spot);
                           const taken = occupied.has(code);
+                          const off = inactive.has(code);
                           return (
                             <button
                               key={code}
@@ -163,9 +200,11 @@ export default function WarehousePage() {
                               onClick={() => setSelected(code)}
                               className={cn(
                                 "rounded border px-0.5 py-1 text-center leading-none",
-                                taken
-                                  ? "border-accent/50 bg-accent-bg text-accent-dark"
-                                  : "border-border bg-surface-2 text-navy",
+                                off
+                                  ? "border-dashed border-border bg-surface text-muted"
+                                  : taken
+                                    ? "border-accent/50 bg-accent-bg text-accent-dark"
+                                    : "border-border bg-surface-2 text-navy",
                                 selected === code && "ring-2 ring-navy"
                               )}
                             >
@@ -202,7 +241,36 @@ export default function WarehousePage() {
               </p>
               <p className="m-0 text-xs text-muted sm:col-span-2">
                 The next column is the next bay in that lane. Spot 1 and spot 2 are the two pallets in the same column and level.
+                Levels 2–5 start inactive until the racking is installed.
               </p>
+              <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm text-navy">
+                  <input
+                    type="checkbox"
+                    checked={!inactive.has(selected)}
+                    disabled={activeBusy || !data?.warehouseId}
+                    onChange={(e) =>
+                      void setLocationActive({ code: selected, active: e.target.checked })
+                    }
+                  />
+                  This slot is active
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  loading={activeBusy}
+                  onClick={() =>
+                    void setLocationActive({
+                      level: Number(selectedParts.level),
+                      active: inactive.has(selected),
+                    })
+                  }
+                >
+                  {inactive.has(selected) ? "Activate" : "Deactivate"} level {selectedParts.level}
+                </Button>
+              </div>
+              {activeErr ? <Alert>{activeErr}</Alert> : null}
             </div>
           ) : null}
         </CardBody>

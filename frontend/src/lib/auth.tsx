@@ -80,14 +80,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const me = await api<{ user: Parameters<typeof mapMeUser>[0] }>("/auth/me", {
+        const me = await api<{ user: Parameters<typeof mapMeUser>[0]; token?: string }>("/auth/me", {
           token: stored.token,
         });
         if (cancelled) return;
         const fresh = mapMeUser(me.user);
-        setToken(stored.token);
+        const nextToken = me.token || stored.token;
+        setToken(nextToken);
         setUser(fresh);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: stored.token, user: fresh }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: nextToken, user: fresh }));
       } catch {
         if (cancelled) return;
         localStorage.removeItem(STORAGE_KEY);

@@ -4,6 +4,7 @@ import { Shipment } from "../models/Shipment";
 import { Pallet } from "../models/Pallet";
 import { Location } from "../models/Location";
 import { Customer } from "../models/Customer";
+import { User } from "../models/User";
 import { Accessorial } from "../models/Accessorial";
 import { Lpn } from "../models/Lpn";
 import { nextPalletExternalId, createUniqueLpn } from "../services/ids";
@@ -827,7 +828,8 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
 
     // Cesar: warehouseman's lien — outbound only. Admin may override with a reason on the shipment.
     const lien = await customerHasLienHold(String(companyId), String(customerId));
-    const lienOverride = req.body.lienOverride === true && req.auth!.role === "admin";
+    const actor = await User.findById(req.auth!.userId).select("role email");
+    const lienOverride = req.body.lienOverride === true && actor?.role === "admin";
     if (lien.hold && !lienOverride) {
       res.status(402).json({
         error: `Account past due ($${lien.balanceDue.toFixed(2)}) — cannot release freight until current. An admin can override this hold.`,
@@ -838,7 +840,7 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
     }
     const lienOverrideNote =
       lien.hold && lienOverride
-        ? `Lien hold overridden by ${req.auth!.email || "admin"} · $${lien.balanceDue.toFixed(2)} past due`
+        ? `Lien hold overridden by ${actor?.email || req.auth!.email || "admin"} · $${lien.balanceDue.toFixed(2)} past due`
         : "";
 
     const pallets = foundAny.filter((p) => String(p.customerId) === String(customerId));

@@ -61,7 +61,17 @@ router.get("/me", requireAuth, async (req, res, next) => {
       res.status(404).json({ error: "User not found" });
       return;
     }
-    res.json({ user });
+    let token: string | undefined;
+    if (user.role !== req.auth!.role) {
+      token = signToken({
+        userId: String(user._id),
+        companyId: String(user.companyId),
+        role: user.role,
+        customerId: user.customerId ? String(user.customerId) : null,
+        email: user.email,
+      });
+    }
+    res.json({ user, token });
   } catch (err) {
     next(err);
   }

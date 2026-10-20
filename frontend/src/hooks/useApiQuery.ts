@@ -81,8 +81,7 @@ export function useApiQuery<T>(path: string | null, options: Options = {}) {
       const id = ++fetchId.current;
       const hasTrusted = isTrusted(cache.get(k));
 
-      if (opts?.silent && hasTrusted) setRefreshing(true);
-      else if (hasTrusted) setRefreshing(true);
+      if (hasTrusted || opts?.silent) setRefreshing(true);
       else {
         setLoading(true);
         setData(null);
@@ -132,11 +131,9 @@ export function useApiQuery<T>(path: string | null, options: Options = {}) {
     const onInvalidate = () => {
       if (!key) return;
       if (isTrusted(cache.get(key))) return;
-      setData(null);
       setError("");
       if (enabled) {
-        setLoading(true);
-        void reload({ silent: false });
+        void reload({ silent: true });
       } else {
         setLoading(false);
         setRefreshing(false);

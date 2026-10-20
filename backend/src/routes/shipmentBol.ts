@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import { requireRole } from "../middleware/auth";
 import { Shipment } from "../models/Shipment";
+import { User } from "../models/User";
 import { Pallet } from "../models/Pallet";
 import { BolRecord } from "../models/BolRecord";
 import { bolHtml } from "../services/bol";
@@ -223,7 +224,8 @@ router.post("/:id/bol/close", requireRole("admin", "staff"), async (req, res, ne
         String(shipment.companyId),
         String(shipment.customerId)
       );
-      const lienOverride = req.body.lienOverride === true && req.auth!.role === "admin";
+      const actor = await User.findById(req.auth!.userId).select("role email");
+      const lienOverride = req.body.lienOverride === true && actor?.role === "admin";
       if (hold.hold && !lienOverride) {
         res.status(402).json({
           error: `Account past due ($${hold.balanceDue.toFixed(2)}) — warehouseman's lien: cannot close outbound BOL until current. An admin can override this hold. Inbound receive is not held.`,
@@ -233,7 +235,7 @@ router.post("/:id/bol/close", requireRole("admin", "staff"), async (req, res, ne
         return;
       }
       if (hold.hold && lienOverride) {
-        const note = `Lien hold overridden by ${req.auth!.email || "admin"} · $${hold.balanceDue.toFixed(2)} past due`;
+        const note = `Lien hold overridden by ${actor?.email || req.auth!.email || "admin"} · $${hold.balanceDue.toFixed(2)} past due`;
         shipment.notes = shipment.notes ? `${shipment.notes}\n${note}` : note;
         await shipment.save();
       }

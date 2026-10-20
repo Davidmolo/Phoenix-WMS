@@ -1,4 +1,5 @@
 import { Location } from "../models/Location";
+import { STANDARD_CODE, toStandardBayCode } from "./locationCodes";
 
 /** Cesar: standard 48×48 = 1 slot; anything larger on a side needs 2 adjacent slots. */
 export function slotsPerPallet(dimLength?: number | null, dimWidth?: number | null): number {
@@ -51,10 +52,32 @@ export async function assignLocationGroups(opts: {
   const { companyId, warehouseId, palletCount, slotsEach } = opts;
   const preferred = (opts.preferredIds || []).map(String).filter(Boolean);
 
+  const open = await Location.find({
+    companyId,
+    warehouseId,
+    palletId: null,
+    active: { $ne: false },
+  }).select("code");
+  const standardTaken = new Set(
+    (
+      await Location.find({ companyId, warehouseId, code: STANDARD_CODE }).select("code").lean()
+    ).map((loc) => loc.code)
+  );
+  const renames = open.flatMap((loc) => {
+    if (STANDARD_CODE.test(loc.code)) return [];
+    const next = toStandardBayCode(loc.code);
+    if (!next || standardTaken.has(next)) return [];
+    standardTaken.add(next);
+    return [{ updateOne: { filter: { _id: loc._id, code: loc.code }, update: { $set: { code: next } } } }];
+  });
+  if (renames.length) await Location.bulkWrite(renames);
+
   const available = (await Location.find({
     companyId,
     warehouseId,
     palletId: null,
+    active: { $ne: false },
+    code: STANDARD_CODE,
   })
     .sort({ aisle: 1, row: 1, col: 1, code: 1 })
     .lean()) as LocLean[];

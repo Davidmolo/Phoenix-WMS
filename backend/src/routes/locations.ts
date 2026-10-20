@@ -63,6 +63,7 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
 
     const rack = locations.filter((l) => STANDARD_CODE.test(l.code));
     const occupied = rack.filter((l) => l.palletId).length;
+    const openActive = rack.filter((l) => !l.palletId && l.active !== false).length;
     const capacitySqft = Number(warehouse?.sqft) || 0;
     const occupiedAgg = warehouseId
       ? await Pallet.aggregate([
@@ -92,7 +93,7 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
       summary: {
         total: rack.length,
         occupied,
-        available: rack.length - occupied,
+        available: openActive,
         capacitySqft,
         occupiedSqft,
         availableSqft,
@@ -108,6 +109,27 @@ router.get("/warehouse-setup", requireRole("admin", "staff"), async (req, res, n
  * Body: { warehouseId, rows, cols, placements?: [{ locationId, row, col }] }
  * Expanding the grid creates empty slots; shrinking refuses if occupied slots fall outside.
  */
+router.patch("/active", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const active = req.body.active !== false;
+    const code = String(req.body.code || "").trim();
+    const level = req.body.level != null ? Number(req.body.level) : null;
+    const warehouseId = String(req.body.warehouseId || "");
+    if (!warehouseId || (!code && !level)) {
+      res.status(400).json({ error: "warehouseId and a code or level are required" });
+      return;
+    }
+    const filter: Record<string, unknown> = { companyId, warehouseId };
+    if (code) filter.code = code;
+    if (level) filter.level = level;
+    const result = await Location.updateMany(filter, { $set: { active } });
+    res.json({ ok: true, updated: result.modifiedCount, active });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.put("/map-layout", requireRole("admin", "staff"), async (req, res, next) => {
   try {
     const companyId = req.auth!.companyId;
@@ -254,6 +276,17 @@ async function ensureStandardLayout(companyId: string, warehouseId: string) {
     if (renames.length) await Location.bulkWrite(renames);
   }
 
+  await Location.updateMany(
+    {
+      companyId,
+      warehouseId,
+      level: { $gt: 1 },
+      palletId: null,
+      active: { $exists: false },
+    },
+    { $set: { active: false } }
+  );
+
   const expected = STANDARD_LANES.length * STANDARD_COLUMNS * STANDARD_LEVELS * 2;
   const have = await Location.countDocuments({
     companyId,
@@ -280,6 +313,7 @@ async function ensureStandardLayout(companyId: string, warehouseId: string) {
             level,
             spot: letter === "B" ? 2 : 1,
             floorOnly: level === 1,
+            active: level === 1,
             row,
             col: column,
             palletId: null,

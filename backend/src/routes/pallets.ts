@@ -4,6 +4,7 @@ import { Lpn } from "../models/Lpn";
 import { Pallet } from "../models/Pallet";
 import { Location } from "../models/Location";
 import { Shipment } from "../models/Shipment";
+import { toStandardBayCode } from "../services/locationCodes";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 
 const router = Router();
@@ -47,13 +48,27 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
       return;
     }
 
-    const location = await Location.findOne({
+    const codePattern = (value: string) =>
+      new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+    const standardCode = toStandardBayCode(locationCode);
+    let location = await Location.findOne({
       companyId,
       warehouseId: pallet.warehouseId,
-      code: new RegExp(`^${locationCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
+      code: codePattern(locationCode),
     });
+    if (!location && standardCode && standardCode.toUpperCase() !== locationCode.toUpperCase()) {
+      location = await Location.findOne({
+        companyId,
+        warehouseId: pallet.warehouseId,
+        code: codePattern(standardCode),
+      });
+    }
     if (!location) {
       res.status(404).json({ error: `Location ${locationCode} not found` });
+      return;
+    }
+    if (location.active === false) {
+      res.status(400).json({ error: `Location ${location.code} is inactive. Turn it on in Warehouse setup first.` });
       return;
     }
 
@@ -105,8 +120,91 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
     res.json({
       pallet: populated,
       message: secondary
-        ? `${palletCode} stored at ${locationCode} (pair includes ${secondary})`
-        : `${palletCode} stored at ${locationCode}`,
+        ? `${palletCode} stored at ${location.code} (pair includes ${secondary})`
+        : `${palletCode} stored at ${location.code}`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/move", requireRole("admin", "staff"), async (req, res, next) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const palletCode = String(req.body.palletCode || req.body.externalId || "")
+      .trim()
+      .replace(/-B$/i, "");
+    const locationCode = String(req.body.locationCode || "").trim();
+    if (!palletCode || !locationCode) {
+      res.status(400).json({ error: "palletCode and locationCode are required" });
+      return;
+    }
+    const pallet = await Pallet.findOne({
+      companyId,
+      externalId: new RegExp(`^${palletCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
+    });
+    if (!pallet) {
+      res.status(404).json({ error: `Pallet ${palletCode} not found` });
+      return;
+    }
+    if (["shipped", "void", "staged_for_shipping"].includes(pallet.status)) {
+      res.status(400).json({ error: `Pallet ${palletCode} cannot be moved (status: ${pallet.status})` });
+      return;
+    }
+    req.body.palletCode = pallet.externalId;
+    req.body.locationCode = locationCode;
+    const codePattern = (value: string) =>
+      new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+    const standardCode = toStandardBayCode(locationCode);
+    let location = await Location.findOne({
+      companyId,
+      warehouseId: pallet.warehouseId,
+      code: codePattern(locationCode),
+    });
+    if (!location && standardCode && standardCode.toUpperCase() !== locationCode.toUpperCase()) {
+      location = await Location.findOne({
+        companyId,
+        warehouseId: pallet.warehouseId,
+        code: codePattern(standardCode),
+      });
+    }
+    if (!location) {
+      res.status(404).json({ error: `Location ${locationCode} not found` });
+      return;
+    }
+    if (location.active === false) {
+      res.status(400).json({ error: `Location ${location.code} is inactive` });
+      return;
+    }
+    if (location.palletId && String(location.palletId) !== String(pallet._id)) {
+      res.status(400).json({ error: `Location ${location.code} is already occupied` });
+      return;
+    }
+    if (pallet.locationId && String(pallet.locationId) !== String(location._id)) {
+      await Location.findOneAndUpdate(
+        { _id: pallet.locationId, palletId: pallet._id },
+        { palletId: null }
+      );
+    }
+    if (pallet.secondaryLocationId) {
+      await Location.findOneAndUpdate(
+        { _id: pallet.secondaryLocationId, palletId: pallet._id },
+        { palletId: null }
+      );
+      pallet.secondaryLocationId = null;
+      pallet.secondaryLocationCode = "";
+    }
+    location.palletId = pallet._id;
+    await location.save();
+    pallet.locationId = location._id;
+    pallet.locationCode = location.code;
+    if (pallet.status === "staged_for_store" || pallet.status === "received") {
+      pallet.status = "stored";
+    }
+    await pallet.save();
+    res.json({
+      pallet,
+      message: `${pallet.externalId} moved to ${location.code}`,
     });
   } catch (err) {
     next(err);

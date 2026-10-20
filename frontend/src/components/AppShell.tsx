@@ -14,6 +14,7 @@ import {
   Package,
   ScanBarcode,
   Warehouse,
+  ArrowRightLeft,
   Inbox,
   FileText,
   Forklift,
@@ -60,6 +61,7 @@ const STAFF_NAV_GROUPS: NavGroup[] = [
     label: "Inventory & Warehouse",
     items: [
       { href: "/inventory", label: "Inventory", icon: Package },
+      { href: "/inventory-move", label: "Inventory move", icon: ArrowRightLeft },
       { href: "/warehouse", label: "Warehouse", icon: Warehouse },
     ],
   },

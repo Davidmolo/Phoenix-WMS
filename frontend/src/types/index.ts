@@ -156,6 +156,7 @@ export type Location = {
   level?: number;
   spot?: number;
   palletId?: string | null;
+  active?: boolean;
   row: number;
   col: number;
 };

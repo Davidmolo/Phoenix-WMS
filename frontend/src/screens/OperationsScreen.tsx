@@ -136,6 +136,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [parcelCarrier, setParcelCarrier] = useState("UPS");
   const [receiptPhotos, setReceiptPhotos] = useState<string[]>([]);
   const [storedAwayIds, setStoredAwayIds] = useState<string[]>([]);
+  const [storedAwayCodes, setStoredAwayCodes] = useState<string[]>([]);
   const [carrier, setCarrier] = useState("");
   const [locationMode, setLocationMode] = useState<"next_available" | "choose">("next_available");
   const [chosenLocationIds, setChosenLocationIds] = useState<string[]>([]);
@@ -235,9 +236,12 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const pendingStore = useMemo(
     () =>
       (palletData?.pallets ?? []).filter(
-        (p) => p.status === "staged_for_store" && !storedAwayIds.includes(p._id)
+        (p) =>
+          p.status === "staged_for_store" &&
+          !storedAwayIds.includes(p._id) &&
+          !storedAwayCodes.includes(p.externalId.toUpperCase())
       ),
-    [palletData, storedAwayIds]
+    [palletData, storedAwayIds, storedAwayCodes]
   );
 
   /** Only this customer's pallets are shippable at once — matches the backend's single-customer rule. */
@@ -425,6 +429,10 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
         }),
       });
       setMessage(result.message || "Pallet stored");
+      const scanned = storePalletCode.trim().replace(/-B$/i, "").toUpperCase();
+      if (scanned) {
+        setStoredAwayCodes((codes) => (codes.includes(scanned) ? codes : [...codes, scanned]));
+      }
       if (result.pallet?._id) {
         const id = result.pallet._id;
         setStoredAwayIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
@@ -738,6 +746,19 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 <Input value={ref} onChange={(e) => setRef(e.target.value)} />
               </Field>
             </FormGrid>
+            {(() => {
+              const exp = expectedShipmentId
+                ? (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId)
+                : undefined;
+              const planned = expectedPalletCountOf(exp);
+              if (planned == null || palletCount <= planned) return null;
+              return (
+                <Alert tone="info">
+                  Expected inbound is {planned}. This receipt is {palletCount}, which is over that
+                  quantity. Receiving will ask you to confirm the overage.
+                </Alert>
+              );
+            })()}
 
             {receiptKind === "pallet" ? (
             <div

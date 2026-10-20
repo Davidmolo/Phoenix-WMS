@@ -225,26 +225,53 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per shipment load with pending intent
   }, [shipment?._id, shipmentId]);
 
+  const bolDraft = useRef({
+    driverName: "",
+    truckNumber: "",
+    countVerified: false,
+    actualCount: "",
+    rewrapBanding: false,
+    condition: "No exceptions",
+    exceptionNotes: "",
+    refInboundBol: "",
+  });
+  bolDraft.current = {
+    driverName,
+    truckNumber,
+    countVerified,
+    actualCount,
+    rewrapBanding,
+    condition,
+    exceptionNotes,
+    refInboundBol,
+  };
+
+  async function persistBolFields() {
+    if (!token || !shipmentId || shipment?.bol?.status === "closed") return;
+    const draft = bolDraft.current;
+    await api(`/shipments/${shipmentId}/bol`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({
+        driverName: draft.driverName,
+        truckNumber: draft.truckNumber,
+        countVerified: draft.countVerified,
+        actualCount: draft.actualCount === "" ? null : Number(draft.actualCount),
+        rewrapBanding: draft.rewrapBanding,
+        condition: draft.condition,
+        exceptionNotes: draft.exceptionNotes,
+        refInboundBol: draft.refInboundBol,
+      }),
+    });
+  }
+
   async function saveBolFields() {
     if (!token || !shipmentId) return;
     setBolBusy(true);
     setBolErr("");
     setBolMsg("");
     try {
-      await api(`/shipments/${shipmentId}/bol`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          driverName,
-          truckNumber,
-          countVerified,
-          actualCount: actualCount === "" ? null : Number(actualCount),
-          rewrapBanding,
-          condition,
-          exceptionNotes,
-          refInboundBol,
-        }),
-      });
+      await persistBolFields();
       setBolMsg("BOL fields saved");
       invalidateApiCache();
       await reload();
@@ -368,6 +395,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setEditErr("");
     setEditMsg("");
     try {
+      await persistBolFields();
       await api(`/shipments/${shipmentId}`, {
         method: "PATCH",
         token,
@@ -383,7 +411,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
           status,
         }),
       });
-      setEditMsg("Shipment updated");
+      setEditMsg("Shipment updated. BOL fields were saved too.");
       invalidateApiCache();
       await reload();
     } catch (ex) {
@@ -579,10 +607,18 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                 <>
                   <FormGrid cols={3}>
                     <Field label="Driver name">
-                      <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+                      <Input
+                        value={driverName}
+                        onChange={(e) => setDriverName(e.target.value)}
+                        onBlur={() => void persistBolFields().catch(() => undefined)}
+                      />
                     </Field>
                     <Field label="Truck #">
-                      <Input value={truckNumber} onChange={(e) => setTruckNumber(e.target.value)} />
+                      <Input
+                        value={truckNumber}
+                        onChange={(e) => setTruckNumber(e.target.value)}
+                        onBlur={() => void persistBolFields().catch(() => undefined)}
+                      />
                     </Field>
                     {shipment.direction === "outbound" ? (
                       <Field
@@ -605,7 +641,11 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                       </Select>
                     </Field>
                     <Field label="Actual count">
-                      <NumberInput value={actualCount} onValueChange={setActualCount} />
+                      <NumberInput
+                        value={actualCount}
+                        onValueChange={setActualCount}
+                        onBlur={() => void persistBolFields().catch(() => undefined)}
+                      />
                     </Field>
                     <Field label="Exception notes">
                       <Input

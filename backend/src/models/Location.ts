@@ -10,6 +10,8 @@ const locationSchema = new Schema(
     level: { type: Number, default: 1 },
     spot: { type: Number, default: 1 },
     floorOnly: { type: Boolean, default: true },
+    /** False when the rack is not built yet. Next available skips these. */
+    active: { type: Boolean, default: true },
     palletId: { type: Schema.Types.ObjectId, ref: "Pallet", default: null },
     row: { type: Number, default: 0 },
     col: { type: Number, default: 0 },

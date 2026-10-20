@@ -63,6 +63,7 @@ router.post("/", async (req, res, next) => {
       "customerId",
       "name billingMethod"
     );
+    let notified = false;
     try {
       const { sendWarehouseRequestEmail } = await import("../services/mail");
       const customerName =
@@ -83,7 +84,7 @@ router.post("/", async (req, res, next) => {
             .filter(Boolean)
         ),
       ].join(", ");
-      await sendWarehouseRequestEmail({
+      const info = await sendWarehouseRequestEmail({
         to,
         customerName,
         type: String(request.type || "Request"),
@@ -91,10 +92,11 @@ router.post("/", async (req, res, next) => {
         ref: request.ref || request.jobName || request.poNumber || "",
         notes: request.notes || "",
       });
+      notified = Boolean(info);
     } catch (mailErr) {
       console.error("[requests] notify email failed", mailErr);
     }
-    res.status(201).json({ request: populated });
+    res.status(201).json({ request: populated, notified });
   } catch (err) {
     next(err);
   }
