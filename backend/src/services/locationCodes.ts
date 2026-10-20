@@ -54,7 +54,9 @@ export function toStandardBayCode(code: string): string | null {
   const raw = String(code || "").trim().toUpperCase();
   if (STANDARD_CODE.test(raw)) return raw;
   const dashed = raw.match(/^([A-Z])-([1-5])-([A-T])-([12])$/);
-  if (dashed) return bayCode(dashed[1], dashed[3].charCodeAt(0) - 64, Number(dashed[2]), dashed[4]);
+  if (dashed) {
+    return bayCode(dashed[1], dashed[3].charCodeAt(0) - 64, Number(dashed[2]), dashed[4] === "2" ? "2" : "1");
+  }
   const picture = raw.match(/^([A-Z])(\d{2})-([1-5])([AB])$/);
   if (picture) return bayCode(picture[1], Number(picture[2]), Number(picture[3]), picture[4] as SpotLetter);
   const short = raw.match(/^([A-Z])([1-5])([AB])$/);
