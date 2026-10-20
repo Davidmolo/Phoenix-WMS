@@ -137,7 +137,7 @@ export default function WarehousePage() {
           </div>
 
           <div className="overflow-x-auto pb-2">
-            <div className="inline-grid gap-1" style={{ gridTemplateColumns: "36px repeat(20, 56px)" }}>
+            <div className="inline-grid gap-1" style={{ gridTemplateColumns: "36px repeat(20, 72px)" }}>
               <div />
               {COLUMNS.map((column) => (
                 <div key={column} className="text-center text-[10px] font-bold text-muted">
@@ -169,11 +169,8 @@ export default function WarehousePage() {
                                 selected === code && "ring-2 ring-navy"
                               )}
                             >
-                              <span className="block font-mono text-[8px] font-semibold">
-                                {lane}{level}{columnLetter(column)}
-                              </span>
-                              <span className="mt-0.5 block font-mono text-[9px] font-bold">
-                                -{spot}
+                              <span className="block font-mono text-[9px] font-bold tracking-tight">
+                                {code}
                               </span>
                             </button>
                           );
