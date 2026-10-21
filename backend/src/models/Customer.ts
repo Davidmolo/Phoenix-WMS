@@ -50,6 +50,10 @@ const customerSchema = new Schema(
     rateOutsideSqft: { type: Number, default: null },
     /** Optional override for crossdock $/pallet; null = schedule. */
     crossdockPerPallet: { type: Number, default: null },
+    parcelStoragePerBoxDay: { type: Number, default: null },
+    parcelReceivePerBox: { type: Number, default: null },
+    parcelOutboundPerBox: { type: Number, default: null },
+    parcelOversizePerPalletDay: { type: Number, default: null },
     /**
      * Service mix — independent of billingMethod.
      * Drop & Store, Crossdock, and Rework can all be on for one customer.

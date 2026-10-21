@@ -173,6 +173,6 @@ export function useApiQuery<T>(path: string | null, options: Options = {}) {
     error,
     loading,
     refreshing,
-    reload: () => reload({ silent: false }),
+    reload: () => reload({ silent: true }),
   };
 }

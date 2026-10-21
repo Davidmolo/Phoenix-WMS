@@ -89,6 +89,10 @@ type EditForm = {
   serviceRework: boolean;
   reworkHourlyRate: string;
   reworkMinimumHours: string;
+  parcelStoragePerBoxDay: string;
+  parcelReceivePerBox: string;
+  parcelOutboundPerBox: string;
+  parcelOversizePerPalletDay: string;
   address: string;
   contact: string;
   phone: string;
@@ -121,6 +125,11 @@ function formFromCustomer(c: Customer): EditForm {
     serviceRework: c.serviceRework !== false,
     reworkHourlyRate: c.reworkHourlyRate != null ? String(c.reworkHourlyRate) : "",
     reworkMinimumHours: c.reworkMinimumHours != null ? String(c.reworkMinimumHours) : "",
+    parcelStoragePerBoxDay: c.parcelStoragePerBoxDay != null ? String(c.parcelStoragePerBoxDay) : "",
+    parcelReceivePerBox: c.parcelReceivePerBox != null ? String(c.parcelReceivePerBox) : "",
+    parcelOutboundPerBox: c.parcelOutboundPerBox != null ? String(c.parcelOutboundPerBox) : "",
+    parcelOversizePerPalletDay:
+      c.parcelOversizePerPalletDay != null ? String(c.parcelOversizePerPalletDay) : "",
     address: c.address || "",
     contact: c.contact || "",
     phone: c.phone || "",
@@ -216,6 +225,10 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         payload.crossdockPerPallet = numOrNull(form.crossdockPerPallet);
         payload.reworkHourlyRate = numOrNull(form.reworkHourlyRate);
         payload.reworkMinimumHours = numOrNull(form.reworkMinimumHours);
+        payload.parcelStoragePerBoxDay = numOrNull(form.parcelStoragePerBoxDay);
+        payload.parcelReceivePerBox = numOrNull(form.parcelReceivePerBox);
+        payload.parcelOutboundPerBox = numOrNull(form.parcelOutboundPerBox);
+        payload.parcelOversizePerPalletDay = numOrNull(form.parcelOversizePerPalletDay);
       }
       await api(`/customers/${c._id}`, {
         method: "PATCH",
@@ -773,6 +786,34 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                         <NumberInput
                           value={form.rateOutside}
                           onValueChange={(v) => setForm({ ...form, rateOutside: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Parcel storage (/box/day)" hint="Blank uses $0.05 on the fee schedule">
+                        <NumberInput
+                          value={form.parcelStoragePerBoxDay}
+                          onValueChange={(v) => setForm({ ...form, parcelStoragePerBoxDay: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Parcel receiving (/box)">
+                        <NumberInput
+                          value={form.parcelReceivePerBox}
+                          onValueChange={(v) => setForm({ ...form, parcelReceivePerBox: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Parcel outbound (/box)">
+                        <NumberInput
+                          value={form.parcelOutboundPerBox}
+                          onValueChange={(v) => setForm({ ...form, parcelOutboundPerBox: v })}
+                          placeholder="Schedule"
+                        />
+                      </Field>
+                      <Field label="Oversize parcel (/pallet/day)">
+                        <NumberInput
+                          value={form.parcelOversizePerPalletDay}
+                          onValueChange={(v) => setForm({ ...form, parcelOversizePerPalletDay: v })}
                           placeholder="Schedule"
                         />
                       </Field>

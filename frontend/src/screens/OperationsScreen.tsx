@@ -119,6 +119,11 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [expectedShipmentId, setExpectedShipmentId] = useState("");
   const [palletCountStr, setPalletCountStr] = useState("1");
   const palletCount = Math.min(50, Math.max(1, Number(palletCountStr) || 1));
+  const overPlanned = useMemo(() => {
+    if (!expectedShipmentId) return null;
+    const exp = (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId);
+    return expectedPalletCountOf(exp);
+  }, [expectedShipmentId, expectedData]);
   const [description, setDescription] = useState("");
   const [ref, setRef] = useState("");
   const [poOrJob, setPoOrJob] = useState("");
@@ -132,6 +137,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [billAsFtl, setBillAsFtl] = useState(false);
   const [receiptKind, setReceiptKind] = useState<"pallet" | "parcel">("pallet");
   const [parcelHold, setParcelHold] = useState(true);
+  const [parcelOversize, setParcelOversize] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [parcelCarrier, setParcelCarrier] = useState("UPS");
   const [receiptPhotos, setReceiptPhotos] = useState<string[]>([]);
@@ -355,6 +361,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           carrier: receiptKind === "parcel" ? parcelCarrier : carrier,
           trackingNumber: receiptKind === "parcel" ? trackingNumber : undefined,
           receiptKind,
+          parcelOversize: receiptKind === "parcel" && parcelOversize,
           overReceipt,
           receiptPhotos,
           locationMode:
@@ -388,6 +395,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       setReceiptPhotos([]);
       setReceiptKind("pallet");
       setParcelHold(true);
+      setParcelOversize(false);
       setBillAsFtl(false);
       setDimLengthStr("48");
       setDimWidthStr("48");
@@ -724,7 +732,14 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                   required
                 />
               </Field>
-              <Field label="Pallet count">
+              <Field
+                label={receiptKind === "parcel" ? "Box count" : "Pallet count"}
+                error={
+                  overPlanned != null && palletCount > overPlanned
+                    ? `Over expected. This load is ${overPlanned}. You entered ${palletCount}. Confirm before receiving.`
+                    : undefined
+                }
+              >
                 <NumberInput
                   decimal={false}
                   value={palletCountStr}
@@ -746,19 +761,12 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 <Input value={ref} onChange={(e) => setRef(e.target.value)} />
               </Field>
             </FormGrid>
-            {(() => {
-              const exp = expectedShipmentId
-                ? (expectedData?.shipments ?? []).find((s) => s._id === expectedShipmentId)
-                : undefined;
-              const planned = expectedPalletCountOf(exp);
-              if (planned == null || palletCount <= planned) return null;
-              return (
-                <Alert tone="info">
-                  Expected inbound is {planned}. This receipt is {palletCount}, which is over that
-                  quantity. Receiving will ask you to confirm the overage.
-                </Alert>
-              );
-            })()}
+            {overPlanned != null && palletCount > overPlanned ? (
+              <Alert tone="info">
+                Expected inbound is {overPlanned}. This receipt is {palletCount}, which is over that
+                quantity. You will be asked to confirm before it is received.
+              </Alert>
+            ) : null}
 
             {receiptKind === "pallet" ? (
             <div
@@ -955,6 +963,16 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                   <option value="location">Assign a location</option>
                 </Select>
               </Field>
+            ) : null}
+            {receiptKind === "parcel" ? (
+              <label className="flex items-center gap-2 text-sm text-navy">
+                <input
+                  type="checkbox"
+                  checked={parcelOversize}
+                  onChange={(e) => setParcelOversize(e.target.checked)}
+                />
+                Oversize — this box takes a full pallet position
+              </label>
             ) : null}
             {receiptKind === "parcel" && !parcelHold ? (
               <Field label="Location" hint="One open slot. Search by code, for example A1A-1.">

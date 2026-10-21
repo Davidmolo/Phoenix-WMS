@@ -99,6 +99,11 @@ router.post("/store", requireRole("admin", "staff"), async (req, res, next) => {
     await location.save();
 
     if (!isSecondary) {
+      const previous = String(pallet.locationCode || "");
+      if (previous && previous.toUpperCase() !== location.code.toUpperCase()) {
+        pallet.countFlag = "store_override";
+        pallet.countFlagNote = `Stored at ${location.code}. The receipt location was ${previous}.`;
+      }
       pallet.locationId = location._id;
       pallet.locationCode = location.code;
     } else {
@@ -198,6 +203,8 @@ router.post("/move", requireRole("admin", "staff"), async (req, res, next) => {
     await location.save();
     pallet.locationId = location._id;
     pallet.locationCode = location.code;
+    pallet.countFlag = "moved";
+    pallet.countFlagNote = `Moved to ${location.code}.`;
     if (pallet.status === "staged_for_store" || pallet.status === "received") {
       pallet.status = "stored";
     }

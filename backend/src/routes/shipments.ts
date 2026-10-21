@@ -375,6 +375,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       locationIds: bodyLocationIds = [],
       locationMode = "next_available",
       receiptKind = "pallet",
+      parcelOversize = false,
       trackingNumber = "",
       receiptPhotos = [],
       expectedShipmentId = null,
@@ -574,6 +575,8 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
         weightLbs:
           weightList[i] != null ? Math.round(Number(weightList[i]) * 100) / 100 : null,
         ref,
+        receiptKind: isParcel ? "parcel" : "pallet",
+        parcelOversize: isParcel && Boolean(parcelOversize),
         receivedAt: new Date(),
       });
 
@@ -610,6 +613,7 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
       isContractCustomer,
       unloadPerPallet,
       crossdockPerPallet,
+      pickPerPalletRate,
     } = await import("../services/customerFees");
     const companyDoc = await (await import("../models/Company")).Company.findById(companyId);
     const fees = resolveCompanyFees(companyDoc);
@@ -655,6 +659,20 @@ router.post("/receive", requireRole("admin", "staff"), async (req, res, next) =>
           date: new Date(),
         });
       }
+    } else if (isParcel) {
+      const per = pickPerPalletRate(
+        customer.parcelReceivePerBox,
+        Number(fees.parcelReceivePerBox ?? 0.75)
+      );
+      await Accessorial.create({
+        companyId,
+        customerId,
+        shipmentId: shipment._id,
+        type: "handling",
+        description: `Parcel receiving — ${count} box(es) @ $${per}/box`,
+        amount: Math.round(per * count * 100) / 100,
+        date: new Date(),
+      });
     } else {
       const per = unloadPerPallet(customer, fees);
       const minimum = Number(fees.unloadLoadMinimum ?? 125);
@@ -908,6 +926,52 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       p.locationId = null;
       p.secondaryLocationId = null;
       await p.save();
+    }
+
+    const parcelBoxes = pallets.filter((p) => p.receiptKind === "parcel");
+    if (parcelBoxes.length && customer) {
+      const { resolveCompanyFees, pickPerPalletRate } = await import("../services/customerFees");
+      const companyDoc = await (await import("../models/Company")).Company.findById(companyId);
+      const fees = resolveCompanyFees(companyDoc);
+      const outRate = pickPerPalletRate(
+        customer.parcelOutboundPerBox,
+        Number(fees.parcelOutboundPerBox ?? 0.5)
+      );
+      const boxDay = pickPerPalletRate(
+        customer.parcelStoragePerBoxDay,
+        Number(fees.parcelStoragePerBoxDay ?? 0.05)
+      );
+      const oversizeDay = pickPerPalletRate(
+        customer.parcelOversizePerPalletDay,
+        Number(fees.parcelOversizePerPalletDay ?? 1.65)
+      );
+      const now = Date.now();
+      let storage = 0;
+      for (const box of parcelBoxes) {
+        const started = box.receivedAt ? new Date(box.receivedAt).getTime() : now;
+        const days = Math.max(1, Math.ceil((now - started) / 86400000));
+        storage += days * (box.parcelOversize ? oversizeDay : boxDay);
+      }
+      storage = Math.round(storage * 100) / 100;
+      const outbound = Math.round(outRate * parcelBoxes.length * 100) / 100;
+      await Accessorial.create({
+        companyId,
+        customerId,
+        shipmentId: shipment._id,
+        type: "handling",
+        description: `Parcel outbound — ${parcelBoxes.length} box(es) @ $${outRate}/box`,
+        amount: outbound,
+        date: new Date(),
+      });
+      await Accessorial.create({
+        companyId,
+        customerId,
+        shipmentId: shipment._id,
+        type: "storage",
+        description: `Parcel storage — ${parcelBoxes.length} box(es), actual days in the building`,
+        amount: storage,
+        date: new Date(),
+      });
     }
 
     await Lpn.updateMany(

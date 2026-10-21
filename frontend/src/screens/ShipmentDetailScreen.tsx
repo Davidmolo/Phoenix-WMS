@@ -265,16 +265,32 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     });
   }
 
+  function holdScroll(run: () => Promise<void>) {
+    const y = window.scrollY;
+    const main = document.querySelector("main");
+    const mainY = main instanceof HTMLElement ? main.scrollTop : 0;
+    return run().finally(() => {
+      const restore = () => {
+        window.scrollTo(0, y);
+        if (main instanceof HTMLElement) main.scrollTop = mainY;
+      };
+      restore();
+      requestAnimationFrame(restore);
+    });
+  }
+
   async function saveBolFields() {
     if (!token || !shipmentId) return;
     setBolBusy(true);
     setBolErr("");
     setBolMsg("");
     try {
-      await persistBolFields();
-      setBolMsg("BOL fields saved");
-      invalidateApiCache();
-      await reload();
+      await holdScroll(async () => {
+        await persistBolFields();
+        setBolMsg("BOL fields saved");
+        invalidateApiCache();
+        await reload();
+      });
     } catch (ex) {
       setBolErr(ex instanceof Error ? ex.message : "Could not save BOL");
     } finally {
@@ -293,14 +309,16 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setBolErr("");
     setBolMsg("");
     try {
-      await api(`/shipments/${shipmentId}/bol/sign`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ role, name: name.trim() }),
+      await holdScroll(async () => {
+        await api(`/shipments/${shipmentId}/bol/sign`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({ role, name: name.trim() }),
+        });
+        setBolMsg(`${role === "driver" ? "Driver" : "Warehouse"} signature captured`);
+        invalidateApiCache();
+        await reload();
       });
-      setBolMsg(`${role === "driver" ? "Driver" : "Warehouse"} signature captured`);
-      invalidateApiCache();
-      await reload();
     } catch (ex) {
       setBolErr(ex instanceof Error ? ex.message : "Could not sign");
     } finally {
@@ -395,25 +413,27 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setEditErr("");
     setEditMsg("");
     try {
-      await persistBolFields();
-      await api(`/shipments/${shipmentId}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          carrier,
-          trailerNumber,
-          sealNumber,
-          scac,
-          shipFrom,
-          shipTo,
-          notes,
-          weightLbs: weightLbs === "" ? null : Number(weightLbs),
-          status,
-        }),
+      await holdScroll(async () => {
+        await persistBolFields();
+        await api(`/shipments/${shipmentId}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            carrier,
+            trailerNumber,
+            sealNumber,
+            scac,
+            shipFrom,
+            shipTo,
+            notes,
+            weightLbs: weightLbs === "" ? null : Number(weightLbs),
+            status,
+          }),
+        });
+        setEditMsg("Shipment updated. BOL fields were saved too.");
+        invalidateApiCache();
+        await reload();
       });
-      setEditMsg("Shipment updated. BOL fields were saved too.");
-      invalidateApiCache();
-      await reload();
     } catch (ex) {
       setEditErr(ex instanceof Error ? ex.message : "Could not update shipment");
     } finally {

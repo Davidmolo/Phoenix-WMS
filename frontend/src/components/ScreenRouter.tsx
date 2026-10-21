@@ -15,6 +15,7 @@ import InventoryScreen from "@/screens/InventoryScreen";
 import LpnsScreen from "@/screens/LpnsScreen";
 import WarehouseScreen from "@/screens/WarehouseScreen";
 import InventoryMoveScreen from "@/screens/InventoryMoveScreen";
+import InventoryControlScreen from "@/screens/InventoryControlScreen";
 import RequestsScreen from "@/screens/RequestsScreen";
 import BillingScreen from "@/screens/BillingScreen";
 import YardJobsScreen from "@/screens/YardJobsScreen";
@@ -166,6 +167,11 @@ export function ScreenRouter() {
       {mounted.has("inventory-move") ? (
         <ScreenPane active={active === "inventory-move"}>
           <InventoryMoveScreen />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("inventory-control") ? (
+        <ScreenPane active={active === "inventory-control"}>
+          <InventoryControlScreen />
         </ScreenPane>
       ) : null}
       {mounted.has("warehouse") ? (

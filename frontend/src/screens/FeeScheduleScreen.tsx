@@ -29,6 +29,20 @@ const RATE_ROWS: Array<{ key: string; label: string; hint?: string; money?: bool
   { key: "unloadLoadPerTrailer", label: "Unload/load per trailer cap", money: true },
   { key: "floorStoragePerPalletMo", label: "Floor storage (/pallet/mo)", money: true },
   { key: "rackStoragePerPalletMo", label: "Rack storage (/pallet/mo)", money: true },
+  {
+    key: "parcelStoragePerBoxDay",
+    label: "Parcel storage (/box/day)",
+    hint: "Billed for each day the box is in the building, when it ships. Default $0.05.",
+    money: true,
+  },
+  { key: "parcelReceivePerBox", label: "Parcel receiving (/box)", hint: "Default $0.75", money: true },
+  { key: "parcelOutboundPerBox", label: "Parcel outbound (/box)", hint: "Default $0.50", money: true },
+  {
+    key: "parcelOversizePerPalletDay",
+    label: "Oversize parcel (/pallet position/day)",
+    hint: "A box that takes a full pallet spot. Default $1.65.",
+    money: true,
+  },
   { key: "handStackPerHour", label: "Hand-stack (/hr)", money: true },
   {
     key: "sortRelabelPerHour",

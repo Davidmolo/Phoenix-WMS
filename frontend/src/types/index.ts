@@ -22,6 +22,10 @@ export type Customer = {
   serviceRework?: boolean;
   reworkHourlyRate?: number | null;
   reworkMinimumHours?: number | null;
+  parcelStoragePerBoxDay?: number | null;
+  parcelReceivePerBox?: number | null;
+  parcelOutboundPerBox?: number | null;
+  parcelOversizePerPalletDay?: number | null;
   transportEnabled?: boolean;
   transportInboundFee?: number;
   transportOutboundFee?: number;

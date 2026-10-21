@@ -34,7 +34,17 @@ const palletSchema = new Schema(
     customRateOutside: { type: Number, default: null },
     lpnIds: [{ type: Schema.Types.ObjectId, ref: "Lpn" }],
     notes: { type: String, default: "" },
+    receiptKind: { type: String, enum: ["pallet", "parcel"], default: "pallet" },
+    parcelOversize: { type: Boolean, default: false },
     receiptPhotoPaths: { type: [String], default: [] },
+    lastCountedAt: { type: Date, default: null },
+    /** due is computed. moved / store_override / discrepancy are set by the workflow. */
+    countFlag: {
+      type: String,
+      enum: ["", "moved", "store_override", "discrepancy"],
+      default: "",
+    },
+    countFlagNote: { type: String, default: "" },
   },
   { timestamps: true }
 );

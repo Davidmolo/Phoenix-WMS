@@ -469,6 +469,10 @@ router.patch("/:id", async (req, res, next) => {
       req.body.crossdockPerPallet !== undefined ||
       req.body.reworkHourlyRate !== undefined ||
       req.body.reworkMinimumHours !== undefined ||
+      req.body.parcelStoragePerBoxDay !== undefined ||
+      req.body.parcelReceivePerBox !== undefined ||
+      req.body.parcelOutboundPerBox !== undefined ||
+      req.body.parcelOversizePerPalletDay !== undefined ||
       req.body.rateInsideSqft !== undefined ||
       req.body.rateOutsideSqft !== undefined ||
       req.body.contractNoDwellInside !== undefined ||
@@ -500,6 +504,18 @@ router.patch("/:id", async (req, res, next) => {
       }
       if (req.body.reworkMinimumHours !== undefined) {
         customer.reworkMinimumHours = nullableRate(req.body.reworkMinimumHours);
+      }
+      if (req.body.parcelStoragePerBoxDay !== undefined) {
+        customer.parcelStoragePerBoxDay = nullableRate(req.body.parcelStoragePerBoxDay);
+      }
+      if (req.body.parcelReceivePerBox !== undefined) {
+        customer.parcelReceivePerBox = nullableRate(req.body.parcelReceivePerBox);
+      }
+      if (req.body.parcelOutboundPerBox !== undefined) {
+        customer.parcelOutboundPerBox = nullableRate(req.body.parcelOutboundPerBox);
+      }
+      if (req.body.parcelOversizePerPalletDay !== undefined) {
+        customer.parcelOversizePerPalletDay = nullableRate(req.body.parcelOversizePerPalletDay);
       }
       if (req.body.rateInsideSqft !== undefined) {
         customer.rateInsideSqft = nullableRate(req.body.rateInsideSqft);
