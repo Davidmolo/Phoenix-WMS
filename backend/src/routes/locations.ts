@@ -32,7 +32,10 @@ router.get("/", async (req, res, next) => {
         await migrateFlatFloorCodes(companyId, String(warehouse._id));
       }
     }
-    if (req.query.available === "true") filter.palletId = null;
+    if (req.query.available === "true") {
+      filter.palletId = null;
+      filter.active = { $ne: false };
+    }
 
     const locations = await Location.find(filter).sort({ aisle: 1, code: 1 }).limit(6000);
     res.json({ locations });

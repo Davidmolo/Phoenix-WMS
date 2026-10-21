@@ -79,7 +79,7 @@ export async function assignLocationGroups(opts: {
     active: { $ne: false },
     code: STANDARD_CODE,
   })
-    .sort({ aisle: 1, row: 1, col: 1, code: 1 })
+    .sort({ aisle: 1, row: 1, level: 1, col: 1, spot: 1, code: 1 })
     .lean()) as LocLean[];
 
   if (preferred.length > 0) {

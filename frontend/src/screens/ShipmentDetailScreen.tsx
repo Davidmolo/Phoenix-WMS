@@ -332,19 +332,21 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setBolErr("");
     setBolMsg("");
     try {
-      const photos: string[] = [];
-      for (const file of Array.from(files)) {
-        const dataUrl = await readFileAsDataUrl(file);
-        photos.push(dataUrl);
-      }
-      await api(`/shipments/${shipmentId}/bol/photos`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ photos }),
+      await holdScroll(async () => {
+        const photos: string[] = [];
+        for (const file of Array.from(files)) {
+          const dataUrl = await readFileAsDataUrl(file);
+          photos.push(dataUrl);
+        }
+        await api(`/shipments/${shipmentId}/bol/photos`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({ photos }),
+        });
+        setBolMsg(`${photos.length} exception photo(s) uploaded`);
+        invalidateApiCache();
+        await reload();
       });
-      setBolMsg(`${photos.length} exception photo(s) uploaded`);
-      invalidateApiCache();
-      await reload();
     } catch (ex) {
       setBolErr(ex instanceof Error ? ex.message : "Could not upload photos");
     } finally {
@@ -359,18 +361,20 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setBolErr("");
     setBolMsg("");
     try {
-      const result = await api<{
-        invoice?: { number?: string } | null;
-        quickbooks?: { pushed?: boolean } | null;
-      }>(`/shipments/${shipmentId}/bol/close`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ createInvoice: true, lienOverride }),
+      await holdScroll(async () => {
+        const result = await api<{
+          invoice?: { number?: string } | null;
+          quickbooks?: { pushed?: boolean } | null;
+        }>(`/shipments/${shipmentId}/bol/close`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({ createInvoice: true, lienOverride }),
+        });
+        const inv = result.invoice?.number ? ` · Invoice ${result.invoice.number}` : "";
+        setBolMsg(`BOL closed and locked${inv}`);
+        invalidateApiCache();
+        await reload();
       });
-      const inv = result.invoice?.number ? ` · Invoice ${result.invoice.number}` : "";
-      setBolMsg(`BOL closed and locked${inv}`);
-      invalidateApiCache();
-      await reload();
     } catch (ex) {
       setBolErr(ex instanceof Error ? ex.message : "Could not close BOL");
     } finally {
@@ -391,14 +395,16 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
     setBolErr("");
     setBolMsg("");
     try {
-      await api(`/shipments/${shipmentId}/bol/amend`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ reason: reason.trim() }),
+      await holdScroll(async () => {
+        await api(`/shipments/${shipmentId}/bol/amend`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({ reason: reason.trim() }),
+        });
+        setBolMsg("Amendment started — re-sign both parties, then Close BOL again");
+        invalidateApiCache();
+        await reload();
       });
-      setBolMsg("Amendment started — re-sign both parties, then Close BOL again");
-      invalidateApiCache();
-      await reload();
     } catch (ex) {
       setBolErr(ex instanceof Error ? ex.message : "Could not amend");
     } finally {

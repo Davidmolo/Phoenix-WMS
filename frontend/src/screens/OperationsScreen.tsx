@@ -27,6 +27,7 @@ import {
   PageHeader,
   SearchableSelect,
   Select,
+  Spinner,
   statusLabel,
   statusTone,
   type Column,
@@ -82,7 +83,9 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
           : "Receive → assign location → print label → Store scan → Ship. Outbound only uses Close BOL to invoice.";
   const [shipPage, setShipPage] = useState(1);
   const { data: custData } = useApiQuery<{ customers: Customer[] }>("/customers?portal=all");
-  const { data: whData } = useApiQuery<{ warehouses: Warehouse[] }>("/warehouses");
+  const { data: whData, loading: warehousesLoading } = useApiQuery<{ warehouses: Warehouse[] }>(
+    "/warehouses"
+  );
   const { data: dashData, reload: reloadDash } = useApiQuery<{ kpis: DashboardKpis }>("/dashboard");
   const shipPath = useMemo(() => listQuery("/shipments", { page: shipPage }), [shipPage]);
   const { data: shipData, reload: reloadShipments, loading: shipsLoading } = useApiQuery<
@@ -111,9 +114,9 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const customers = custData?.customers ?? [];
   const kpis = dashData?.kpis;
 
-  const { data: locData, reload: reloadLocs } = useApiQuery<{ locations: Location[] }>(
-    warehouse ? `/locations?warehouseId=${warehouse._id}&available=true` : null
-  );
+  const { data: locData, loading: locsLoading, reload: reloadLocs } = useApiQuery<{
+    locations: Location[];
+  }>(warehouse ? `/locations?warehouseId=${warehouse._id}&available=true` : null);
 
   const [customerId, setCustomerId] = useState("");
   const [expectedShipmentId, setExpectedShipmentId] = useState("");
@@ -285,7 +288,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     setShipWeightLbs(sum > 0 ? String(Math.round(sum * 100) / 100) : "");
   }, [selectedShipIds, activePallets]);
 
-  const availableLocations = locData?.locations ?? [];
+  const availableLocations = (locData?.locations ?? []).filter((loc) => loc.active !== false);
+  const locationsPending = warehousesLoading || (Boolean(warehouse) && locsLoading && !locData);
 
   /** Open shipment Bill of Lading section; optional print runs the incomplete-info confirm there. */
   function goToBol(shipmentId: string, opts?: { print?: boolean }) {
@@ -664,7 +668,10 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
             label="Available"
             value={kpis?.availableSqft != null ? `${kpis.availableSqft.toLocaleString()} SF` : "…"}
           />
-          <MiniStat label="Open slots" value={availableLocations.length} />
+          <MiniStat
+            label="Open slots"
+            value={locationsPending ? "…" : availableLocations.length}
+          />
         </div>
       ) : null}
 
@@ -781,6 +788,12 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                   <MapPin className="h-3.5 w-3.5 text-accent" />
                   Location
                 </div>
+                {locationsPending ? (
+                  <div className="mb-3 flex items-center gap-2 text-xs text-muted">
+                    <Spinner className="h-4 w-4" />
+                    Loading warehouse locations…
+                  </div>
+                ) : null}
                 <Field label="Assignment" hint="Next available is the default (Cesar).">
                   <Select
                     value={locationMode}
@@ -794,8 +807,13 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 </Field>
                 {locationMode === "choose" ? (
                   <div className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-white p-2 sm:max-h-56">
-                    {availableLocations.length === 0 ? (
-                      <p className="m-0 p-2 text-xs text-muted">No open locations.</p>
+                    {locationsPending ? (
+                      <div className="flex items-center gap-2 p-2 text-xs text-muted">
+                        <Spinner className="h-4 w-4" />
+                        Loading warehouse locations…
+                      </div>
+                    ) : availableLocations.length === 0 ? (
+                      <p className="m-0 p-2 text-xs text-muted">No open locations on active levels.</p>
                     ) : (
                       availableLocations.map((loc) => {
                         const checked = chosenLocationIds.includes(loc._id);
@@ -975,18 +993,25 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
               </label>
             ) : null}
             {receiptKind === "parcel" && !parcelHold ? (
-              <Field label="Location" hint="One open slot. Search by code, for example A1A-1.">
-                <SearchableSelect
-                  value={chosenLocationIds[0] || ""}
-                  onChange={(id) => setChosenLocationIds(id ? [id] : [])}
-                  options={availableLocations
-                    .filter((loc) => !loc.palletId)
-                    .map((loc) => ({ value: loc._id, label: loc.code }))}
-                  allowEmpty
-                  emptyOptionLabel="Select a location"
-                  placeholder="Search location…"
-                  searchPlaceholder="Lane, level, column…"
-                />
+              <Field label="Location" hint="One open slot on an active level. Search by code, for example A1A-1.">
+                {locationsPending ? (
+                  <div className="flex items-center gap-2 text-xs text-muted">
+                    <Spinner className="h-4 w-4" />
+                    Loading warehouse locations…
+                  </div>
+                ) : (
+                  <SearchableSelect
+                    value={chosenLocationIds[0] || ""}
+                    onChange={(id) => setChosenLocationIds(id ? [id] : [])}
+                    options={availableLocations
+                      .filter((loc) => !loc.palletId)
+                      .map((loc) => ({ value: loc._id, label: loc.code }))}
+                    allowEmpty
+                    emptyOptionLabel="Select a location"
+                    placeholder="Search location…"
+                    searchPlaceholder="Lane, level, column…"
+                  />
+                )}
               </Field>
             ) : null}
             <Field label="Packing slip / condition photos" hint="Optional. Attached to this receipt.">
