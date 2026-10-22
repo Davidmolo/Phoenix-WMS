@@ -32,6 +32,7 @@ export async function api<T>(
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...rest,
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -64,6 +65,7 @@ export async function apiFetchHtml(path: string, token?: string | null): Promise
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
   } catch (err) {

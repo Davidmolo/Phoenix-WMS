@@ -22,7 +22,7 @@ import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
 import { dateLabel } from "@/lib/format";
 import { listQuery, paginationFrom, type PaginationMeta } from "@/lib/pagination";
-import type { WhRequest } from "@/types";
+import type { Pallet, WhRequest } from "@/types";
 
 type RequestsResponse = { requests: WhRequest[] } & PaginationMeta;
 
@@ -46,6 +46,15 @@ export default function RequestsPage() {
   const [notes, setNotes] = useState("");
   const [abnormalPallets, setAbnormalPallets] = useState(false);
   const [abnormalPalletSize, setAbnormalPalletSize] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
+  const [dateNeeded, setDateNeeded] = useState("");
+  const [pickedPalletIds, setPickedPalletIds] = useState<string[]>([]);
+  const { data: myPallets } = useApiQuery<{ pallets: Pallet[] }>(
+    isPortal && type === "Outbound" ? "/pallets?limit=200" : null
+  );
+  const shippablePallets = (myPallets?.pallets ?? []).filter((p) =>
+    ["stored", "staged", "staged_for_store", "staged_for_shipping"].includes(p.status)
+  );
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -77,6 +86,9 @@ export default function RequestsPage() {
           status: "pending",
           abnormalPallets,
           abnormalPalletSize: abnormalPallets ? abnormalPalletSize.trim() : "",
+          weightLbs: weightLbs === "" ? null : Number(weightLbs),
+          dateNeeded: dateNeeded || null,
+          palletIds: type === "Outbound" ? pickedPalletIds : [],
         }),
       });
       setMsg(
@@ -88,6 +100,9 @@ export default function RequestsPage() {
       setNotes("");
       setAbnormalPallets(false);
       setAbnormalPalletSize("");
+      setWeightLbs("");
+      setDateNeeded("");
+      setPickedPalletIds([]);
       setPage(1);
       invalidateApiCache("/requests");
       await reload();
@@ -246,15 +261,59 @@ export default function RequestsPage() {
                   <option value="Outbound">Outbound</option>
                 </Select>
               </Field>
-              <Field label="Pallet qty">
+              <Field
+                label={type === "Outbound" && pickedPalletIds.length > 0 ? "Pallet qty (from the list)" : "Pallet qty"}
+                hint={type === "Outbound" ? "Used when you do not pick specific pallets below." : undefined}
+              >
                 <Input
                   type="number"
                   min={1}
-                  value={qty}
+                  value={type === "Outbound" && pickedPalletIds.length > 0 ? pickedPalletIds.length : qty}
                   onChange={(e) => setQty(Number(e.target.value))}
+                  disabled={type === "Outbound" && pickedPalletIds.length > 0}
                 />
               </Field>
+              <Field label="Weight (lbs)" hint="Total weight for this request.">
+                <Input
+                  type="number"
+                  min={0}
+                  value={weightLbs}
+                  onChange={(e) => setWeightLbs(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+              <Field label="Date needed">
+                <Input type="date" value={dateNeeded} onChange={(e) => setDateNeeded(e.target.value)} />
+              </Field>
             </FormGrid>
+            {type === "Outbound" ? (
+              <Field label="Pallets to ship" hint="Check the ones you want. Leave them all unchecked to send a quantity only.">
+                {shippablePallets.length === 0 ? (
+                  <p className="m-0 text-sm text-muted">No stored or staged pallets on your account yet.</p>
+                ) : (
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-white p-2">
+                    {shippablePallets.map((p) => (
+                      <label key={p._id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-[var(--accent)]"
+                          checked={pickedPalletIds.includes(p._id)}
+                          onChange={() =>
+                            setPickedPalletIds((ids) =>
+                              ids.includes(p._id) ? ids.filter((id) => id !== p._id) : [...ids, p._id]
+                            )
+                          }
+                        />
+                        <span className="font-mono font-semibold text-navy">{p.externalId}</span>
+                        <span className="text-xs text-muted">
+                          {p.locationCode || "no location"} · {p.jobName || p.poNumber || p.description || p.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </Field>
+            ) : null}
             <Field label="PO / Job name" required>
               <Input
                 value={poOrJob}
@@ -328,6 +387,8 @@ export default function RequestsPage() {
             <p className="m-0"><span className="font-semibold text-navy">Status: </span>{openRequest.status}</p>
             <p className="m-0"><span className="font-semibold text-navy">Qty: </span>{openRequest.qty}</p>
             <p className="m-0"><span className="font-semibold text-navy">PO / Job: </span>{openRequest.jobName || openRequest.poNumber || openRequest.ref || "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Weight: </span>{openRequest.weightLbs != null ? `${openRequest.weightLbs} lbs` : "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Date needed: </span>{openRequest.scheduledDate ? dateLabel(openRequest.scheduledDate) : "—"}</p>
             <p className="m-0"><span className="font-semibold text-navy">Requested: </span>{dateLabel(openRequest.dateRequested)}</p>
             <p className="m-0"><span className="font-semibold text-navy">Notes: </span>{openRequest.notes || "—"}</p>
             {openRequest.abnormalPallets ? (

@@ -23,6 +23,9 @@ const requestSchema = new Schema(
     abnormalPallets: { type: Boolean, default: false },
     /** Free-text sizes when abnormalPallets is true (e.g. 48x60, oversized). */
     abnormalPalletSize: { type: String, default: "" },
+    weightLbs: { type: Number, default: null },
+    /** Outbound: the customer's own pallets, when they pick them. */
+    palletIds: [{ type: Schema.Types.ObjectId, ref: "Pallet" }],
     dateRequested: { type: Date, default: Date.now },
     scheduledDate: { type: Date, default: null },
   },

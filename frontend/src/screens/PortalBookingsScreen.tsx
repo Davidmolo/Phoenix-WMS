@@ -108,6 +108,7 @@ export default function PortalBookingsScreen() {
   const [trailerType, setTrailerType] = useState("");
   const [loadType, setLoadType] = useState("");
   const [palletCount, setPalletCount] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [notes, setNotes] = useState("");
@@ -191,6 +192,7 @@ export default function PortalBookingsScreen() {
     setTrailerType("");
     setLoadType("");
     setPalletCount("");
+    setWeightLbs("");
     setOrigin("");
     setDestination("");
     setNotes("");
@@ -211,6 +213,7 @@ export default function PortalBookingsScreen() {
         `Role: ${role}`,
         trailerType ? `Trailer: ${trailerType}` : null,
         loadType ? `Load: ${loadType}` : null,
+        weightLbs ? `Weight: ${weightLbs} lbs` : null,
         origin ? `Origin: ${origin}` : null,
         destination ? `Destination: ${destination}` : null,
         notes || null,
@@ -233,6 +236,7 @@ export default function PortalBookingsScreen() {
           freight: {
             trailerNumber: trailerType || undefined,
             palletCount: palletCount ? Number(palletCount) : undefined,
+            weightLbs: weightLbs ? Number(weightLbs) : undefined,
             details: freightNotes,
           },
           createRequest: true,
@@ -388,6 +392,15 @@ export default function PortalBookingsScreen() {
                     value={loadType}
                     onChange={(e) => setLoadType(e.target.value)}
                     placeholder="e.g. Palletized retail"
+                  />
+                </Field>
+                <Field label="Weight (lbs)">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={weightLbs}
+                    onChange={(e) => setWeightLbs(e.target.value)}
+                    placeholder="Optional"
                   />
                 </Field>
                 <Field label="Pallets / pieces">

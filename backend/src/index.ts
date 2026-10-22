@@ -37,6 +37,10 @@ async function main() {
     })
   );
   app.use("/api/uploads", express.static(uploadsRoot));
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
   app.use("/api", routes);
   // Signed BOL HTML + exception photos (paths under uploads/)
   app.use("/uploads", express.static(uploadsRoot));

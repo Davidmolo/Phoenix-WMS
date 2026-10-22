@@ -74,6 +74,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [printPallets, setPrintPallets] = useState<Pallet[] | null>(null);
   const [editOpen, setEditOpen] = useState(false);
 
@@ -223,6 +224,12 @@ export default function InventoryPage() {
       render: (p) => p.description || "—",
     },
     {
+      key: "weight",
+      header: "Weight",
+      className: "tabular-nums",
+      render: (p) => (p.weightLbs != null ? `${p.weightLbs} lbs` : "—"),
+    },
+    {
       key: "sqft",
       header: "Sq ft",
       className: "tabular-nums",
@@ -333,7 +340,10 @@ export default function InventoryPage() {
           loading={loading}
           emptyTitle="No pallets in this filter"
           emptyDescription="Receive inbound freight to populate inventory."
-          onRowClick={(p) => setSelectedId(p._id)}
+          onRowClick={(p) => {
+            setSelectedId(p._id);
+            if (!isStaff) setDetailOpen(true);
+          }}
           selectedKey={selectedId}
           pagination={pagination}
           onPageChange={setPage}
@@ -515,6 +525,26 @@ export default function InventoryPage() {
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
           </Field>
         </form>
+      </Modal>
+
+      <Modal
+        open={detailOpen && !isStaff && Boolean(selected)}
+        onClose={() => setDetailOpen(false)}
+        title={selected ? selected.externalId : "Pallet"}
+        description="Pallet detail"
+        size="md"
+      >
+        {selected ? (
+          <div className="space-y-2 text-sm text-muted">
+            <p className="m-0"><span className="font-semibold text-navy">Status: </span>{statusLabel(selected.status)}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Location: </span>{locationCode(selected)}</p>
+            <p className="m-0"><span className="font-semibold text-navy">PO / Job: </span>{selected.jobName || selected.poNumber || "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Description: </span>{selected.description || "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Weight: </span>{selected.weightLbs != null ? `${selected.weightLbs} lbs` : "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Sq ft: </span>{selected.sqft != null ? selected.sqft : "—"}</p>
+            <p className="m-0"><span className="font-semibold text-navy">Received: </span>{dateLabel(selected.receivedAt)}</p>
+          </div>
+        ) : null}
       </Modal>
 
       {printPallets ? (

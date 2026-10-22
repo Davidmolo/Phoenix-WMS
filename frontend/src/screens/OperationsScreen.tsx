@@ -247,8 +247,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       (palletData?.pallets ?? []).filter(
         (p) =>
           p.status === "staged_for_store" &&
-          !storedAwayIds.includes(p._id) &&
-          !storedAwayCodes.includes(p.externalId.toUpperCase())
+          !storedAwayIds.includes(String(p._id)) &&
+          !storedAwayCodes.includes(p.externalId.toUpperCase().replace(/-B$/, ""))
       ),
     [palletData, storedAwayIds, storedAwayCodes]
   );
@@ -445,14 +445,17 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       if (scanned) {
         setStoredAwayCodes((codes) => (codes.includes(scanned) ? codes : [...codes, scanned]));
       }
-      if (result.pallet?._id) {
-        const id = result.pallet._id;
-        setStoredAwayIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+      const storedId = result.pallet?._id ? String(result.pallet._id) : "";
+      if (storedId) {
+        setStoredAwayIds((ids) => (ids.includes(storedId) ? ids : [...ids, storedId]));
       }
       setStorePalletCode("");
       setStoreLocationCode("");
       invalidateApiCache();
       await Promise.all([reloadPallets(), reloadLocs(), reloadDash()]);
+      window.setTimeout(() => {
+        void reloadPallets();
+      }, 600);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Store failed");
     } finally {

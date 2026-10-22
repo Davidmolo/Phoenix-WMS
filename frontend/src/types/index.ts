@@ -100,6 +100,9 @@ export type WhRequest = {
   notes?: string;
   abnormalPallets?: boolean;
   abnormalPalletSize?: string;
+  weightLbs?: number | null;
+  scheduledDate?: string | null;
+  palletIds?: string[];
   dateRequested: string;
   customerId?: string | { _id: string; name?: string; billingMethod?: string };
 };

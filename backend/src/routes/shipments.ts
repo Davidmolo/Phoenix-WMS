@@ -347,7 +347,15 @@ router.get("/:id", async (req, res, next) => {
       customer?._id
         ? await customerHasLienHold(String(shipment.companyId), String(customer._id))
         : null;
-    res.json({ shipment, pallets, bol, lien });
+    if (req.auth!.role === "customer" && shipment.notes) {
+      const visible = String(shipment.notes)
+        .split("\n")
+        .filter((line) => !/lien hold overridden/i.test(line))
+        .join("\n")
+        .trim();
+      shipment.notes = visible;
+    }
+    res.json({ shipment, pallets, bol, lien: req.auth!.role === "customer" ? null : lien });
   } catch (err) {
     next(err);
   }

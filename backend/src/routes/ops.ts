@@ -145,6 +145,7 @@ router.get("/invoices", async (req, res, next) => {
     const filter: Record<string, unknown> = { companyId: req.auth!.companyId };
     if (req.auth!.role === "customer") {
       filter.customerId = req.auth!.customerId;
+      filter.status = { $ne: "draft" };
     } else if (req.query.customerId) {
       filter.customerId = req.query.customerId;
     }
@@ -416,6 +417,45 @@ router.patch("/invoices/:id", requireRole("admin"), async (req, res, next) => {
       qbSync,
       hint,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Delete is a void when the invoice is in QuickBooks, so the accounting record is not erased.
+ * WMS-only invoices (no QuickBooks id) are removed.
+ */
+router.delete("/invoices/:id", requireRole("admin"), async (req, res, next) => {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      companyId: req.auth!.companyId,
+    });
+    if (!invoice) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    if (invoice.quickbooksId) {
+      invoice.status = "void";
+      invoice.balanceDue = 0;
+      const note = `Voided by ${req.auth!.email || "admin"} ${new Date().toISOString()}`;
+      invoice.notes = invoice.notes ? `${invoice.notes}\n${note}` : note;
+      await invoice.save();
+      const { updateInvoiceInQuickBooks } = await import("../services/quickbooks");
+      const qbSync = await updateInvoiceInQuickBooks(String(invoice._id));
+      res.json({
+        voided: true,
+        deleted: false,
+        qbSync,
+        hint: qbSync?.voided
+          ? "Invoice voided in WMS and QuickBooks."
+          : "Invoice voided in WMS. QuickBooks was not hard-deleted.",
+      });
+      return;
+    }
+    await invoice.deleteOne();
+    res.json({ deleted: true, voided: false, hint: "WMS-only invoice removed." });
   } catch (err) {
     next(err);
   }

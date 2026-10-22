@@ -51,12 +51,38 @@ router.post("/", async (req, res, next) => {
       return;
     }
 
+    const palletIds = Array.isArray(req.body.palletIds)
+      ? req.body.palletIds.map(String).filter(Boolean)
+      : [];
+    if (palletIds.length && req.auth!.role === "customer") {
+      const { Pallet } = await import("../models/Pallet");
+      const owned = await Pallet.countDocuments({
+        _id: { $in: palletIds },
+        companyId: req.auth!.companyId,
+        customerId,
+      });
+      if (owned !== palletIds.length) {
+        res.status(400).json({ error: "One or more selected pallets are not on your account." });
+        return;
+      }
+    }
+    const weightRaw = req.body.weightLbs;
+    const weightLbs =
+      weightRaw != null && weightRaw !== "" && Number.isFinite(Number(weightRaw))
+        ? Number(weightRaw)
+        : null;
+    const dateNeeded = req.body.dateNeeded || req.body.scheduledDate;
     const request = await WhRequest.create({
       ...req.body,
       companyId: req.auth!.companyId,
       customerId,
       abnormalPallets,
       abnormalPalletSize,
+      weightLbs,
+      palletIds,
+      qty: palletIds.length > 0 ? palletIds.length : req.body.qty,
+      palletCount: palletIds.length > 0 ? palletIds.length : req.body.palletCount || req.body.qty,
+      scheduledDate: dateNeeded ? new Date(dateNeeded) : null,
       dateRequested: new Date(),
     });
     const populated = await WhRequest.findById(request._id).populate(

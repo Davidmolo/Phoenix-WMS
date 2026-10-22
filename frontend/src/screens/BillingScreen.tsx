@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Link2, Mail, Pencil, Printer, RefreshCw, Search, Unlink } from "lucide-react";
+import { FileText, Link2, Mail, Pencil, Printer, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
 import {
@@ -100,6 +100,7 @@ export default function BillingPage() {
     type: string;
   };
   const [editInv, setEditInv] = useState<InvoiceRow | null>(null);
+  const [viewInv, setViewInv] = useState<InvoiceRow | null>(null);
   const [editStatus, setEditStatus] = useState("unpaid");
   const [editTotal, setEditTotal] = useState("");
   const [editBalance, setEditBalance] = useState("");
@@ -259,6 +260,35 @@ export default function BillingPage() {
       }
     },
     [token, reload]
+  );
+
+  const removeInvoice = useCallback(
+    async (inv: InvoiceRow) => {
+      if (!token) return;
+      const linked = Boolean(inv.quickbooksId);
+      const ok = await dialog.confirm({
+        title: linked ? "Void invoice" : "Delete invoice",
+        message: linked
+          ? `${inv.number} is linked to QuickBooks. This voids it in WMS and in QuickBooks. It does not erase the QuickBooks invoice.`
+          : `${inv.number} exists only in WMS. This removes it.`,
+        confirmLabel: linked ? "Void invoice" : "Delete invoice",
+      });
+      if (!ok) return;
+      setEditErr("");
+      setEditMsg("");
+      try {
+        const result = await api<{ hint?: string }>(`/invoices/${inv._id}`, {
+          method: "DELETE",
+          token,
+        });
+        setEditMsg(result.hint || (linked ? "Invoice voided." : "Invoice deleted."));
+        invalidateApiCache("/invoices");
+        void reload();
+      } catch (ex) {
+        setEditErr(ex instanceof Error ? ex.message : "Could not delete invoice");
+      }
+    },
+    [token, reload, dialog]
   );
 
   function openEdit(inv: InvoiceRow) {
@@ -493,26 +523,41 @@ export default function BillingPage() {
               Email Pay Now
             </Button>
             {isAdmin ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                icon={<Pencil className="h-3.5 w-3.5" />}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openEdit(inv);
-                }}
-              >
-                Edit
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Pencil className="h-3.5 w-3.5" />}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openEdit(inv);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Trash2 className="h-3.5 w-3.5" />}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void removeInvoice(inv);
+                  }}
+                >
+                  {inv.quickbooksId ? "Void" : "Delete"}
+                </Button>
+              </>
             ) : null}
           </div>
         ),
       });
     }
     return cols;
-  }, [isStaff, isAdmin, sendingId, sendInvoice]);
+  }, [isStaff, isAdmin, sendingId, sendInvoice, removeInvoice]);
 
   function clearFilters() {
     setFromDate("");
@@ -780,7 +825,41 @@ export default function BillingPage() {
         }
         pagination={paginationFrom(data)}
         onPageChange={setPage}
+        onRowClick={isStaff ? undefined : (inv) => setViewInv(inv)}
       />
+
+      <Modal
+        open={Boolean(viewInv)}
+        onClose={() => setViewInv(null)}
+        title={viewInv ? viewInv.number : "Invoice"}
+        description={viewInv ? statusLabel(viewInv.status) : undefined}
+        size="md"
+      >
+        {viewInv ? (
+          <div className="space-y-3 text-sm">
+            <p className="m-0 text-muted">
+              <span className="font-semibold text-navy">Invoice total: </span>
+              {money(viewInv.total)}
+              <span className="font-semibold text-navy"> · Balance due: </span>
+              {money(balanceDueOf(viewInv))}
+            </p>
+            {(viewInv.lines ?? []).length === 0 ? (
+              <p className="m-0 text-muted">No line items on this invoice.</p>
+            ) : (
+              <ul className="m-0 list-none space-y-2 p-0">
+                {(viewInv.lines ?? []).map((line, index) => (
+                  <li key={`${line.description}-${index}`} className="border-b border-border pb-2">
+                    <div className="font-semibold text-navy">{line.description}</div>
+                    <div className="text-muted">
+                      {line.qty ?? 1} × {money(line.unitAmount ?? line.amount)} · {money(line.amount)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal
         open={Boolean(editInv) && isAdmin}

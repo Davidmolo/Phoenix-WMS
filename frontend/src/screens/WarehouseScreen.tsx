@@ -147,7 +147,7 @@ export default function WarehousePage() {
               Available
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-3 w-3 rounded border border-dashed border-border bg-surface" />
+              <span className="h-3 w-3 rounded border border-dashed border-muted bg-[repeating-linear-gradient(135deg,transparent_0_3px,rgba(15,39,68,0.14)_3px_4px)]" />
               Inactive — skipped by Next available
             </span>
           </div>
@@ -201,7 +201,7 @@ export default function WarehousePage() {
                               className={cn(
                                 "rounded border px-0.5 py-1 text-center leading-none",
                                 off
-                                  ? "border-dashed border-border bg-surface text-muted"
+                                  ? "border-dashed border-muted bg-[repeating-linear-gradient(135deg,transparent_0_3px,rgba(15,39,68,0.14)_3px_4px)] text-muted"
                                   : taken
                                     ? "border-accent/50 bg-accent-bg text-accent-dark"
                                     : "border-border bg-surface-2 text-navy",
@@ -236,7 +236,11 @@ export default function WarehousePage() {
                 <span className="text-muted">
                   {" "}
                   is lane {selectedParts.lane}, level {selectedParts.level}, column {selectedParts.column}, spot {selectedParts.spot}.
-                  {occupied.has(selected) ? " Filled." : " Available."}
+                  {inactive.has(selected)
+                    ? " Inactive."
+                    : occupied.has(selected)
+                      ? " Filled."
+                      : " Available."}
                 </span>
               </p>
               <p className="m-0 text-xs text-muted sm:col-span-2">
