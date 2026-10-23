@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import type { InputHTMLAttributes, ReactNode } from "react";
+import { forwardRef, type InputHTMLAttributes, ReactNode } from "react";
 
 type Props = InputHTMLAttributes<HTMLInputElement> & {
   icon?: ReactNode;
@@ -13,17 +13,20 @@ const baseInputClass =
   "read-only:bg-surface-2 read-only:text-navy " +
   "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
 
-export function Input({ className, icon, ...props }: Props) {
+export const Input = forwardRef<HTMLInputElement, Props>(function Input(
+  { className, icon, ...props },
+  ref
+) {
   if (icon) {
     return (
       <div className="relative">
         <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint">
           {icon}
         </span>
-        <input className={cn(baseInputClass, "py-1.5 pr-3 pl-9", className)} {...props} />
+        <input ref={ref} className={cn(baseInputClass, "py-1.5 pr-3 pl-9", className)} {...props} />
       </div>
     );
   }
 
-  return <input className={cn(baseInputClass, "px-2.5 py-1.5", className)} {...props} />;
-}
+  return <input ref={ref} className={cn(baseInputClass, "px-2.5 py-1.5", className)} {...props} />;
+});

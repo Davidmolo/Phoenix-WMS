@@ -79,6 +79,7 @@ export function useApiQuery<T>(path: string | null, options: Options = {}) {
       if (!token || !path) return;
       const k = cacheKey(token, path);
       const id = ++fetchId.current;
+      const genAtStart = cacheGen;
       const hasTrusted = isTrusted(cache.get(k));
 
       if (hasTrusted || opts?.silent) setRefreshing(true);
@@ -91,7 +92,9 @@ export function useApiQuery<T>(path: string | null, options: Options = {}) {
 
       try {
         const result = await api<T>(path, { token });
-        if (id !== fetchId.current) return;
+        // A write (Confirm store, receive, …) bumped the generation while this
+        // GET was in flight. Drop it so a pre-write snapshot cannot paint over the save.
+        if (id !== fetchId.current || genAtStart !== cacheGen) return;
         cache.set(k, {
           data: result,
           error: "",

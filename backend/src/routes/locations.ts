@@ -338,7 +338,7 @@ async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
 
   const filled = new Map<string, string>();
   for (const pallet of active) {
-    let changed = false;
+    const $set: Record<string, unknown> = {};
     for (const [codeField, idField] of [
       ["locationCode", "locationId"],
       ["secondaryLocationCode", "secondaryLocationId"],
@@ -346,17 +346,17 @@ async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
       const next = toStandardBayCode(String(pallet[codeField] || ""));
       if (!next) continue;
       if (!filled.has(next)) filled.set(next, String(pallet._id));
-      if (pallet[codeField] !== next) {
-        pallet[codeField] = next;
-        changed = true;
-      }
+      if (pallet[codeField] !== next) $set[codeField] = next;
       const slot = await Location.findOne({ companyId, warehouseId, code: next }).select("_id");
       if (slot && String(pallet[idField] || "") !== String(slot._id)) {
-        pallet[idField] = slot._id;
-        changed = true;
+        $set[idField] = slot._id;
       }
     }
-    if (changed) await pallet.save();
+    // Patch location fields only. A full save here races Confirm store and
+    // writes the pre-store status back, so the pallet stays on Waiting for Store.
+    if (Object.keys($set).length) {
+      await Pallet.updateOne({ _id: pallet._id }, { $set });
+    }
   }
 
   const rack = await Location.find({
@@ -368,8 +368,25 @@ async function syncInventoryOntoLayout(companyId: string, warehouseId: string) {
     const owner = filled.get(loc.code) || null;
     const current = loc.palletId ? String(loc.palletId) : null;
     if (current === owner) continue;
-    loc.palletId = owner ? new Types.ObjectId(owner) : null;
-    await loc.save();
+    const claimsSlot = {
+      $or: [
+        { locationId: loc._id },
+        { locationCode: loc.code },
+        { secondaryLocationId: loc._id },
+        { secondaryLocationCode: loc.code },
+      ],
+    };
+    if (owner) {
+      const stillThere = await Pallet.exists({ _id: owner, ...claimsSlot });
+      if (!stillThere) continue;
+    } else if (current) {
+      const stillClaims = await Pallet.exists({ _id: current, ...claimsSlot });
+      if (stillClaims) continue;
+    }
+    await Location.updateOne(
+      { _id: loc._id, palletId: loc.palletId ?? null },
+      { $set: { palletId: owner ? new Types.ObjectId(owner) : null } }
+    );
   }
 
   await Location.updateMany(

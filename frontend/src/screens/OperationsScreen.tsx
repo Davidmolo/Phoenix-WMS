@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   PackagePlus,
   Printer,
@@ -157,6 +157,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [pickList, setPickList] = useState<PickListPayload | null>(null);
   const [storePalletCode, setStorePalletCode] = useState("");
   const [storeLocationCode, setStoreLocationCode] = useState("");
+  const storePalletRef = useRef<HTMLInputElement>(null);
+  const storeLocationRef = useRef<HTMLInputElement>(null);
   const [bolInfo, setBolInfo] = useState<{ id: string; bolNumber: string } | null>(null);
 
   // Ship-specific carrier/trailer/BOL fields — separate from the Receive form above
@@ -425,23 +427,42 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     }
   }
 
+  function fillStoreFields(palletCode: string, locationCode?: string) {
+    if (storePalletRef.current) storePalletRef.current.value = palletCode;
+    setStorePalletCode(palletCode);
+    if (locationCode && locationCode !== "—") {
+      if (storeLocationRef.current) storeLocationRef.current.value = locationCode;
+      setStoreLocationCode(locationCode);
+    }
+  }
+
   async function onStore(e: FormEvent) {
     e.preventDefault();
-    if (!token || !storePalletCode.trim() || !storeLocationCode.trim()) return;
+    // Read the inputs directly. A scanner can press Enter before React state
+    // catches up, and a list refresh can reset a controlled field mid-scan.
+    const palletCode = (storePalletRef.current?.value || storePalletCode).trim();
+    const locationCode = (storeLocationRef.current?.value || storeLocationCode).trim();
+    if (!token || !palletCode || !locationCode) {
+      setError("Scan the pallet barcode and the storage location, then confirm.");
+      return;
+    }
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const result = await api<{ message: string; pallet?: { _id?: string } }>("/pallets/store", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          palletCode: storePalletCode.trim(),
-          locationCode: storeLocationCode.trim(),
-        }),
-      });
+      const result = await api<{ message: string; pallet?: { _id?: string; externalId?: string } }>(
+        "/pallets/store",
+        {
+          method: "POST",
+          token,
+          body: JSON.stringify({ palletCode, locationCode }),
+        }
+      );
       setMessage(result.message || "Pallet stored");
-      const scanned = storePalletCode.trim().replace(/-B$/i, "").toUpperCase();
+      const scanned = (result.pallet?.externalId || palletCode)
+        .trim()
+        .replace(/-B$/i, "")
+        .toUpperCase();
       if (scanned) {
         setStoredAwayCodes((codes) => (codes.includes(scanned) ? codes : [...codes, scanned]));
       }
@@ -449,13 +470,12 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
       if (storedId) {
         setStoredAwayIds((ids) => (ids.includes(storedId) ? ids : [...ids, storedId]));
       }
+      if (storePalletRef.current) storePalletRef.current.value = "";
+      if (storeLocationRef.current) storeLocationRef.current.value = "";
       setStorePalletCode("");
       setStoreLocationCode("");
       invalidateApiCache();
       await Promise.all([reloadPallets(), reloadLocs(), reloadDash()]);
-      window.setTimeout(() => {
-        void reloadPallets();
-      }, 600);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Store failed");
     } finally {
@@ -1080,6 +1100,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
               <FormGrid cols={mode === "store" ? 2 : 1}>
                 <Field label="Pallet barcode / ID" hint="Scan or type the pallet ID from the label.">
                   <Input
+                    ref={storePalletRef}
                     value={storePalletCode}
                     onChange={(e) => setStorePalletCode(e.target.value)}
                     placeholder="e.g. PLT-20041"
@@ -1090,6 +1111,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 </Field>
                 <Field label="Storage location" hint="Scan or type the bin code.">
                   <Input
+                    ref={storeLocationRef}
                     value={storeLocationCode}
                     onChange={(e) => setStoreLocationCode(e.target.value)}
                     placeholder="e.g. A-01-01"
@@ -1122,9 +1144,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                       type="button"
                       className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-transparent px-2.5 py-2.5 text-left hover:border-border hover:bg-surface-2"
                       onClick={() => {
-                        setStorePalletCode(p.externalId);
                         const code = locationCodeOf(p.locationId, p.locationCode);
-                        if (code && code !== "—") setStoreLocationCode(code);
+                        fillStoreFields(p.externalId, code);
                       }}
                     >
                       <span className="font-mono font-semibold text-navy">{p.externalId}</span>
@@ -1157,9 +1178,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                     type="button"
                     className="font-mono font-semibold text-navy underline-offset-2 hover:underline"
                     onClick={() => {
-                      setStorePalletCode(p.externalId);
                       const code = locationCodeOf(p.locationId, p.locationCode);
-                      if (code && code !== "—") setStoreLocationCode(code);
+                      fillStoreFields(p.externalId, code);
                     }}
                   >
                     {p.externalId}

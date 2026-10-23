@@ -20,6 +20,7 @@ export function KpiCard({
   onClick?: () => void;
 }) {
   const clickable = Boolean(onClick) && !loading;
+  const text = value == null || value === "" ? "—" : String(value);
   return (
     <Card
       className={cn("overflow-hidden", clickable && "cursor-pointer hover:-translate-y-0.5")}
@@ -41,15 +42,19 @@ export function KpiCard({
       <div className="h-1 bg-[linear-gradient(90deg,var(--accent),var(--navy-soft))]" />
       <CardBody className="px-3.5 py-3 sm:px-4 sm:py-3.5">
         <div className="flex items-start gap-2.5">
-          <div className="min-w-0 flex-1">
+          <div className="@container min-w-0 flex-1">
             <div className="text-[10px] font-bold tracking-[0.06em] text-muted uppercase leading-snug">
               {label}
             </div>
             {loading ? (
               <Skeleton className="mt-2 h-7 w-16" />
             ) : (
-              <div className="font-display mt-1.5 text-[22px] leading-tight font-semibold tracking-wide tabular-nums text-navy break-words sm:text-[26px]">
-                {value ?? "—"}
+              <div
+                className="font-display mt-1.5 leading-none font-semibold tracking-tight tabular-nums whitespace-nowrap text-navy [font-size:clamp(14px,calc(100cqi/(var(--kpi-ch)*0.62)),26px)]"
+                style={{ ["--kpi-ch" as string]: Math.max(text.length, 1) }}
+                title={text}
+              >
+                {text}
               </div>
             )}
             {hint && !loading ? (
@@ -72,7 +77,7 @@ export function KpiGrid({ children, className }: { children: React.ReactNode; cl
   return (
     <div
       className={cn(
-        "mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-[repeat(auto-fit,minmax(160px,1fr))]",
+        "mb-4 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4",
         className
       )}
       style={{ gridAutoRows: "1fr" }}
