@@ -35,9 +35,17 @@ router.get("/", async (req, res, next) => {
     if (req.query.available === "true") {
       filter.palletId = null;
       filter.active = { $ne: false };
+      // Same bays as the warehouse map (A1A-1). Legacy W-1 / A-L1-S1 codes are not selectable.
+      filter.code = STANDARD_CODE;
     }
 
-    const locations = await Location.find(filter).sort({ aisle: 1, code: 1 }).limit(6000);
+    const locations = await Location.find(filter)
+      .sort(
+        req.query.available === "true"
+          ? { code: 1 }
+          : { aisle: 1, code: 1 }
+      )
+      .limit(6000);
     res.json({ locations });
   } catch (err) {
     next(err);

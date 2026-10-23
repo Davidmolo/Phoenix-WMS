@@ -290,7 +290,13 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     setShipWeightLbs(sum > 0 ? String(Math.round(sum * 100) / 100) : "");
   }, [selectedShipIds, activePallets]);
 
-  const availableLocations = (locData?.locations ?? []).filter((loc) => loc.active !== false);
+  const [locationSearch, setLocationSearch] = useState("");
+  const availableLocations = useMemo(() => {
+    const bay = /^[A-Z][1-5][A-T]-[12]$/;
+    return (locData?.locations ?? [])
+      .filter((loc) => loc.active !== false && bay.test(String(loc.code || "").toUpperCase()))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [locData]);
   const locationsPending = warehousesLoading || (Boolean(warehouse) && locsLoading && !locData);
 
   /** Open shipment Bill of Lading section; optional print runs the incomplete-info confirm there. */
@@ -829,7 +835,18 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                   </Select>
                 </Field>
                 {locationMode === "choose" ? (
-                  <div className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-white p-2 sm:max-h-56">
+                  <div className="mt-3 space-y-2">
+                    <Input
+                      value={locationSearch}
+                      onChange={(e) => setLocationSearch(e.target.value)}
+                      placeholder="Search warehouse code, e.g. A1A-1"
+                      autoComplete="off"
+                      className="font-mono"
+                    />
+                    <p className="m-0 text-[11px] text-muted">
+                      Same slots as Warehouse. A1A-1 is lane A, level 1, column A, spot 1.
+                    </p>
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-white p-2 sm:max-h-56">
                     {locationsPending ? (
                       <div className="flex items-center gap-2 p-2 text-xs text-muted">
                         <Spinner className="h-4 w-4" />
@@ -838,8 +855,13 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                     ) : availableLocations.length === 0 ? (
                       <p className="m-0 p-2 text-xs text-muted">No open locations on active levels.</p>
                     ) : (
-                      availableLocations.map((loc) => {
+                      availableLocations.filter((loc) => {
+                        const q = locationSearch.trim().toUpperCase();
+                        if (!q) return true;
+                        return loc.code.toUpperCase().includes(q);
+                      }).map((loc) => {
                         const checked = chosenLocationIds.includes(loc._id);
+                        const bay = loc.code.toUpperCase().match(/^([A-Z])([1-5])([A-T])-([12])$/);
                         const atCap =
                           !checked && chosenLocationIds.length >= slotsNeeded;
                         return (
@@ -860,7 +882,9 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                             />
                             <span className="font-mono font-semibold">{loc.code}</span>
                             <span className="text-xs text-muted">
-                              {loc.aisle} · {loc.type}
+                              {bay
+                                ? `Lane ${bay[1]} · L${bay[2]} · Col ${bay[3]} · Spot ${bay[4]}`
+                                : loc.code}
                             </span>
                           </label>
                         );
@@ -879,6 +903,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                         ? " — ready"
                         : ` — pick ${slotsNeeded - chosenLocationIds.length} more`}
                     </p>
+                  </div>
                   </div>
                 ) : (
                   <p className="m-0 mt-2 text-xs text-muted">
