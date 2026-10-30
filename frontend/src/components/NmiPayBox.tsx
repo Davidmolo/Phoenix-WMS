@@ -10,6 +10,30 @@ type Config = { ready: boolean; tokenizationKey: string; sandbox: boolean };
 
 const paymentMethods: Array<"card" | "ach"> = ["card", "ach"];
 
+/** The widget calls token create more than once. A late failure was clearing a form that had already loaded. */
+function oneTokenCreateAtATime() {
+  if (typeof window === "undefined") return;
+  const w = window as Window & { __nmiTokenCreate?: boolean };
+  if (w.__nmiTokenCreate) return;
+  w.__nmiTokenCreate = true;
+  const orig = window.fetch.bind(window);
+  let chain = Promise.resolve();
+  window.fetch = (input, init) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.includes("secure.nmi.com/token/api/create")) return orig(input, init);
+    const run = chain.then(
+      () => orig(input, init),
+      () => orig(input, init)
+    );
+    chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+}
+
 export type PayRow = { label: string; value: string; emphasize?: boolean };
 
 export function usd(amount: number) {
@@ -34,6 +58,7 @@ export default function NmiPayBox({
   const { token } = useAuth();
   const [config, setConfig] = useState<Config | null>(null);
   const [err, setErr] = useState("");
+  const [attempt, setAttempt] = useState(0);
   const due = usd(amount);
   const onPaidRef = useRef(onPaid);
   onPaidRef.current = onPaid;
@@ -76,8 +101,10 @@ export default function NmiPayBox({
   payRef.current = pay;
 
   useEffect(() => {
+    oneTokenCreateAtATime();
     const host = hostRef.current;
     if (!host || !config?.ready || !config.tokenizationKey) return;
+    host.replaceChildren();
     const widget = mountNmiPayments(host, {
       tokenizationKey: config.tokenizationKey,
       layout: "multiLine",
@@ -86,8 +113,19 @@ export default function NmiPayBox({
       payButtonText: `Pay ${due} now`,
       onPay: (event) => payRef.current(event),
     });
-    return () => widget.destroy();
-  }, [amount, config?.ready, config?.tokenizationKey, due]);
+    const watch = window.setInterval(() => {
+      const text = widget.element.shadowRoot?.textContent || "";
+      if (!text.includes("Failed to initialize payment")) return;
+      window.clearInterval(watch);
+      if (attempt < 2) setAttempt((n) => n + 1);
+    }, 700);
+    const stop = window.setTimeout(() => window.clearInterval(watch), 8000);
+    return () => {
+      window.clearInterval(watch);
+      window.clearTimeout(stop);
+      widget.destroy();
+    };
+  }, [amount, attempt, config?.ready, config?.tokenizationKey, due]);
 
   useEffect(() => {
     if (!token) return;
