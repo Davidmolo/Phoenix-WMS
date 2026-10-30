@@ -495,6 +495,13 @@ export default function BookingsScreen() {
                           {SERVICE_TYPE_OPTIONS.find((s) => s.id === b.serviceType)?.label || b.serviceType}
                           {b.phone ? ` · ${b.phone}` : ""}
                           {b.email ? ` · ${b.email}` : ""}
+                          {b.depositPaid
+                            ? ` · Deposit $${Number(b.depositAmount || 0).toFixed(2)} paid`
+                            : b.source === "portal" && b.totalAmount != null
+                              ? " · Invoiced"
+                              : b.source === "phone" || b.source === "admin"
+                                ? " · Pay at the dock"
+                                : ""}
                         </div>
                       </div>
                     </button>
@@ -630,6 +637,20 @@ export default function BookingsScreen() {
                     {SERVICE_TYPE_OPTIONS.find((s) => s.id === focused.serviceType)?.label || focused.serviceType}
                     {" · "}
                     {sourceLabel(focused.source)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold tracking-wide text-muted uppercase">Payment</div>
+                  <div className="mt-1 text-sm text-navy">
+                    {focused.depositPaid
+                      ? `Deposit $${Number(focused.depositAmount || 0).toFixed(2)} paid${
+                          focused.totalAmount ? ` of $${Number(focused.totalAmount).toFixed(2)}` : ""
+                        }. Balance is due at the dock or on the invoice.`
+                      : focused.source === "portal" && focused.totalAmount != null
+                        ? "Contract account. No deposit. The job is billed on the invoice."
+                        : focused.source === "phone" || focused.source === "admin"
+                          ? "No online deposit. Collect the full amount at the dock, or the customer can pay invoices in the portal."
+                          : "No online deposit on this booking."}
                   </div>
                 </div>
                 <div>

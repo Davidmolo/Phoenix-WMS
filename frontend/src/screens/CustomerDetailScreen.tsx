@@ -9,6 +9,7 @@ import {
   Card,
   CardBody,
   CardTitle,
+  ChipGroup,
   DataTable,
   Field,
   FormGrid,
@@ -161,6 +162,9 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
   >(invPath);
   const [showReport, setShowReport] = useState(false);
   const [palletSearch, setPalletSearch] = useState("");
+  const [palletStatus, setPalletStatus] = useState<
+    "all" | "staged_for_store" | "stored" | "staged" | "staged_for_shipping" | "shipped" | "void"
+  >("all");
 
   const c = data?.customer;
   const invoices = invData?.invoices ?? [];
@@ -860,6 +864,7 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                     variant="secondary"
                     onClick={() => {
                       const rows = (data?.pallets ?? []).filter((p) => {
+                        if (palletStatus !== "all" && p.status !== palletStatus) return false;
                         const q = palletSearch.trim().toLowerCase();
                         if (!q) return true;
                         return [p.externalId, p.description, p.jobName, p.poNumber, p.status]
@@ -885,17 +890,32 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                   </Button>
                 }
               />
-              <div className="mb-3 max-w-sm">
-                <Input
-                  type="search"
-                  value={palletSearch}
-                  onChange={(e) => setPalletSearch(e.target.value)}
-                  placeholder="Search pallet, job, PO, description…"
+              <div className="mb-3 flex flex-col gap-3">
+                <ChipGroup
+                  label="Status"
+                  size="sm"
+                  options={(
+                    ["all", "staged_for_store", "stored", "staged", "staged_for_shipping", "shipped", "void"] as const
+                  ).map((f) => ({
+                    id: f,
+                    label: f === "all" ? "All" : statusLabel(f),
+                  }))}
+                  value={palletStatus}
+                  onChange={setPalletStatus}
                 />
+                <div className="max-w-sm">
+                  <Input
+                    type="search"
+                    value={palletSearch}
+                    onChange={(e) => setPalletSearch(e.target.value)}
+                    placeholder="Search pallet, job, PO, description…"
+                  />
+                </div>
               </div>
               <DataTable
                 columns={palletCols}
                 rows={(data?.pallets ?? []).filter((p) => {
+                  if (palletStatus !== "all" && p.status !== palletStatus) return false;
                   const q = palletSearch.trim().toLowerCase();
                   if (!q) return true;
                   return [p.externalId, p.description, p.jobName, p.poNumber, p.status]

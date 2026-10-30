@@ -208,6 +208,16 @@ router.post("/", async (req, res, next) => {
         });
         return;
       }
+      const payer = customerId
+        ? await Customer.findOne({ _id: customerId, companyId }).select("billingMethod")
+        : null;
+      if (payer?.billingMethod !== "contract") {
+        res.status(402).json({
+          error: "Pay half on the payment page before this booking is confirmed.",
+          code: "DEPOSIT_REQUIRED",
+        });
+        return;
+      }
     }
 
     // Portal/WMS request link only when we have a customer account

@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 import { CalendarDays, CheckCircle2 } from "lucide-react";
 import {
   Alert,
@@ -23,9 +25,11 @@ import {
   type DaySlot,
 } from "@/components/BookingCalendar";
 import { api } from "@/lib/api";
+
+const NmiPayBox = dynamic(() => import("@/components/NmiPayBox"), { ssr: false });
 import { useAuth } from "@/lib/auth";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
-import { dateLabel } from "@/lib/format";
+import { dateLabel, money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { listQuery } from "@/lib/pagination";
 import { BookingDisclaimer, durationLabelForService, durationMinutesForService } from "@/components/BookingDisclaimer";
@@ -116,6 +120,38 @@ export default function PortalBookingsScreen() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [depositPay, setDepositPay] = useState<{
+    total: number;
+    dueNow: number;
+    balanceLater: number;
+    when: string;
+    body: Record<string, unknown>;
+  } | null>(null);
+  const paySectionRef = useRef<HTMLDivElement>(null);
+  const [noticeOn, setNoticeOn] = useState(false);
+
+  useEffect(() => {
+    if (!depositPay && !msg && !err) {
+      setNoticeOn(false);
+      return;
+    }
+    setNoticeOn(true);
+    const timer = window.setTimeout(() => setNoticeOn(false), 6000);
+    return () => window.clearTimeout(timer);
+  }, [depositPay, msg, err]);
+
+  useEffect(() => {
+    if (!depositPay) return;
+    const el = paySectionRef.current;
+    if (!el) return;
+    const frame = requestAnimationFrame(() => {
+      const header = document.querySelector("header");
+      const headerHeight = header ? header.getBoundingClientRect().height : 0;
+      const top = el.getBoundingClientRect().top + window.scrollY - headerHeight - 28;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [depositPay]);
 
   const customerPath = user?.customerId ? `/customers/${user.customerId}` : null;
   const { data: customerPayload, loading: customerLoading } = useApiQuery<{ customer: Customer }>(
@@ -200,7 +236,7 @@ export default function PortalBookingsScreen() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!token || !selectedSlot) return;
+    if (!token || !selectedSlot || depositPay) return;
     if (!profileComplete) {
       setErr("Please update your profile first before booking.");
       return;
@@ -221,26 +257,47 @@ export default function PortalBookingsScreen() {
         .filter(Boolean)
         .join(" · ");
 
+      const body = {
+        serviceType,
+        startsAt: selectedSlot.startIso,
+        source: "portal",
+        companyName: account.companyName,
+        contactName: account.contactName,
+        email: account.email,
+        phone: account.phone,
+        notes: freightNotes,
+        freight: {
+          trailerNumber: trailerType || undefined,
+          palletCount: palletCount ? Number(palletCount) : undefined,
+          weightLbs: weightLbs ? Number(weightLbs) : undefined,
+          details: freightNotes,
+        },
+        createRequest: true,
+      };
+      const quote = await api<{
+        depositRequired: boolean;
+        dueNow: number;
+        total: number;
+        balanceLater: number;
+      }>(
+        `/payments/booking-quote?serviceType=${encodeURIComponent(serviceType)}&palletCount=${encodeURIComponent(String(body.freight.palletCount || 1))}`,
+        { token }
+      );
+      if (quote.depositRequired) {
+        setDepositPay({
+          total: quote.total,
+          dueNow: quote.dueNow,
+          balanceLater: quote.balanceLater,
+          when: `${selectedDate} · ${selectedSlot.label}`,
+          body,
+        });
+        setMsg("");
+        return;
+      }
       await api("/bookings", {
         method: "POST",
         token,
-        body: JSON.stringify({
-          serviceType,
-          startsAt: selectedSlot.startIso,
-          source: "portal",
-          companyName: account.companyName,
-          contactName: account.contactName,
-          email: account.email,
-          phone: account.phone,
-          notes: freightNotes,
-          freight: {
-            trailerNumber: trailerType || undefined,
-            palletCount: palletCount ? Number(palletCount) : undefined,
-            weightLbs: weightLbs ? Number(weightLbs) : undefined,
-            details: freightNotes,
-          },
-          createRequest: true,
-        }),
+        body: JSON.stringify(body),
       });
       setMsg(
         `You’re booked for ${selectedDate} · ${selectedSlot.label}. Bay and gate instructions will follow by email.`
@@ -264,16 +321,28 @@ export default function PortalBookingsScreen() {
         description={`Same booking flow as the website — Crossdock & Drop & Store 45 min, Trailer Rework 1 hour · 8 AM–6 PM. Your account info comes from Profile.`}
       />
 
-      {msg ? (
-        <Alert tone="success" className="mb-4">
-          {msg}
-        </Alert>
-      ) : null}
-      {err ? (
-        <Alert tone="danger" className="mb-4">
-          {err}
-        </Alert>
-      ) : null}
+      {noticeOn && (depositPay || msg || err) && typeof document !== "undefined"
+        ? createPortal(
+            <div className="pointer-events-none fixed top-4 right-4 z-[200] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2">
+              {depositPay ? (
+                <Alert tone="info" className="pointer-events-auto mb-0 shadow-[var(--shadow-card)]">
+                  This booking is {money(depositPay.total)}. Pay {money(depositPay.dueNow)} now to confirm it.
+                </Alert>
+              ) : null}
+              {msg ? (
+                <Alert tone="success" className="pointer-events-auto mb-0 shadow-[var(--shadow-card)]">
+                  {msg}
+                </Alert>
+              ) : null}
+              {err ? (
+                <Alert tone="danger" className="pointer-events-auto mb-0 shadow-[var(--shadow-card)]">
+                  {err}
+                </Alert>
+              ) : null}
+            </div>,
+            document.body
+          )
+        : null}
 
       {!user?.customerId ? (
         <Alert tone="danger" className="mb-4">
@@ -295,6 +364,7 @@ export default function PortalBookingsScreen() {
 
       {profileComplete ? (
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
           <form onSubmit={onSubmit} className="space-y-4 sm:space-y-5">
             <section className="rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)] sm:p-6">
               <StepHeading n={1} title="Who's booking" />
@@ -440,7 +510,7 @@ export default function PortalBookingsScreen() {
                 />
               </Field>
               <p className="mt-3 mb-4 text-xs leading-relaxed text-muted">
-                Submitting books your time slot. You’ll get bay and gate instructions by email.
+                After you submit, the next step shows the full dock fee and the half due now. The appointment is saved only after that payment.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="m-0 text-sm text-muted">
@@ -457,16 +527,44 @@ export default function PortalBookingsScreen() {
                 </p>
                 <Button
                   type="submit"
-                  disabled={!selectedSlot}
+                  disabled={!selectedSlot || !!depositPay}
                   loading={busy}
                   icon={<CheckCircle2 className="h-4 w-4" />}
                   className="transition duration-200 hover:-translate-y-0.5"
                 >
-                  Submit dock request →
+                  {depositPay ? "Review the amount below" : "Continue to payment"}
                 </Button>
               </div>
             </section>
           </form>
+
+          {depositPay ? (
+            <div ref={paySectionRef} className="mt-4 scroll-mt-28 space-y-3">
+              <NmiPayBox
+                amount={depositPay.dueNow}
+                bookingBody={depositPay.body}
+                rows={[
+                  { label: "Appointment", value: depositPay.when },
+                  { label: "Full dock fee", value: money(depositPay.total) },
+                  { label: "Due now to confirm the booking", value: money(depositPay.dueNow), emphasize: true },
+                  { label: "Due later, at the dock or on the invoice", value: money(depositPay.balanceLater) },
+                ]}
+                note="You are paying the half due now. The other half is not charged on this card. The appointment is kept only after this payment succeeds."
+                onPaid={(message) => {
+                  setMsg(message);
+                  setDepositPay(null);
+                  resetFreight();
+                  setSelectedSlot(null);
+                  invalidateApiCache("/bookings");
+                  void Promise.all([reloadCal(), reloadSlots(), reloadMine()]);
+                }}
+              />
+              <Button type="button" variant="secondary" onClick={() => setDepositPay(null)}>
+                Change this booking
+              </Button>
+            </div>
+          ) : null}
+          </div>
 
           <aside className="hidden space-y-3 lg:sticky lg:top-20 lg:block lg:self-start">
             <div className="rounded-2xl border border-border bg-white p-5 shadow-[var(--shadow)] transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">

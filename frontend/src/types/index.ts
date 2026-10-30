@@ -253,4 +253,8 @@ export type Booking = {
   notes?: string;
   customerId?: string | null;
   requestId?: string | null;
+  totalAmount?: number | null;
+  depositAmount?: number | null;
+  depositPaid?: boolean;
+  nmiTransactionId?: string;
 };

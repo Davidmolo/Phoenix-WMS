@@ -55,4 +55,9 @@ export const env = {
    * Endpoint: POST {APP}/api/quickbooks/webhook
    */
   quickbooksWebhookVerifier: process.env.QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN || "",
+  /** NMI merchant private key. Server only. Sandbox until the live key replaces it. */
+  nmiSecurityKey: process.env.NMI_SECURITY_KEY || "",
+  /** NMI public tokenization key. Safe to send to the browser. */
+  nmiTokenizationKey: process.env.NMI_TOKENIZATION_KEY || "",
+  nmiApiBase: process.env.NMI_API_BASE || "https://sandbox.nmi.com/api/v5",
 };

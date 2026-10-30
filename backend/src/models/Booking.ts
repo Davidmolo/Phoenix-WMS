@@ -38,6 +38,11 @@ const bookingSchema = new Schema(
     phone: { type: String, default: "", trim: true },
     email: { type: String, default: "", trim: true },
     notes: { type: String, default: "" },
+    /** Half of the fee-schedule total, charged before a portal booking is confirmed. */
+    totalAmount: { type: Number, default: null },
+    depositAmount: { type: Number, default: null },
+    depositPaid: { type: Boolean, default: false },
+    nmiTransactionId: { type: String, default: "" },
     /** Optional freight hints from website form */
     freight: {
       trailerNumber: { type: String, default: "" },

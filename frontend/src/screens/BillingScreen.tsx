@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { FileText, Link2, Mail, Pencil, Printer, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
 import { InvoiceRegisterPrintModal } from "@/components/InvoiceRegisterPrintModal";
@@ -26,6 +27,8 @@ import {
   type Column,
 } from "@/components/ui";
 import { useApiQuery, invalidateApiCache } from "@/hooks/useApiQuery";
+
+const NmiPayBox = dynamic(() => import("@/components/NmiPayBox"), { ssr: false });
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useScreenActive } from "@/lib/screenActive";
@@ -101,6 +104,7 @@ export default function BillingPage() {
   };
   const [editInv, setEditInv] = useState<InvoiceRow | null>(null);
   const [viewInv, setViewInv] = useState<InvoiceRow | null>(null);
+  const [payItems, setPayItems] = useState<{ id: string; amount: number }[]>([]);
   const [editStatus, setEditStatus] = useState("unpaid");
   const [editTotal, setEditTotal] = useState("");
   const [editBalance, setEditBalance] = useState("");
@@ -432,14 +436,33 @@ export default function BillingPage() {
       {
         key: "number",
         header: "Invoice #",
-        render: (inv) => (
-          <span className="font-semibold">
-            {inv.number}
-            {isStaff && inv.quickbooksId ? (
-              <span className="mt-0.5 block text-[10px] font-normal text-muted">From QuickBooks</span>
-            ) : null}
-          </span>
-        ),
+        render: (inv) => {
+          const payable =
+            !isStaff && ["sent", "unpaid", "past_due"].includes(inv.status) && balanceDueOf(inv) > 0;
+          return (
+            <span className="font-semibold">
+              {payable ? (
+                <input
+                  type="checkbox"
+                  className="mr-2 h-4 w-4 accent-[var(--accent)]"
+                  checked={payItems.some((row) => row.id === inv._id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() =>
+                    setPayItems((rows) =>
+                      rows.some((row) => row.id === inv._id)
+                        ? rows.filter((row) => row.id !== inv._id)
+                        : [...rows, { id: inv._id, amount: balanceDueOf(inv) }]
+                    )
+                  }
+                />
+              ) : null}
+              {inv.number}
+              {isStaff && inv.quickbooksId ? (
+                <span className="mt-0.5 block text-[10px] font-normal text-muted">From QuickBooks</span>
+              ) : null}
+            </span>
+          );
+        },
       },
     ];
     if (isStaff) {
@@ -557,7 +580,7 @@ export default function BillingPage() {
       });
     }
     return cols;
-  }, [isStaff, isAdmin, sendingId, sendInvoice, removeInvoice]);
+  }, [isStaff, isAdmin, sendingId, sendInvoice, removeInvoice, payItems]);
 
   function clearFilters() {
     setFromDate("");
@@ -811,6 +834,35 @@ export default function BillingPage() {
       </Card>
 
       <Alert>{error}</Alert>
+      {!isStaff && payItems.length > 0 ? (
+        <Card className="mb-4">
+          <CardBody>
+            <NmiPayBox
+              amount={payItems.reduce((sum, row) => sum + row.amount, 0)}
+              invoiceIds={payItems.map((row) => row.id)}
+              rows={[
+                {
+                  label: payItems.length === 1 ? "1 invoice selected" : `${payItems.length} invoices selected`,
+                  value: "Paid in full",
+                },
+                {
+                  label: "Due today",
+                  value: money(payItems.reduce((sum, row) => sum + row.amount, 0)),
+                  emphasize: true,
+                },
+              ]}
+              note="This charges the full balance of the invoices you checked. Nothing else is added on this page."
+              onPaid={(message) => {
+                setEditMsg(message);
+                setPayItems([]);
+                setViewInv(null);
+                invalidateApiCache("/invoices");
+                void reload();
+              }}
+            />
+          </CardBody>
+        </Card>
+      ) : null}
 
       <DataTable
         columns={columns}

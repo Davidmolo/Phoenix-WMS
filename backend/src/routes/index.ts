@@ -10,6 +10,7 @@ import lpnRoutes from "./lpns";
 import shipmentRoutes from "./shipments";
 import opsRoutes from "./ops";
 import bookingRoutes from "./bookings";
+import paymentRoutes from "./payments";
 import publicBookingRoutes from "./publicBookings";
 import docsRoutes from "./docs";
 import quickbooksRoutes from "./quickbooks";
@@ -39,6 +40,7 @@ router.use("/lpns", lpnRoutes);
 router.use("/shipments", shipmentRoutes);
 router.use("/yard-jobs", yardJobRoutes);
 router.use("/bookings", bookingRoutes);
+router.use("/payments", paymentRoutes);
 router.use("/geo", geoRoutes);
 router.use("/", opsRoutes);
 

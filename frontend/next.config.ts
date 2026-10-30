@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["@nmipayments/nmi-pay-react", "@nmipayments/nmi-pay"],
   // When nginx is not yet enabled (SSH tunnel / direct Next), proxy /api → backend.
   // With nginx in front, /api never hits Next — this is a no-op path then.
   async rewrites() {
