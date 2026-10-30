@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NmiPayments } from "@nmipayments/nmi-pay-react";
+import { mountNmiPayments } from "@nmipayments/nmi-pay";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert } from "@/components/ui";
@@ -37,6 +37,8 @@ export default function NmiPayBox({
   const due = usd(amount);
   const onPaidRef = useRef(onPaid);
   onPaidRef.current = onPaid;
+  const hostRef = useRef<HTMLDivElement>(null);
+  const payRef = useRef<(event: { token: string }) => Promise<true | string>>(async () => "Payment is still loading.");
   const pay = useCallback(
     async (event: { token: string }) => {
       if (!token) return "Sign in again before paying.";
@@ -71,6 +73,21 @@ export default function NmiPayBox({
     },
     [token, bookingBody, invoiceIds, due]
   );
+  payRef.current = pay;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !config?.ready || !config.tokenizationKey) return;
+    const widget = mountNmiPayments(host, {
+      tokenizationKey: config.tokenizationKey,
+      layout: "multiLine",
+      paymentMethods,
+      expressCheckoutConfig: { amount: amount.toFixed(2), currency: "USD" },
+      payButtonText: `Pay ${due} now`,
+      onPay: (event) => payRef.current(event),
+    });
+    return () => widget.destroy();
+  }, [amount, config?.ready, config?.tokenizationKey, due]);
 
   useEffect(() => {
     if (!token) return;
@@ -114,15 +131,7 @@ export default function NmiPayBox({
       {config && (!config.ready || !config.tokenizationKey) ? (
         <Alert>Card and bank payments are not configured on this server yet.</Alert>
       ) : null}
-      {config?.ready && config.tokenizationKey ? (
-        <NmiPayments
-          tokenizationKey={config.tokenizationKey}
-          layout="multiLine"
-          paymentMethods={paymentMethods}
-          payButtonText={`Pay ${due} now`}
-          onPay={pay}
-        />
-      ) : null}
+      <div ref={hostRef} className={config?.ready && config.tokenizationKey ? "" : "hidden"} />
       {config?.sandbox ? (
         <p className="mt-3 mb-0 text-xs text-muted">Sandbox only. This card is not charged real money.</p>
       ) : null}

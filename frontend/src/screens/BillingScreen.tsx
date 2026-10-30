@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { FileText, Link2, Mail, Pencil, Printer, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { BillingReportModal } from "@/components/BillingReportModal";
@@ -105,6 +105,7 @@ export default function BillingPage() {
   const [editInv, setEditInv] = useState<InvoiceRow | null>(null);
   const [viewInv, setViewInv] = useState<InvoiceRow | null>(null);
   const [payItems, setPayItems] = useState<{ id: string; amount: number }[]>([]);
+  const payBoxRef = useRef<HTMLDivElement>(null);
   const [editStatus, setEditStatus] = useState("unpaid");
   const [editTotal, setEditTotal] = useState("");
   const [editBalance, setEditBalance] = useState("");
@@ -438,7 +439,7 @@ export default function BillingPage() {
         header: "Invoice #",
         render: (inv) => {
           const payable =
-            !isStaff && ["sent", "unpaid", "past_due"].includes(inv.status) && balanceDueOf(inv) > 0;
+            !isStaff && !["paid", "void", "draft"].includes(inv.status) && balanceDueOf(inv) > 0;
           return (
             <span className="font-semibold">
               {payable ? (
@@ -579,8 +580,39 @@ export default function BillingPage() {
         ),
       });
     }
+    if (!isStaff) {
+      cols.push({
+        key: "pay",
+        header: "",
+        render: (inv) => {
+          const due = balanceDueOf(inv);
+          const payable = !["paid", "void", "draft"].includes(inv.status) && due > 0;
+          if (!payable) return null;
+          const selected = payItems.some((row) => row.id === inv._id);
+          return (
+            <Button
+              type="button"
+              size="sm"
+              variant={selected ? "secondary" : "primary"}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setPayItems([{ id: inv._id, amount: due }]);
+              }}
+            >
+              Pay {money(due)}
+            </Button>
+          );
+        },
+      });
+    }
     return cols;
   }, [isStaff, isAdmin, sendingId, sendInvoice, removeInvoice, payItems]);
+
+  useEffect(() => {
+    if (!payItems.length) return;
+    payBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [payItems]);
 
   function clearFilters() {
     setFromDate("");
@@ -602,7 +634,7 @@ export default function BillingPage() {
         description={
           isStaff
             ? "WMS → QuickBooks → customer gets Pay Now email · Sync/webhook pulls paid status back"
-            : "Pay via Pay Now in your QuickBooks invoice email, or Zelle with the invoice # in the memo"
+            : "Click Pay on an invoice to pay that balance by card or bank. Check more than one to pay them together."
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -719,12 +751,10 @@ export default function BillingPage() {
               How to pay
             </h2>
             <p className="mt-2 mb-0 text-sm leading-relaxed text-muted">
-              <strong className="text-navy">1. QuickBooks Pay Now</strong> — open the invoice email
-              from QuickBooks and use <strong>Pay Now</strong> for card or ACH when available.{" "}
-              <strong className="text-navy">2. Zelle</strong> — pay the Phoenix Cross Dock business
-              account listed in your email/welcome packet and put the <strong>invoice number</strong>{" "}
-              in the memo so we can match it. Balance due below updates after QuickBooks records the
-              payment.
+              Click <strong className="text-navy">Pay</strong> on the invoice you want to pay. The
+              card and bank form charges that balance. To pay several at once, check their boxes and
+              use the same form. The balance updates here and in QuickBooks after the payment goes
+              through.
             </p>
           </CardBody>
         </Card>
@@ -835,6 +865,7 @@ export default function BillingPage() {
 
       <Alert>{error}</Alert>
       {!isStaff && payItems.length > 0 ? (
+        <div ref={payBoxRef} className="scroll-mt-28">
         <Card className="mb-4">
           <CardBody>
             <NmiPayBox
@@ -851,7 +882,7 @@ export default function BillingPage() {
                   emphasize: true,
                 },
               ]}
-              note="This charges the full balance of the invoices you checked. Nothing else is added on this page."
+              note="This charges the balance of the invoice you chose. If more than one is checked, they are paid together. Nothing else is added on this page."
               onPaid={(message) => {
                 setEditMsg(message);
                 setPayItems([]);
@@ -862,6 +893,7 @@ export default function BillingPage() {
             />
           </CardBody>
         </Card>
+        </div>
       ) : null}
 
       <DataTable
@@ -895,6 +927,19 @@ export default function BillingPage() {
               <span className="font-semibold text-navy"> · Balance due: </span>
               {money(balanceDueOf(viewInv))}
             </p>
+            {!isStaff &&
+            !["paid", "void", "draft"].includes(viewInv.status) &&
+            balanceDueOf(viewInv) > 0 ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  setPayItems([{ id: viewInv._id, amount: balanceDueOf(viewInv) }]);
+                  setViewInv(null);
+                }}
+              >
+                Pay {money(balanceDueOf(viewInv))}
+              </Button>
+            ) : null}
             {(viewInv.lines ?? []).length === 0 ? (
               <p className="m-0 text-muted">No line items on this invoice.</p>
             ) : (
