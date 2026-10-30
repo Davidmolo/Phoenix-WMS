@@ -645,7 +645,7 @@ export default function BookingsScreen() {
                     {focused.depositPaid
                       ? `Deposit $${Number(focused.depositAmount || 0).toFixed(2)} paid${
                           focused.totalAmount ? ` of $${Number(focused.totalAmount).toFixed(2)}` : ""
-                        }. Balance is due at the dock or on the invoice.`
+                        }. The rest stays open on the invoice in Billing and in QuickBooks.`
                       : focused.source === "portal" && focused.totalAmount != null
                         ? "Contract account. No deposit. The job is billed on the invoice."
                         : focused.source === "phone" || focused.source === "admin"

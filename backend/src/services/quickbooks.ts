@@ -478,6 +478,66 @@ export async function updateInvoiceInQuickBooks(invoiceId: string): Promise<Upda
   }
 }
 
+/** Half deposit (or any partial). Leaves the invoice open in WMS and QuickBooks. */
+export async function recordPartialPayment(
+  invoiceId: string,
+  amount: number,
+  memo: string
+): Promise<{ quickbooks: boolean; balanceDue: number }> {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) throw new Error("Invoice not found");
+  const paid = Math.round(amount * 100) / 100;
+  const total = Number(invoice.total) || 0;
+  const alreadyPaid = Math.max(0, Math.round((total - Number(invoice.balanceDue ?? total)) * 100) / 100);
+  const remaining = Math.max(0, Math.round((total - alreadyPaid - paid) * 100) / 100);
+  invoice.balanceDue = remaining;
+  invoice.status = remaining <= 0.009 ? "paid" : "unpaid";
+  invoice.notes = [invoice.notes, memo].filter(Boolean).join("\n");
+  await invoice.save();
+
+  const qbId = String(invoice.quickbooksId || "");
+  const companyId = String(invoice.companyId);
+  if (!qbId || !env.quickbooksPushEnabled || !quickbooksConfigured()) {
+    return { quickbooks: false, balanceDue: remaining };
+  }
+  const cust = await Customer.findById(invoice.customerId).select("testAccount");
+  if (cust?.testAccount) return { quickbooks: false, balanceDue: remaining };
+
+  try {
+    const fresh = await qbGet<{ Invoice?: QbInvoice }>(companyId, `invoice/${qbId}?minorversion=65`);
+    const customerRef = String(fresh.Invoice?.CustomerRef?.value || "");
+    if (!customerRef) throw new Error("QuickBooks invoice missing CustomerRef for payment");
+    const qbBalance = Number(fresh.Invoice?.Balance) || 0;
+    const apply = Math.min(paid, qbBalance);
+    if (apply > 0.009) {
+      await qbPost(
+        companyId,
+        "payment?minorversion=65",
+        {
+          CustomerRef: { value: customerRef },
+          TotalAmt: Math.round(apply * 100) / 100,
+          PrivateNote: memo.slice(0, 4000),
+          Line: [
+            {
+              Amount: Math.round(apply * 100) / 100,
+              LinkedTxn: [{ TxnId: qbId, TxnType: "Invoice" }],
+            },
+          ],
+        },
+        { requestId: `dep-${qbId}-${Math.round(apply * 100)}`.slice(0, 50) }
+      );
+    }
+    await syncInvoiceByQuickBooksId(companyId, qbId);
+    await Invoice.updateOne({ _id: invoice._id }, { $set: { quickbooksPushError: "" } });
+    return { quickbooks: true, balanceDue: remaining };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    invoice.quickbooksPushError = `Partial payment not in QuickBooks: ${message}`.slice(0, 500);
+    await invoice.save();
+    return { quickbooks: false, balanceDue: remaining };
+  }
+}
+
 export async function syncInvoicesFromQuickBooks(companyId: string) {
   const company = await Company.findById(companyId);
   if (!company) throw new Error("Company not found");

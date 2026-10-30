@@ -17,7 +17,8 @@ import {
 } from "../services/bookingAvailability";
 import { crossdockPerPallet, loadCompanyFees } from "../services/customerFees";
 import { sendBookingNotifyEmail } from "../services/mail";
-import { updateInvoiceInQuickBooks } from "../services/quickbooks";
+import { updateInvoiceInQuickBooks, recordPartialPayment } from "../services/quickbooks";
+import { createAndPushInvoice } from "../services/billingInvoice";
 
 const router = Router();
 router.use(requireAuth);
@@ -195,6 +196,49 @@ router.post("/booking", async (req, res, next) => {
       );
     }
     if (!booking) throw new Error("The booking was not saved.");
+
+    if (charged) {
+      try {
+        const billed = await createAndPushInvoice({
+          companyId,
+          customerId,
+          wmsJobKey: `booking:${String(booking._id)}`,
+          sourceType: "manual",
+          sourceId: String(booking._id),
+          lines: [
+            {
+              description: `${svc.label} · ${check.slot.label}`,
+              qty: 1,
+              unitAmount: quote.total,
+              amount: quote.total,
+              type: "crossdock",
+            },
+          ],
+          periodStart: startsAt,
+          periodEnd: startsAt,
+          termsDays: 0,
+          notes: depositNote,
+        });
+        if (billed.invoice) {
+          await recordPartialPayment(
+            String(billed.invoice._id),
+            charged.amount,
+            `Deposit paid ${charged.transactionId}. Balance $${quote.balanceLater.toFixed(2)} still due.`
+          );
+          booking.notes = [booking.notes, `Invoice ${billed.invoice.number}`].filter(Boolean).join("\n");
+          await booking.save();
+        }
+      } catch (syncErr) {
+        console.error("[payments] deposit sync", syncErr instanceof Error ? syncErr.message : syncErr);
+        booking.notes = [
+          booking.notes,
+          `Deposit recorded in WMS. QuickBooks sync failed: ${syncErr instanceof Error ? syncErr.message : "unknown"}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        await booking.save();
+      }
+    }
 
     void sendBookingNotifyEmail({
       bookingId: String(booking._id),
