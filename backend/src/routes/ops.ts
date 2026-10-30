@@ -206,16 +206,20 @@ router.get("/invoices", async (req, res, next) => {
       });
     }
 
+    const phoenixDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix" });
+    const phoenixToday = phoenixDay.format(new Date());
+    const phoenixTodayStart = new Date(`${phoenixToday}T07:00:00.000Z`);
+
     const balance = String(req.query.balance || "");
     if (balance === "past_due") {
       andClauses.push({
         status: { $nin: ["paid", "void"] },
-        $or: [{ status: "past_due" }, { dueDate: { $lt: new Date() } }],
+        $or: [{ status: "past_due" }, { dueDate: { $lt: phoenixTodayStart } }],
       });
     } else if (balance === "unpaid") {
       andClauses.push({
         status: { $in: ["draft", "sent", "unpaid"] },
-        $or: [{ dueDate: null }, { dueDate: { $gte: new Date() } }],
+        $or: [{ dueDate: null }, { dueDate: { $gte: phoenixTodayStart } }],
       });
     }
 
@@ -237,6 +241,15 @@ router.get("/invoices", async (req, res, next) => {
         .skip(skip)
         .limit(limit),
     ]);
+    for (const invoice of invoices) {
+      if (
+        invoice.status === "past_due" &&
+        invoice.dueDate &&
+        phoenixDay.format(invoice.dueDate) >= phoenixToday
+      ) {
+        invoice.status = "unpaid";
+      }
+    }
     res.json({ invoices, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);

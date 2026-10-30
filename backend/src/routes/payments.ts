@@ -17,7 +17,7 @@ import {
 } from "../services/bookingAvailability";
 import { crossdockPerPallet, loadCompanyFees } from "../services/customerFees";
 import { sendBookingNotifyEmail } from "../services/mail";
-import { updateInvoiceInQuickBooks, recordPartialPayment, pushInvoiceToQuickBooks } from "../services/quickbooks";
+import { updateInvoiceInQuickBooks, recordPartialPayment, pushInvoiceToQuickBooks, sendInvoiceEmailViaQuickBooks } from "../services/quickbooks";
 import { createAndPushInvoice } from "../services/billingInvoice";
 
 const router = Router();
@@ -218,6 +218,7 @@ router.post("/booking", async (req, res, next) => {
           periodEnd: startsAt,
           termsDays: 0,
           notes: depositNote,
+          sendEmail: false,
         });
         if (billed.invoice) {
           await recordPartialPayment(
@@ -225,6 +226,18 @@ router.post("/booking", async (req, res, next) => {
             charged.amount,
             `Deposit paid ${charged.transactionId}. Balance $${quote.balanceLater.toFixed(2)} still due.`
           );
+          const qbId = String(billed.invoice.quickbooksId || "");
+          if (qbId && email) {
+            try {
+              await sendInvoiceEmailViaQuickBooks({
+                companyId,
+                quickbooksInvoiceId: qbId,
+                sendTo: email,
+              });
+            } catch (mailErr) {
+              console.error("[payments] deposit email", mailErr instanceof Error ? mailErr.message : mailErr);
+            }
+          }
           booking.notes = [booking.notes, `Invoice ${billed.invoice.number}`].filter(Boolean).join("\n");
           await booking.save();
         }

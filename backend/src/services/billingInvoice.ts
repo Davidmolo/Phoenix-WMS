@@ -43,7 +43,7 @@ async function nextInvoiceNumber(companyId: string) {
   return `INV-${String(next).padStart(5, "0")}`;
 }
 
-async function pushExisting(invoice: InstanceType<typeof Invoice>) {
+async function pushExisting(invoice: InstanceType<typeof Invoice>, sendEmail = true) {
   if (invoice.quickbooksId) {
     return {
       invoiceId: String(invoice._id),
@@ -52,7 +52,7 @@ async function pushExisting(invoice: InstanceType<typeof Invoice>) {
       skipped: "already_pushed" as const,
     };
   }
-  return pushInvoiceToQuickBooks(String(invoice._id));
+  return pushInvoiceToQuickBooks(String(invoice._id), { sendEmail });
 }
 
 /**
@@ -71,6 +71,8 @@ export async function createAndPushInvoice(opts: {
   notes?: string;
   termsDays?: number;
   accessorialIds?: string[];
+  /** False when a deposit is applied immediately after, so the email shows the remaining balance. */
+  sendEmail?: boolean;
 }) {
   const customer = await Customer.findOne({
     _id: opts.customerId,
@@ -100,7 +102,7 @@ export async function createAndPushInvoice(opts: {
         created: false,
       };
     }
-    const push = await pushExisting(existing);
+    const push = await pushExisting(existing, opts.sendEmail !== false);
     return { invoice: existing, push, created: false };
   }
 
@@ -208,7 +210,9 @@ export async function createAndPushInvoice(opts: {
     };
   }
 
-  const push = await pushInvoiceToQuickBooks(String(invoice._id));
+  const push = await pushInvoiceToQuickBooks(String(invoice._id), {
+    sendEmail: opts.sendEmail !== false,
+  });
   if (push.pushed && push.quickbooksId) {
     // Open balance before due date → unpaid (not "sent")
     invoice.status = "unpaid";

@@ -197,9 +197,11 @@ function mapInvoiceStatus(
   dueDate?: Date | null
 ): "draft" | "sent" | "unpaid" | "paid" | "past_due" {
   if (balance <= 0) return "paid";
-  // Overdue: still owed and due date has passed
-  if (dueDate && dueDate.getTime() < Date.now()) return "past_due";
-  // Balance owed but not yet past due → unpaid
+  // Due today in Phoenix is still open. Past due starts the next day.
+  if (dueDate) {
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix" });
+    if (day.format(dueDate) < day.format(new Date())) return "past_due";
+  }
   return "unpaid";
 }
 
@@ -981,7 +983,10 @@ export async function syncInvoiceByQuickBooksId(companyId: string, qbInvoiceId: 
  * Cesar: invoice sync is one-way WMS → QB.
  * Idempotent via Invoice.quickbooksId + wmsJobKey + Request-Id header.
  */
-export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushInvoiceResult> {
+export async function pushInvoiceToQuickBooks(
+  invoiceId: string,
+  opts?: { sendEmail?: boolean }
+): Promise<PushInvoiceResult> {
   const invoice = await Invoice.findById(invoiceId);
   if (!invoice) throw new Error("Invoice not found");
   const companyId = String(invoice.companyId);
@@ -1113,6 +1118,7 @@ export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushIn
         // Still try Pay Now email — customer may never have received the QB send
         let emailed = false;
         let emailedTo: string | undefined;
+        if (opts?.sendEmail !== false) {
         try {
           const to = requireCustomerEmail(billEmail);
           await sendInvoiceEmailViaQuickBooks({
@@ -1126,6 +1132,7 @@ export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushIn
           const mailMsg = mailErr instanceof Error ? mailErr.message : String(mailErr);
           invoice.quickbooksPushError = `Recovered QB Id but email failed: ${mailMsg}`.slice(0, 500);
           await invoice.save();
+        }
         }
         return {
           invoiceId: String(invoice._id),
@@ -1217,6 +1224,7 @@ export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushIn
     // Email via QuickBooks (Pay Now link when enabled on the QB company)
     let emailed = false;
     let emailedTo: string | undefined;
+    if (opts?.sendEmail !== false) {
     try {
       const cust = await Customer.findById(invoice.customerId).select("email");
       const to = requireCustomerEmail(cust?.email);
@@ -1231,6 +1239,7 @@ export async function pushInvoiceToQuickBooks(invoiceId: string): Promise<PushIn
       const mailMsg = mailErr instanceof Error ? mailErr.message : String(mailErr);
       invoice.quickbooksPushError = `Invoice created in QB but email failed: ${mailMsg}`.slice(0, 500);
       await invoice.save();
+    }
     }
 
     return {
