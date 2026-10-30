@@ -19,6 +19,8 @@ import {
 } from "../services/bookingAvailability";
 import { paginationMeta, parsePagination } from "../utils/pagination";
 import { sendBookingNotifyEmail } from "../services/mail";
+import { quoteBooking } from "./payments";
+import { createAndPushInvoice } from "../services/billingInvoice";
 
 const router = Router();
 
@@ -266,6 +268,48 @@ router.post("/", async (req, res, next) => {
         details: req.body.freight?.details || "",
       },
     });
+
+    if (customerId) {
+      try {
+        const quote = await quoteBooking(
+          companyId,
+          String(customerId),
+          serviceType,
+          Number(req.body.freight?.palletCount) || 1
+        );
+        if (quote && quote.total > 0 && quote.depositRequired) {
+          booking.totalAmount = quote.total;
+          booking.depositAmount = 0;
+          booking.depositPaid = false;
+          const billed = await createAndPushInvoice({
+            companyId,
+            customerId: String(customerId),
+            wmsJobKey: `booking:${String(booking._id)}`,
+            sourceType: "manual",
+            sourceId: String(booking._id),
+            lines: [
+              {
+                description: `${svc.label} · ${check.slot.label}`,
+                qty: 1,
+                unitAmount: quote.total,
+                amount: quote.total,
+                type: "crossdock",
+              },
+            ],
+            periodStart: startsAt,
+            periodEnd: startsAt,
+            termsDays: 0,
+            notes: "Booked by staff. Nothing collected yet. Pay at the dock or in the portal.",
+          });
+          if (billed.invoice) {
+            booking.notes = [booking.notes, `Invoice ${billed.invoice.number}`].filter(Boolean).join("\n");
+          }
+          await booking.save();
+        }
+      } catch (syncErr) {
+        console.error("[bookings] invoice sync", syncErr instanceof Error ? syncErr.message : syncErr);
+      }
+    }
 
     // Cesar: notify ops when customer books via portal (or website source)
     if (source === "portal" || source === "web") {

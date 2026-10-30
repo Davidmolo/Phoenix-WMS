@@ -497,11 +497,13 @@ export default function BookingsScreen() {
                           {b.email ? ` · ${b.email}` : ""}
                           {b.depositPaid
                             ? ` · Deposit $${Number(b.depositAmount || 0).toFixed(2)} paid`
-                            : b.source === "portal" && b.totalAmount != null
-                              ? " · Invoiced"
-                              : b.source === "phone" || b.source === "admin"
-                                ? " · Pay at the dock"
-                                : ""}
+                            : b.totalAmount != null && b.source !== "portal"
+                              ? ` · $${Number(b.totalAmount).toFixed(2)} open on the invoice`
+                              : b.source === "portal" && b.totalAmount != null
+                                ? " · Invoiced"
+                                : b.source === "phone" || b.source === "admin"
+                                  ? " · Pay at the dock"
+                                  : ""}
                         </div>
                       </div>
                     </button>
@@ -648,7 +650,9 @@ export default function BookingsScreen() {
                         }. The rest stays open on the invoice in Billing and in QuickBooks.`
                       : focused.source === "portal" && focused.totalAmount != null
                         ? "Contract account. No deposit. The job is billed on the invoice."
-                        : focused.source === "phone" || focused.source === "admin"
+                        : focused.totalAmount != null && (focused.source === "phone" || focused.source === "admin")
+                        ? `$${Number(focused.totalAmount).toFixed(2)} is open on the invoice in Billing and QuickBooks. Collect it at the dock (mark the invoice paid) or the customer can pay it in the portal.`
+                      : focused.source === "phone" || focused.source === "admin"
                           ? "No online deposit. Collect the full amount at the dock, or the customer can pay invoices in the portal."
                           : "No online deposit on this booking."}
                   </div>

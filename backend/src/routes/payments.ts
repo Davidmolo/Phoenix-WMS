@@ -17,7 +17,7 @@ import {
 } from "../services/bookingAvailability";
 import { crossdockPerPallet, loadCompanyFees } from "../services/customerFees";
 import { sendBookingNotifyEmail } from "../services/mail";
-import { updateInvoiceInQuickBooks, recordPartialPayment } from "../services/quickbooks";
+import { updateInvoiceInQuickBooks, recordPartialPayment, pushInvoiceToQuickBooks } from "../services/quickbooks";
 import { createAndPushInvoice } from "../services/billingInvoice";
 
 const router = Router();
@@ -27,7 +27,7 @@ function money(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-async function quoteBooking(companyId: string, customerId: string | null, serviceType: string, palletCount: number) {
+export async function quoteBooking(companyId: string, customerId: string | null, serviceType: string, palletCount: number) {
   const svc = getServiceType(serviceType);
   if (!svc) return null;
   const fees = await loadCompanyFees(companyId);
@@ -291,10 +291,11 @@ router.post("/invoices", async (req, res, next) => {
       invoice.balanceDue = 0;
       invoice.notes = invoice.notes ? `${invoice.notes}\n${note}` : note;
       await invoice.save();
-      if (invoice.quickbooksId) {
-        void updateInvoiceInQuickBooks(String(invoice._id)).catch((err) =>
-          console.error("[payments] quickbooks", err instanceof Error ? err.message : err)
-        );
+      try {
+        if (!invoice.quickbooksId) await pushInvoiceToQuickBooks(String(invoice._id));
+        await updateInvoiceInQuickBooks(String(invoice._id));
+      } catch (syncErr) {
+        console.error("[payments] quickbooks", syncErr instanceof Error ? syncErr.message : syncErr);
       }
     }
     res.json({

@@ -434,31 +434,36 @@ export async function updateInvoiceInQuickBooks(invoiceId: string): Promise<Upda
       payload
     );
     let paymentCreated = false;
-    const after = updated.Invoice || qbInv;
-    const balanceAfter = Number(after.Balance ?? updated.Invoice?.Balance);
-    // Re-fetch balance if needed
-    let balance = Number.isFinite(balanceAfter) ? balanceAfter : Number(qbInv.Balance) || 0;
-    if (invoice.status === "paid" || Number(invoice.balanceDue) === 0) {
-      const fresh = await qbGet<{ Invoice?: QbInvoice }>(
+    const fresh = await qbGet<{ Invoice?: QbInvoice }>(
+      companyId,
+      `invoice/${qbId}?minorversion=65`
+    );
+    const balance = Number(fresh.Invoice?.Balance) || 0;
+    const wmsLeft =
+      invoice.status === "paid" || invoice.status === "void"
+        ? 0
+        : Math.max(0, Number(invoice.balanceDue ?? invoice.total) || 0);
+    const apply = Math.round((balance - wmsLeft) * 100) / 100;
+    if (apply > 0.009) {
+      const customerRef = String(fresh.Invoice?.CustomerRef?.value || qbInv.CustomerRef?.value || "");
+      if (!customerRef) throw new Error("QuickBooks invoice missing CustomerRef for payment");
+      await qbPost(
         companyId,
-        `invoice/${qbId}?minorversion=65`
-      );
-      balance = Number(fresh.Invoice?.Balance) || 0;
-      if (balance > 0.009) {
-        const customerRef = String(fresh.Invoice?.CustomerRef?.value || qbInv.CustomerRef?.value || "");
-        if (!customerRef) throw new Error("QuickBooks invoice missing CustomerRef for payment");
-        await qbPost(companyId, "payment?minorversion=65", {
+        "payment?minorversion=65",
+        {
           CustomerRef: { value: customerRef },
-          TotalAmt: Math.round(balance * 100) / 100,
+          TotalAmt: apply,
+          PrivateNote: `WMS balance $${wmsLeft.toFixed(2)}`.slice(0, 4000),
           Line: [
             {
-              Amount: Math.round(balance * 100) / 100,
+              Amount: apply,
               LinkedTxn: [{ TxnId: qbId, TxnType: "Invoice" }],
             },
           ],
-        });
-        paymentCreated = true;
-      }
+        },
+        { requestId: `bal-${qbId}-${Math.round(apply * 100)}-${Math.round(wmsLeft * 100)}`.slice(0, 50) }
+      );
+      paymentCreated = true;
     }
 
     invoice.quickbooksPushError = "";
