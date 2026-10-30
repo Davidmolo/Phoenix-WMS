@@ -440,7 +440,7 @@ export async function updateInvoiceInQuickBooks(invoiceId: string): Promise<Upda
     );
     const balance = Number(fresh.Invoice?.Balance) || 0;
     const wmsLeft =
-      invoice.status === "paid" || invoice.status === "void"
+      invoice.status === "paid"
         ? 0
         : Math.max(0, Number(invoice.balanceDue ?? invoice.total) || 0);
     const apply = Math.round((balance - wmsLeft) * 100) / 100;
