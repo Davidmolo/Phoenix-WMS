@@ -81,7 +81,7 @@ jobs:
           HOST: ${{ secrets.PHOENIX_WMS_HOST }}
           USER: ${{ secrets.PHOENIX_WMS_USER }}
         run: |
-          ssh "${USER}@${HOST}" bash -s <<'REMOTE'
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "${USER}@${HOST}" bash -s <<'REMOTE'
           set -euo pipefail
           APP=/var/www/phoenix-wms
           mkdir -p "$APP/logs"
