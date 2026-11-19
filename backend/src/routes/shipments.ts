@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { Shipment } from "../models/Shipment";
+import { Request as WhRequest } from "../models/Request";
 import { Pallet } from "../models/Pallet";
 import { Location } from "../models/Location";
 import { Customer } from "../models/Customer";
@@ -50,6 +51,26 @@ router.get("/", async (req, res, next) => {
         .skip(skip)
         .limit(limit),
     ]);
+    // Portal requests approved before weight/pallets were copied onto the appointment.
+    const linked = shipments.filter((s) => s.status === "expected" && s.requestId);
+    if (linked.length) {
+      const reqs = await WhRequest.find({ _id: { $in: linked.map((s) => s.requestId) } })
+        .select("weightLbs palletIds direction type")
+        .lean();
+      const byId = new Map(reqs.map((r) => [String(r._id), r]));
+      for (const s of linked) {
+        const src = byId.get(String(s.requestId));
+        if (!src) continue;
+        if (s.weightLbs == null && src.weightLbs != null) s.weightLbs = src.weightLbs;
+        if (
+          s.direction === "outbound" &&
+          (s.palletIds || []).length === 0 &&
+          (src.palletIds || []).length > 0
+        ) {
+          s.palletIds = src.palletIds;
+        }
+      }
+    }
     res.json({ shipments, ...paginationMeta(page, limit, total) });
   } catch (err) {
     next(err);

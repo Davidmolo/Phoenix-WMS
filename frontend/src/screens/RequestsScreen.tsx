@@ -388,6 +388,14 @@ export default function RequestsPage() {
             <p className="m-0"><span className="font-semibold text-navy">Qty: </span>{openRequest.qty}</p>
             <p className="m-0"><span className="font-semibold text-navy">PO / Job: </span>{openRequest.jobName || openRequest.poNumber || openRequest.ref || "—"}</p>
             <p className="m-0"><span className="font-semibold text-navy">Weight: </span>{openRequest.weightLbs != null ? `${openRequest.weightLbs} lbs` : "—"}</p>
+            {openRequest.type === "Outbound" ? (
+              <p className="m-0">
+                <span className="font-semibold text-navy">Pallets: </span>
+                {(openRequest.palletIds || [])
+                  .map((p) => (typeof p === "string" ? p : p.externalId || p._id))
+                  .join(", ") || "Quantity only — no specific pallets"}
+              </p>
+            ) : null}
             <p className="m-0"><span className="font-semibold text-navy">Date needed: </span>{openRequest.scheduledDate ? dateLabel(openRequest.scheduledDate) : "—"}</p>
             <p className="m-0"><span className="font-semibold text-navy">Requested: </span>{dateLabel(openRequest.dateRequested)}</p>
             <p className="m-0"><span className="font-semibold text-navy">Notes: </span>{openRequest.notes || "—"}</p>

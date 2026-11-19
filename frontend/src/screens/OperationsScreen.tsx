@@ -234,6 +234,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     if (exp.sealNumber) setShipSealNumber(exp.sealNumber);
     if (exp.shipTo) setShipTo(exp.shipTo);
     if (exp.weightLbs != null) setShipWeightLbs(String(exp.weightLbs));
+    const picked = (exp.palletIds || []).map((p) => (typeof p === "string" ? p : p._id));
+    if (picked.length) setSelectedShipIds(picked);
   }, [expectedOutboundId, expectedOutData]);
 
   const activePallets = useMemo(
@@ -278,17 +280,27 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShipIds, activePallets]);
 
-  // Cesar: total weight defaults to sum of selected pallet weights
+  // Sum of checked pallet weights, unless this selection is the portal request's own pallets.
   useEffect(() => {
+    const exp = (expectedOutData?.shipments ?? []).find((s) => s._id === expectedOutboundId);
+    const picked = (exp?.palletIds || []).map((p) => (typeof p === "string" ? p : p._id));
+    const samePick =
+      picked.length > 0 &&
+      picked.length === selectedShipIds.length &&
+      picked.every((id) => selectedShipIds.includes(id));
+    if (samePick && exp?.weightLbs != null) {
+      setShipWeightLbs(String(exp.weightLbs));
+      return;
+    }
     if (selectedShipIds.length === 0) {
-      setShipWeightLbs("");
+      if (!expectedOutboundId) setShipWeightLbs("");
       return;
     }
     const sum = activePallets
       .filter((p) => selectedShipIds.includes(p._id))
       .reduce((s, p) => s + (Number(p.weightLbs) || 0), 0);
     setShipWeightLbs(sum > 0 ? String(Math.round(sum * 100) / 100) : "");
-  }, [selectedShipIds, activePallets]);
+  }, [selectedShipIds, activePallets, expectedOutboundId, expectedOutData]);
 
   const [locationSearch, setLocationSearch] = useState("");
   const availableLocations = useMemo(() => {

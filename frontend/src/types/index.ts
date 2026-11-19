@@ -102,7 +102,7 @@ export type WhRequest = {
   abnormalPalletSize?: string;
   weightLbs?: number | null;
   scheduledDate?: string | null;
-  palletIds?: string[];
+  palletIds?: Array<string | { _id: string; externalId?: string }>;
   dateRequested: string;
   customerId?: string | { _id: string; name?: string; billingMethod?: string };
 };
@@ -229,7 +229,7 @@ export type Shipment = {
   createdAt?: string;
   scheduledAt?: string | null;
   notes?: string;
-  palletIds?: string[];
+  palletIds?: Array<string | { _id: string; externalId?: string }>;
   requestId?: string | null;
   jobName?: string;
   poNumber?: string;

@@ -24,6 +24,7 @@ router.get("/", async (req, res, next) => {
       WhRequest.countDocuments(filter),
       WhRequest.find(filter)
         .populate("customerId", "name billingMethod")
+        .populate("palletIds", "externalId")
         .sort({ dateRequested: -1 })
         .skip(skip)
         .limit(limit),
@@ -183,6 +184,8 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
             jobName: existing.jobName || poJob,
             poNumber: existing.poNumber || poJob,
             expectedPalletCount: planned,
+            weightLbs: existing.weightLbs ?? null,
+            palletIds: direction === "outbound" ? existing.palletIds || [] : [],
             notes: [
               `From portal request ${existing.type}`,
               poJob ? `PO/Job: ${poJob}` : null,
@@ -194,7 +197,6 @@ router.patch("/:id", requireRole("admin", "staff"), async (req, res, next) => {
             ]
               .filter(Boolean)
               .join(" · "),
-            palletIds: [],
           });
           existing.status = "scheduled";
           await existing.save();
