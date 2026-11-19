@@ -60,7 +60,7 @@ const invoiceSchema = new Schema(
     wmsJobKey: { type: String, default: null, index: true },
     sourceType: {
       type: String,
-      enum: ["yard_job", "shipment", "storage", "manual", "quickbooks", ""],
+      enum: ["yard_job", "shipment", "storage", "manual", "quickbooks", "quote", ""],
       default: "",
     },
     sourceId: { type: String, default: "" },

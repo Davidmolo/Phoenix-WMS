@@ -18,6 +18,7 @@ import {
   ClipboardCheck,
   Inbox,
   FileText,
+  ClipboardList,
   Forklift,
   LogOut,
   Menu,
@@ -72,6 +73,7 @@ const STAFF_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/customers", label: "Customers", icon: Users },
       { href: "/fee-schedule", label: "Fee Schedule", icon: Receipt },
+      { href: "/quotes", label: "Quotes", icon: ClipboardList },
       { href: "/billing", label: "Billing", icon: FileText },
     ],
   },
@@ -110,6 +112,7 @@ function shellVariant(pathname: string): "dashboard" | "table" | "form" | "split
     pathname.startsWith("/billing") ||
     pathname.startsWith("/yard-jobs") ||
     pathname.startsWith("/fee-schedule") ||
+    pathname.startsWith("/quotes") ||
     pathname.startsWith("/warehouse") ||
     pathname.startsWith("/bookings") ||
     pathname.startsWith("/profile")

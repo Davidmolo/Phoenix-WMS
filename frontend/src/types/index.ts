@@ -238,6 +238,31 @@ export type Shipment = {
   bol?: ShipmentBol;
 };
 
+export type QuoteLine = {
+  rateKey: string;
+  billingType: "contract" | "crossdock" | "rework" | "other";
+  description: string;
+  qty: number;
+  unitAmount: number;
+  amount: number;
+};
+
+export type Quote = {
+  _id: string;
+  number: string;
+  status: "draft" | "sent" | "accepted" | "declined" | string;
+  customerId?: string | { _id: string; name?: string; email?: string } | null;
+  prospectName?: string;
+  prospectEmail?: string;
+  notes?: string;
+  contractSqft?: number;
+  validUntil?: string | null;
+  lines: QuoteLine[];
+  total: number;
+  invoiceId?: string | null;
+  createdAt?: string;
+};
+
 export type Booking = {
   _id: string;
   serviceType: string;

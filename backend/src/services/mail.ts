@@ -312,6 +312,23 @@ export async function sendWarehouseRequestEmail(opts: {
   return info;
 }
 
+export async function sendQuoteEmail(opts: {
+  to: string;
+  number: string;
+  html: string;
+  text: string;
+}) {
+  const info = await transporter().sendMail({
+    from: env.mailFrom || env.smtpUser,
+    to: opts.to,
+    subject: `Estimate ${opts.number} from Phoenix Cross Dock`,
+    text: opts.text,
+    html: opts.html,
+  });
+  console.info(`[mail] estimate ${opts.number} → ${opts.to} messageId=${info.messageId}`);
+  return info;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")

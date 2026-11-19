@@ -18,6 +18,7 @@ import InventoryMoveScreen from "@/screens/InventoryMoveScreen";
 import InventoryControlScreen from "@/screens/InventoryControlScreen";
 import RequestsScreen from "@/screens/RequestsScreen";
 import BillingScreen from "@/screens/BillingScreen";
+import QuotesScreen from "@/screens/QuotesScreen";
 import YardJobsScreen from "@/screens/YardJobsScreen";
 import BookingsScreen from "@/screens/BookingsScreen";
 import PortalBookingsScreen from "@/screens/PortalBookingsScreen";
@@ -197,6 +198,11 @@ export function ScreenRouter() {
       {mounted.has("yard-jobs") ? (
         <ScreenPane active={active === "yard-jobs"}>
           <YardJobsScreen />
+        </ScreenPane>
+      ) : null}
+      {mounted.has("quotes") && !isPortal ? (
+        <ScreenPane active={active === "quotes"}>
+          <QuotesScreen />
         </ScreenPane>
       ) : null}
       {mounted.has("billing") ? (
