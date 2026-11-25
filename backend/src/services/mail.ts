@@ -312,6 +312,36 @@ export async function sendWarehouseRequestEmail(opts: {
   return info;
 }
 
+export async function sendCreditLimitAlertEmail(opts: {
+  customerName: string;
+  exposure: number;
+  limit: number;
+  pct: number;
+}) {
+  if (!smtpConfigured()) {
+    console.warn("[mail] credit 80% alert skipped — SMTP not configured");
+    return null;
+  }
+  const extras = env.creditAlertEmails.length
+    ? env.creditAlertEmails
+    : [env.bookingNotifyEmail, "david@goxxii.com"].filter(Boolean);
+  const to = [...new Set(extras.map((e) => String(e).trim()).filter(Boolean))].join(", ");
+  if (!to) return null;
+  const pctLabel = Math.round(opts.pct * 100);
+  const info = await transporter().sendMail({
+    from: env.mailFrom || env.smtpUser,
+    to,
+    subject: `Credit alert 80% — ${opts.customerName}`,
+    text: [
+      `${opts.customerName} is at ${pctLabel}% of credit limit.`,
+      `Exposure: $${opts.exposure.toFixed(2)} of $${opts.limit.toFixed(2)}.`,
+      "Reach out before outbound must be held at 100%.",
+    ].join("\n"),
+  });
+  console.info(`[mail] credit 80% → ${to} messageId=${info.messageId}`);
+  return info;
+}
+
 export async function sendQuoteEmail(opts: {
   to: string;
   number: string;

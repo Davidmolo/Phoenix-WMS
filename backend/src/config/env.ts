@@ -60,4 +60,16 @@ export const env = {
   /** NMI public tokenization key. Safe to send to the browser. */
   nmiTokenizationKey: process.env.NMI_TOKENIZATION_KEY || "",
   nmiApiBase: process.env.NMI_API_BASE || "https://sandbox.nmi.com/api/v5",
+  /** Emails allowed to override freight holds (Cesar-only). */
+  holdOverrideEmails: String(
+    process.env.HOLD_OVERRIDE_EMAILS ||
+      "cesar@phoenixcrossdocks.com,cesar@phoenixcrossdock.com"
+  )
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+  creditAlertEmails: String(process.env.CREDIT_ALERT_EMAILS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 };

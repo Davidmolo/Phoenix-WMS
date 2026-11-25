@@ -17,10 +17,15 @@ import { paginationMeta, parsePagination } from "../utils/pagination";
 import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
 import {
   buildShipmentBolDocument,
-  customerHasLienHold,
   isBolClosed,
   resolveInboundBolRefs,
 } from "../services/bolWorkflow";
+import {
+  customerOutboundHold,
+  postStorageAccessorialsOnShip,
+  resolveHoldOverride,
+} from "../services/creditHold";
+import { HoldOverrideLog } from "../models/HoldOverrideLog";
 import shipmentBolRoutes from "./shipmentBol";
 
 const SERVICE_TYPES = ["drop_and_store", "crossdock", "trailer_rework", "pickup"] as const;
@@ -366,7 +371,7 @@ router.get("/:id", async (req, res, next) => {
         : null;
     const lien =
       customer?._id
-        ? await customerHasLienHold(String(shipment.companyId), String(customer._id))
+        ? await customerOutboundHold(String(shipment.companyId), String(customer._id))
         : null;
     if (req.auth!.role === "customer" && shipment.notes) {
       const visible = String(shipment.notes)
@@ -873,22 +878,36 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       return;
     }
 
-    // Cesar: warehouseman's lien — outbound only. Admin may override with a reason on the shipment.
-    const lien = await customerHasLienHold(String(companyId), String(customerId));
-    const actor = await User.findById(req.auth!.userId).select("role email");
-    const lienOverride = req.body.lienOverride === true && actor?.role === "admin";
-    if (lien.hold && !lienOverride) {
+    const hold = await customerOutboundHold(String(companyId), String(customerId));
+    const actor = await User.findById(req.auth!.userId).select("email");
+    const override = resolveHoldOverride(hold, {
+      lienOverride: req.body.lienOverride === true,
+      lienOverrideReason: req.body.lienOverrideReason,
+      email: actor?.email || req.auth!.email,
+    });
+    if (hold.hold && !override.ok) {
       res.status(402).json({
-        error: `Account past due ($${lien.balanceDue.toFixed(2)}) — cannot release freight until current. An admin can override this hold.`,
+        ...hold,
+        error:
+          override.error ||
+          hold.message ||
+          "Cannot release freight until the account is current.",
         code: "LIEN_HOLD",
-        ...lien,
       });
       return;
     }
-    const lienOverrideNote =
-      lien.hold && lienOverride
-        ? `Lien hold overridden by ${actor?.email || req.auth!.email || "admin"} · $${lien.balanceDue.toFixed(2)} past due`
-        : "";
+    let lienOverrideNote = "";
+    if (hold.hold && override.ok && "reason" in override) {
+      lienOverrideNote = `Hold overridden by ${actor?.email || req.auth!.email} — ${override.reason}`;
+      await HoldOverrideLog.create({
+        companyId,
+        customerId,
+        userId: req.auth!.userId,
+        userEmail: actor?.email || req.auth!.email || "",
+        reason: override.reason,
+        holdCodes: hold.codes,
+      });
+    }
 
     const pallets = foundAny.filter((p) => String(p.customerId) === String(customerId));
 
@@ -1011,6 +1030,18 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       { $set: { status: "staged" } }
     );
 
+    await postStorageAccessorialsOnShip({
+      companyId: String(companyId),
+      customerId: String(customerId),
+      shipmentId: String(shipment._id),
+      pallets: pallets.map((p) => ({
+        _id: p._id,
+        externalId: p.externalId,
+        receivedAt: p.receivedAt,
+        receiptKind: p.receiptKind,
+      })),
+    });
+
     if (customer?.billingMethod === "contract" && billAsFtl && customer.contractFtlRate) {
       // If they already paid per-pallet on inbound, FTL on outbound is unusual;
       // only post when explicitly requested and no prior handling on these pallets.
@@ -1059,7 +1090,7 @@ router.post("/ship", requireRole("admin", "staff"), async (req, res, next) => {
       invoice: null,
       quickbooks: null,
       nextStep: "Close BOL (signatures + count verify) to create the QuickBooks invoice",
-      lien,
+      hold,
     });
   } catch (err) {
     next(err);

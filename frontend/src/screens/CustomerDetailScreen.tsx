@@ -71,6 +71,15 @@ type DetailResponse = {
   unbilledCharges: Charge[];
   requests: WhRequest[];
   invoices: Invoice[];
+  credit?: {
+    exposure?: number;
+    storageEstimate?: number;
+    creditLimit?: number;
+    creditPct?: number;
+    hold?: boolean;
+    codes?: string[];
+    portalWarning?: string;
+  };
 };
 
 type EditForm = {
@@ -98,6 +107,8 @@ type EditForm = {
   contact: string;
   phone: string;
   email: string;
+  creditPath: string;
+  creditLimit: string;
 };
 
 function formFromCustomer(c: Customer): EditForm {
@@ -135,6 +146,8 @@ function formFromCustomer(c: Customer): EditForm {
     contact: c.contact || "",
     phone: c.phone || "",
     email: c.email || "",
+    creditPath: c.creditPath || "none",
+    creditLimit: c.creditLimit != null ? String(c.creditLimit) : "",
   };
 }
 
@@ -218,6 +231,8 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
         email: form.email,
       };
       if (isAdmin) {
+        payload.creditPath = form.creditPath;
+        payload.creditLimit = numOrNull(form.creditLimit);
         payload.contractFee = numOrNull(form.contractFee) ?? 0;
         payload.contractSqft = numOrNull(form.contractSqft) ?? 0;
         payload.contractHandlingPerPallet = numOrNull(form.contractHandlingPerPallet);
@@ -492,6 +507,39 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                     {c.contractNoDwellInside ? "Yes (per contract)" : "—"}
                   </div>
                   <div>
+                    <span className="font-semibold text-text">Credit path: </span>
+                    {c.creditPath === "path_a"
+                      ? "Path A (Net · ACH pull)"
+                      : c.creditPath === "path_b"
+                        ? "Path B (Net · pay in portal)"
+                        : "One-off / prepay"}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-text">Credit limit: </span>
+                    {c.creditLimit != null && c.creditLimit > 0 ? money(c.creditLimit) : "—"}
+                  </div>
+                  {isStaff && data?.credit ? (
+                    <>
+                      <div>
+                        <span className="font-semibold text-text">Credit exposure: </span>
+                        {money(data.credit.exposure ?? 0)}
+                        {data.credit.storageEstimate != null && data.credit.storageEstimate > 0
+                          ? ` (incl. ~${money(data.credit.storageEstimate)} storage est.)`
+                          : null}
+                      </div>
+                      {data.credit.creditLimit != null && data.credit.creditLimit > 0 ? (
+                        <div>
+                          <span className="font-semibold text-text">Limit use: </span>
+                          {data.credit.creditPct ?? 0}%
+                          {data.credit.hold ? " — on hold" : null}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {!isStaff && data?.credit?.portalWarning ? (
+                    <div className="sm:col-span-2 text-amber-800">{data.credit.portalWarning}</div>
+                  ) : null}
+                  <div>
                     <span className="font-semibold text-text">Portal: </span>
                     {c.portalActivated
                       ? "Onboarded (active login)"
@@ -652,6 +700,27 @@ export default function CustomerDetailPage({ customerId }: { customerId: string 
                         <option value="rework">Rework — billed when the job ends</option>
                       </Select>
                     </Field>
+                    {isAdmin ? (
+                      <>
+                        <Field label="Credit path" hint="Path A/B = Net terms with a limit. One-off = prepay only.">
+                          <Select
+                            value={form.creditPath}
+                            onChange={(e) => setForm({ ...form, creditPath: e.target.value })}
+                          >
+                            <option value="none">One-off / prepay</option>
+                            <option value="path_a">Path A — small carrier Net (ACH pull)</option>
+                            <option value="path_b">Path B — large company Net (portal / wire)</option>
+                          </Select>
+                        </Field>
+                        <Field label="Credit limit ($)" hint="Required for Path A/B. Blank on one-off.">
+                          <Input
+                            value={form.creditLimit}
+                            onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
+                            placeholder={form.creditPath === "none" ? "N/A" : "e.g. 25000"}
+                          />
+                        </Field>
+                      </>
+                    ) : null}
                     <Field label="Services" hint="Any mix. These do not replace each other.">
                       <div className="flex flex-col gap-1.5 pt-1 text-sm text-navy">
                         <label className="flex items-center gap-2">

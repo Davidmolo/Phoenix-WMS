@@ -61,6 +61,7 @@ export type OpsMode = "all" | "receive" | "store" | "ship";
 export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const dialog = useDialog();
   const { token, user } = useAuth();
+  const isStaff = user?.role === "admin" || user?.role === "staff";
   const { navigate } = useAppNav();
   const showReceive = mode === "all" || mode === "receive";
   const showStore = mode === "all" || mode === "store";
@@ -168,6 +169,7 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [shipTo, setShipTo] = useState("");
   const [shipWeightLbs, setShipWeightLbs] = useState("");
   const [lienOverride, setLienOverride] = useState(false);
+  const [lienOverrideReason, setLienOverrideReason] = useState("");
   const [expectedOutboundId, setExpectedOutboundId] = useState("");
 
   const selectedCustomer = useMemo(
@@ -537,7 +539,8 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
             shipTo: shipTo || undefined,
             weightLbs: shipWeightLbs === "" ? undefined : Number(shipWeightLbs),
             expectedShipmentId: expectedOutboundId || undefined,
-            lienOverride: user?.role === "admin" && lienOverride,
+            lienOverride: isStaff && lienOverride,
+            lienOverrideReason: isStaff && lienOverride ? lienOverrideReason : undefined,
           }),
         }
       );
@@ -1367,15 +1370,24 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                 </Field>
               </FormGrid>
 
-              {user?.role === "admin" ? (
-                <label className="flex items-center gap-2 text-sm text-navy">
-                  <input
-                    type="checkbox"
-                    checked={lienOverride}
-                    onChange={(e) => setLienOverride(e.target.checked)}
-                  />
-                  Admin override — release even if this customer is on lien hold
-                </label>
+              {isStaff ? (
+                <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/80 p-3">
+                  <label className="flex items-center gap-2 text-sm text-navy">
+                    <input
+                      type="checkbox"
+                      checked={lienOverride}
+                      onChange={(e) => setLienOverride(e.target.checked)}
+                    />
+                    Management override — release despite freight hold (Cesar only on server)
+                  </label>
+                  {lienOverride ? (
+                    <Input
+                      value={lienOverrideReason}
+                      onChange={(e) => setLienOverrideReason(e.target.value)}
+                      placeholder="Reason for override (required)"
+                    />
+                  ) : null}
+                </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button

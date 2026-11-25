@@ -11,11 +11,12 @@ import {
   amendBol,
   buildShipmentBolDocument,
   closeBol,
-  customerHasLienHold,
   isBolClosed,
   patchBolFields,
 } from "../services/bolWorkflow";
 import { readUploadFile } from "../services/bolStorage";
+import { customerOutboundHold, resolveHoldOverride } from "../services/creditHold";
+import { HoldOverrideLog } from "../models/HoldOverrideLog";
 
 const router = Router();
 
@@ -50,7 +51,7 @@ router.get("/billing-hold/:customerId", async (req, res, next) => {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const hold = await customerHasLienHold(req.auth!.companyId, customerId);
+    const hold = await customerOutboundHold(req.auth!.companyId, customerId);
     res.json(hold);
   } catch (err) {
     next(err);
@@ -218,26 +219,41 @@ router.post("/:id/bol/close", requireRole("admin", "staff"), async (req, res, ne
       return;
     }
 
-    // Lien hold — do not release / close-out billable release when past due
     if (shipment.direction === "outbound") {
-      const hold = await customerHasLienHold(
+      const hold = await customerOutboundHold(
         String(shipment.companyId),
         String(shipment.customerId)
       );
-      const actor = await User.findById(req.auth!.userId).select("role email");
-      const lienOverride = req.body.lienOverride === true && actor?.role === "admin";
-      if (hold.hold && !lienOverride) {
+      const actor = await User.findById(req.auth!.userId).select("email");
+      const override = resolveHoldOverride(hold, {
+        lienOverride: req.body.lienOverride === true,
+        lienOverrideReason: req.body.lienOverrideReason,
+        email: actor?.email || req.auth!.email,
+      });
+      if (hold.hold && !override.ok) {
         res.status(402).json({
-          error: `Account past due ($${hold.balanceDue.toFixed(2)}) — warehouseman's lien: cannot close outbound BOL until current. An admin can override this hold. Inbound receive is not held.`,
-          code: "LIEN_HOLD",
           ...hold,
+          error:
+            override.error ||
+            hold.message ||
+            "Cannot close outbound BOL until the account is current.",
+          code: "LIEN_HOLD",
         });
         return;
       }
-      if (hold.hold && lienOverride) {
-        const note = `Lien hold overridden by ${actor?.email || req.auth!.email || "admin"} · $${hold.balanceDue.toFixed(2)} past due`;
+      if (hold.hold && override.ok && "reason" in override) {
+        const note = `Hold overridden by ${actor?.email || req.auth!.email} — ${override.reason}`;
         shipment.notes = shipment.notes ? `${shipment.notes}\n${note}` : note;
         await shipment.save();
+        await HoldOverrideLog.create({
+          companyId: shipment.companyId,
+          customerId: shipment.customerId,
+          shipmentId: shipment._id,
+          userId: req.auth!.userId,
+          userEmail: actor?.email || req.auth!.email || "",
+          reason: override.reason,
+          holdCodes: hold.codes,
+        });
       }
     }
 

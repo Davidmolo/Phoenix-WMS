@@ -24,6 +24,7 @@ export const DEFAULT_FEE_SCHEDULE = {
   trailerReworkMinimumHours: 1,
   sortRelabelPerCase: 2,
   afterHoursSurchargePct: 35,
+  bookingDepositPct: 50,
   noShowFee: 100,
   detentionPerHour: 90,
   detentionFreeHours: 2,

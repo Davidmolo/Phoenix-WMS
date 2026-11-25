@@ -24,6 +24,11 @@ const RATE_ROWS: Array<{ key: string; label: string; hint?: string; money?: bool
   { key: "afterFreeDwellPerPalletDay", label: "Dwell after free period (/pallet/day)", money: true },
   { key: "crossDockPerTrailer", label: "Per-trailer simple transfer", money: true },
   { key: "crossDockMinimum", label: "Appointment / minimum", money: true },
+  {
+    key: "bookingDepositPct",
+    label: "Portal booking deposit (%)",
+    hint: "One-off customers — default 50%",
+  },
   { key: "unloadLoadMinimum", label: "Unload/load minimum (one direction)", money: true },
   { key: "unloadLoadPerPallet", label: "Unload/load per pallet", money: true },
   { key: "unloadLoadPerTrailer", label: "Unload/load per trailer cap", money: true },

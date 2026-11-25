@@ -101,6 +101,10 @@ const customerSchema = new Schema(
      * but QuickBooks push is skipped so production QBO stays clean.
      */
     testAccount: { type: Boolean, default: false, index: true },
+    /** none = one-off prepay; path_a / path_b = net terms with creditLimit. */
+    creditPath: { type: String, enum: ["none", "path_a", "path_b"], default: "none", index: true },
+    creditLimit: { type: Number, default: null },
+    creditAlert80SentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

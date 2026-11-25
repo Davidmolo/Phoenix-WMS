@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const { data, error, loading } = useApiQuery<{
     kpis: DashboardKpis;
     recentShipments: Shipment[];
+    creditAlert?: string;
   }>("/dashboard");
   const kpis = data?.kpis;
   const isStaff = user?.role !== "customer";
@@ -73,6 +74,11 @@ export default function DashboardPage() {
         />
 
         <Alert>{error}</Alert>
+        {data?.creditAlert ? (
+          <Alert tone="info" className="mb-4">
+            {data.creditAlert}
+          </Alert>
+        ) : null}
 
         <KpiGrid>
           <KpiCard

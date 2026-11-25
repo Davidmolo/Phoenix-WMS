@@ -128,6 +128,7 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
   const [drvName, setDrvName] = useState("");
   const [bolBusy, setBolBusy] = useState(false);
   const [lienOverride, setLienOverride] = useState(false);
+  const [lienOverrideReason, setLienOverrideReason] = useState("");
   const [bolMsg, setBolMsg] = useState("");
   const [bolErr, setBolErr] = useState("");
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -368,7 +369,11 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
         }>(`/shipments/${shipmentId}/bol/close`, {
           method: "POST",
           token,
-          body: JSON.stringify({ createInvoice: true, lienOverride }),
+          body: JSON.stringify({
+            createInvoice: true,
+            lienOverride,
+            lienOverrideReason: lienOverride ? lienOverrideReason : undefined,
+          }),
         });
         const inv = result.invoice?.number ? ` · Invoice ${result.invoice.number}` : "";
         setBolMsg(`BOL closed and locked${inv}`);
@@ -742,15 +747,24 @@ export default function ShipmentDetailScreen({ shipmentId }: { shipmentId: strin
                     </Field>
                   </FormGrid>
                   <div className="mt-4 space-y-3">
-                    {isAdmin ? (
-                      <label className="flex items-center gap-2 text-sm text-navy">
-                        <input
-                          type="checkbox"
-                          checked={lienOverride}
-                          onChange={(e) => setLienOverride(e.target.checked)}
-                        />
-                        Admin override — close this BOL even if the customer is past due
-                      </label>
+                    {isStaff ? (
+                      <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/80 p-3">
+                        <label className="flex items-center gap-2 text-sm text-navy">
+                          <input
+                            type="checkbox"
+                            checked={lienOverride}
+                            onChange={(e) => setLienOverride(e.target.checked)}
+                          />
+                          Management override — close despite freight hold (Cesar only on server)
+                        </label>
+                        {lienOverride ? (
+                          <Input
+                            value={lienOverrideReason}
+                            onChange={(e) => setLienOverrideReason(e.target.value)}
+                            placeholder="Reason for override (required)"
+                          />
+                        ) : null}
+                      </div>
                     ) : null}
                     <Button
                       type="button"

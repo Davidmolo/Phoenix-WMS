@@ -119,6 +119,13 @@ router.get("/dashboard", async (req, res, next) => {
       sumInvoices(lastMonthStart, lastMonthEnd),
     ]);
 
+    let creditAlert = "";
+    if (req.auth!.role === "customer" && req.auth!.customerId) {
+      const { customerOutboundHold } = await import("../services/creditHold");
+      const hold = await customerOutboundHold(String(companyId), String(req.auth!.customerId));
+      creditAlert = hold.portalWarning || "";
+    }
+
     res.json({
       kpis: {
         activePallets,
@@ -134,6 +141,7 @@ router.get("/dashboard", async (req, res, next) => {
         revenueLastMonth,
       },
       recentShipments,
+      creditAlert,
     });
   } catch (err) {
     next(err);
@@ -316,7 +324,11 @@ router.patch("/invoices/:id", requireRole("admin"), async (req, res, next) => {
       invoice.status = status;
       if (status === "paid") {
         invoice.balanceDue = 0;
+        invoice.paymentSettlement = "cleared";
       }
+    }
+    if (req.body.paymentSettlement === "pending" || req.body.paymentSettlement === "cleared") {
+      invoice.paymentSettlement = req.body.paymentSettlement;
     }
     if (notes !== undefined) invoice.notes = String(notes ?? "");
     if (dueDate !== undefined) {

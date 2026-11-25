@@ -51,6 +51,13 @@ const invoiceSchema = new Schema(
     dueDate: { type: Date, default: null },
     /** Payment terms in days (Cesar: Net 30). */
     termsDays: { type: Number, default: 30 },
+    /** cleared = funds settled; pending = ACH/wire submitted but not settled (blocks release). */
+    paymentSettlement: {
+      type: String,
+      enum: ["cleared", "pending"],
+      default: "cleared",
+      index: true,
+    },
     notes: { type: String, default: "" },
     quickbooksId: { type: String, default: null, index: true },
     /**

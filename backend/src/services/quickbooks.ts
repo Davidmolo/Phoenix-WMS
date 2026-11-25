@@ -4,6 +4,7 @@ import { QuickBooksConnection } from "../models/QuickBooksConnection";
 import { Customer } from "../models/Customer";
 import { Invoice } from "../models/Invoice";
 import { Company } from "../models/Company";
+import { QbPaymentLog } from "../models/QbPaymentLog";
 
 const AUTH_URL = "https://appcenter.intuit.com/connect/oauth2";
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
@@ -613,20 +614,43 @@ export async function syncInvoicesFromQuickBooks(companyId: string) {
 
     const existing = await Invoice.findOne({ companyId, quickbooksId: qbId });
     if (existing) {
-      existing.customerId = customer._id;
-      existing.number = number;
-      existing.periodStart = txnDate;
-      existing.periodEnd = txnDate;
-      existing.status = status;
-      existing.set("lines", lines);
-      existing.subtotal = subtotal;
-      existing.total = total;
-      existing.balanceDue = balanceDue;
-      existing.dueDate = dueDate;
-      // Keep WMS notes if we authored them; otherwise adopt QBO PrivateNote
-      if (!existing.wmsJobKey) existing.notes = inv.PrivateNote || existing.notes || "";
+      const wmsOwned = Boolean(existing.wmsJobKey);
+      const balanceBefore = existing.balanceDue;
+      const statusBefore = existing.status;
+      if (wmsOwned) {
+        existing.status = status;
+        existing.balanceDue = balanceDue;
+        if (balanceDue <= 0 && status === "paid") existing.paymentSettlement = "cleared";
+      } else {
+        existing.customerId = customer._id;
+        existing.number = number;
+        existing.periodStart = txnDate;
+        existing.periodEnd = txnDate;
+        existing.status = status;
+        existing.set("lines", lines);
+        existing.subtotal = subtotal;
+        existing.total = total;
+        existing.balanceDue = balanceDue;
+        existing.dueDate = dueDate;
+        existing.notes = inv.PrivateNote || existing.notes || "";
+      }
       existing.quickbooksPushError = "";
       await existing.save();
+      if (
+        balanceBefore !== balanceDue ||
+        statusBefore !== status
+      ) {
+        await QbPaymentLog.create({
+          companyId,
+          invoiceId: existing._id,
+          quickbooksId: qbId,
+          balanceBefore,
+          balanceAfter: balanceDue,
+          statusBefore,
+          statusAfter: status,
+          source: "sync",
+        });
+      }
       updated += 1;
       continue;
     }
@@ -943,18 +967,36 @@ export async function syncInvoiceByQuickBooksId(companyId: string, qbInvoiceId: 
 
   const existing = await Invoice.findOne({ companyId, quickbooksId: qbId });
   if (existing) {
-    // Don't overwrite WMS-authored line types/notes when we already own the invoice
-    existing.status = status;
-    existing.total = total;
-    existing.subtotal = lineSum || existing.subtotal;
-    existing.balanceDue = balanceDue;
-    existing.dueDate = dueDate;
-    if (!existing.wmsJobKey) {
+    const wmsOwned = Boolean(existing.wmsJobKey);
+    const balanceBefore = existing.balanceDue;
+    const statusBefore = existing.status;
+    if (wmsOwned) {
+      existing.status = status;
+      existing.balanceDue = balanceDue;
+      if (balanceDue <= 0 && status === "paid") existing.paymentSettlement = "cleared";
+    } else {
+      existing.status = status;
+      existing.total = total;
+      existing.subtotal = lineSum || existing.subtotal;
+      existing.balanceDue = balanceDue;
+      existing.dueDate = dueDate;
       existing.set("lines", lines);
       existing.notes = inv.PrivateNote || existing.notes || "";
       existing.number = number;
     }
     await existing.save();
+    if (balanceBefore !== balanceDue || statusBefore !== status) {
+      await QbPaymentLog.create({
+        companyId,
+        invoiceId: existing._id,
+        quickbooksId: qbId,
+        balanceBefore,
+        balanceAfter: balanceDue,
+        statusBefore,
+        statusAfter: status,
+        source: "sync",
+      });
+    }
     return { invoice: existing, updated: true as const };
   }
 

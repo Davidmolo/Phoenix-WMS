@@ -45,7 +45,8 @@ export async function quoteBooking(companyId: string, customerId: string | null,
     total = Math.max(Number(fees.unloadLoadMinimum) || 0, money(Number(fees.unloadLoadPerPallet || 14) * pallets));
   }
   const contract = customer?.billingMethod === "contract";
-  const dueNow = contract ? 0 : money(total / 2);
+  const pct = Math.min(100, Math.max(0, Number(fees.bookingDepositPct ?? 50) || 50));
+  const dueNow = contract ? 0 : money((total * pct) / 100);
   return {
     serviceLabel: svc.label,
     total: money(total),
@@ -302,6 +303,7 @@ router.post("/invoices", async (req, res, next) => {
     for (const invoice of invoices) {
       invoice.status = "paid";
       invoice.balanceDue = 0;
+      invoice.paymentSettlement = "cleared";
       invoice.notes = invoice.notes ? `${invoice.notes}\n${note}` : note;
       await invoice.save();
       try {

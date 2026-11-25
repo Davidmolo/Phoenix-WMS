@@ -27,6 +27,8 @@ const feeScheduleSchema = new Schema(
     trailerReworkMinimumHours: { type: Number, default: 1 },
     sortRelabelPerCase: { type: Number, default: 2 },
     afterHoursSurchargePct: { type: Number, default: 35 },
+    /** Portal / one-off booking deposit (percent of quoted total). Cesar: 50% at go-live. */
+    bookingDepositPct: { type: Number, default: 50 },
     noShowFee: { type: Number, default: 100 },
     detentionPerHour: { type: Number, default: 90 },
     detentionFreeHours: { type: Number, default: 2 },

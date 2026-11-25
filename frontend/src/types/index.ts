@@ -53,6 +53,8 @@ export type Customer = {
   source?: "wms" | "quickbooks";
   /** When true, WMS invoices create but are not pushed to QuickBooks. */
   testAccount?: boolean;
+  creditPath?: "none" | "path_a" | "path_b";
+  creditLimit?: number | null;
 };
 
 export type PalletLocation = {
@@ -115,6 +117,7 @@ export type Invoice = {
   total: number;
   /** Amount still owed after payments (QuickBooks Balance). */
   balanceDue?: number | null;
+  paymentSettlement?: "cleared" | "pending";
   subtotal?: number;
   periodStart: string;
   periodEnd: string;

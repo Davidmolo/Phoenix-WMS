@@ -218,8 +218,12 @@ router.get("/:id", async (req, res, next) => {
       role: "customer",
     }).select("email name active inviteSentAt inviteExpiresAt inviteTokenHash");
 
+    const { customerOutboundHold } = await import("../services/creditHold");
+    const credit = await customerOutboundHold(String(req.auth!.companyId), String(customer._id));
+
     res.json({
       customer,
+      credit,
       portalUsers: portalUsers.map((portalUser) => ({
         email: portalUser.email,
         name: portalUser.name,
@@ -440,6 +444,14 @@ router.patch("/:id", async (req, res, next) => {
     }
     if (req.body.testAccount !== undefined && (role === "admin" || role === "staff")) {
       customer.testAccount = Boolean(req.body.testAccount);
+    }
+    if (req.body.creditPath !== undefined && role === "admin") {
+      const path = String(req.body.creditPath || "none");
+      if (path === "none" || path === "path_a" || path === "path_b") customer.creditPath = path;
+    }
+    if (req.body.creditLimit !== undefined && role === "admin") {
+      const raw = req.body.creditLimit;
+      customer.creditLimit = raw === null || raw === "" ? null : Number(raw) || null;
     }
     if (req.body.serviceDropStore !== undefined) {
       customer.serviceDropStore = Boolean(req.body.serviceDropStore);
