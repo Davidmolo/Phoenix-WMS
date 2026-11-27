@@ -172,12 +172,15 @@ router.get("/:id", async (req, res, next) => {
     let unpaidCount = 0;
     let pastDueTotal = 0;
     let pastDueCount = 0;
+    const arStatuses = new Set(["past_due", "sent", "unpaid"]);
     for (const inv of openInvoices) {
+      if (inv.status === "draft") continue;
       const owed = inv.balanceDue == null ? Number(inv.total) || 0 : Number(inv.balanceDue) || 0;
       if (!(owed > 0)) continue;
       const overdue =
         inv.status === "past_due" ||
-        Boolean(inv.dueDate && new Date(inv.dueDate).getTime() < now);
+        (arStatuses.has(inv.status) &&
+          Boolean(inv.dueDate && new Date(inv.dueDate).getTime() < now));
       if (overdue) {
         pastDueTotal += owed;
         pastDueCount += 1;

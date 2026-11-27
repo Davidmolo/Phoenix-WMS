@@ -171,6 +171,11 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   const [lienOverride, setLienOverride] = useState(false);
   const [lienOverrideReason, setLienOverrideReason] = useState("");
   const [expectedOutboundId, setExpectedOutboundId] = useState("");
+  const [billingHold, setBillingHold] = useState<{
+    hold: boolean;
+    message?: string;
+    codes?: string[];
+  } | null>(null);
 
   const selectedCustomer = useMemo(
     () => customers.find((c) => c._id === customerId),
@@ -191,6 +196,26 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
   useEffect(() => {
     if (!customerId && customers[0]) setCustomerId(customers[0]._id);
   }, [customers, customerId]);
+
+  useEffect(() => {
+    if (!showShip || !customerId) {
+      setBillingHold(null);
+      return;
+    }
+    let cancelled = false;
+    void api<{ hold: boolean; message?: string; codes?: string[] }>(
+      `/shipments/billing-hold/${customerId}`
+    )
+      .then((row) => {
+        if (!cancelled) setBillingHold(row);
+      })
+      .catch(() => {
+        if (!cancelled) setBillingHold(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, showShip]);
 
   // Cesar audit: selecting Expected must pre-fill every field it has data for
   useEffect(() => {
@@ -1287,6 +1312,15 @@ export default function OperationsPage({ mode = "all" }: { mode?: OpsMode }) {
                   Showing <strong className="text-navy">{selectedCustomer?.name || "selected customer"}</strong>
                   &rsquo;s pallets only ({shipPallets.length} available).
                 </p>
+              ) : null}
+              {customerId && billingHold?.hold ? (
+                <Alert tone="danger">
+                  <strong>Freight hold</strong>
+                  {billingHold.message ? ` — ${billingHold.message}` : ""}
+                  {isStaff
+                    ? " Use management override below with a reason if authorized."
+                    : " Contact Phoenix before shipping."}
+                </Alert>
               ) : null}
               <div
                 className={

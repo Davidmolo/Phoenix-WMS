@@ -5,7 +5,7 @@ import { Invoice } from "../models/Invoice";
 import { Pallet } from "../models/Pallet";
 import { ACTIVE_PALLET_STATUSES } from "../constants/palletStatus";
 import { env } from "../config/env";
-import { sendCreditLimitAlertEmail } from "./mail";
+import { sendCreditLimitAlertEmail, sendFreightHoldAlertEmail } from "./mail";
 import { customerHasLienHold } from "./bolWorkflow";
 import { loadCompanyFees, isContractCustomer } from "./customerFees";
 
@@ -110,6 +110,43 @@ async function maybeCredit80Email(
   void sendCreditLimitAlertEmail({ customerName: doc.name, exposure, limit, pct }).catch(() => undefined);
 }
 
+async function maybeFreightHoldEmail(
+  companyId: string,
+  customerId: string,
+  opts: {
+    pastDueHold: boolean;
+    creditHold: boolean;
+    message: string;
+    codes: string[];
+    customerName?: string;
+  }
+) {
+  const freightHold = opts.pastDueHold || opts.creditHold;
+  const doc = await Customer.findOne({ _id: customerId, companyId });
+  if (!doc) return;
+  if (!freightHold) {
+    if (doc.freightHoldAlertSentAt) {
+      doc.freightHoldAlertSentAt = null;
+      await doc.save();
+    }
+    return;
+  }
+  const sent = doc.freightHoldAlertSentAt ? new Date(doc.freightHoldAlertSentAt).getTime() : 0;
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  if (sent && Date.now() - sent < weekMs) return;
+  doc.freightHoldAlertSentAt = new Date();
+  await doc.save();
+  const reason = opts.creditHold
+    ? "Credit limit reached (100%)"
+    : "Past due balance";
+  void sendFreightHoldAlertEmail({
+    customerName: doc.name || opts.customerName || "Customer",
+    reason,
+    message: opts.message,
+    codes: opts.codes.filter((c) => c === "PAST_DUE" || c === "CREDIT_LIMIT"),
+  }).catch(() => undefined);
+}
+
 async function hasPendingSettlement(companyId: string, customerId: string) {
   const n = await Invoice.countDocuments({
     companyId,
@@ -181,6 +218,16 @@ export async function customerOutboundHold(companyId: string, customerId: string
     message = `Prepay balance $${prepayBalance.toFixed(2)} still due before release.`;
   } else if (pastDue.hold) {
     message = `Account past due ($${pastDue.balanceDue.toFixed(2)}).`;
+  }
+
+  if (customer) {
+    void maybeFreightHoldEmail(companyId, customerId, {
+      pastDueHold: pastDue.hold,
+      creditHold,
+      message,
+      codes,
+      customerName: customer.name,
+    });
   }
 
   return {

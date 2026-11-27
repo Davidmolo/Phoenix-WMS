@@ -105,6 +105,8 @@ const customerSchema = new Schema(
     creditPath: { type: String, enum: ["none", "path_a", "path_b"], default: "none", index: true },
     creditLimit: { type: Number, default: null },
     creditAlert80SentAt: { type: Date, default: null },
+    /** Last freight hold email (100% credit or past due) — dedupe in creditHold. */
+    freightHoldAlertSentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

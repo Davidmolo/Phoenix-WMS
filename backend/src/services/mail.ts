@@ -322,10 +322,7 @@ export async function sendCreditLimitAlertEmail(opts: {
     console.warn("[mail] credit 80% alert skipped — SMTP not configured");
     return null;
   }
-  const extras = env.creditAlertEmails.length
-    ? env.creditAlertEmails
-    : [env.bookingNotifyEmail, "david@goxxii.com"].filter(Boolean);
-  const to = [...new Set(extras.map((e) => String(e).trim()).filter(Boolean))].join(", ");
+  const to = creditAlertRecipients().join(", ");
   if (!to) return null;
   const pctLabel = Math.round(opts.pct * 100);
   const info = await transporter().sendMail({
@@ -339,6 +336,40 @@ export async function sendCreditLimitAlertEmail(opts: {
     ].join("\n"),
   });
   console.info(`[mail] credit 80% → ${to} messageId=${info.messageId}`);
+  return info;
+}
+
+function creditAlertRecipients() {
+  const extras = env.creditAlertEmails.length
+    ? env.creditAlertEmails
+    : [env.bookingNotifyEmail, "david@goxxii.com"].filter(Boolean);
+  return [...new Set(extras.map((e) => String(e).trim()).filter(Boolean))];
+}
+
+export async function sendFreightHoldAlertEmail(opts: {
+  customerName: string;
+  reason: string;
+  message: string;
+  codes: string[];
+}) {
+  if (!smtpConfigured()) {
+    console.warn("[mail] freight hold alert skipped — SMTP not configured");
+    return null;
+  }
+  const to = creditAlertRecipients().join(", ");
+  if (!to) return null;
+  const info = await transporter().sendMail({
+    from: env.mailFrom || env.smtpUser,
+    to,
+    subject: `Freight hold — ${opts.customerName}`,
+    text: [
+      `${opts.customerName} is on outbound freight hold.`,
+      `Reason: ${opts.reason}`,
+      opts.message,
+      `Codes: ${opts.codes.join(", ") || "—"}`,
+    ].join("\n"),
+  });
+  console.info(`[mail] freight hold → ${to} messageId=${info.messageId}`);
   return info;
 }
 
