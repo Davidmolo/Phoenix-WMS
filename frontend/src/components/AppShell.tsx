@@ -31,6 +31,7 @@ import { SkeletonShell } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth";
 import { useAppNav } from "@/lib/appNav";
+import { gatePath } from "@/lib/routeAccess";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; items: NavItem[] };
@@ -245,6 +246,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMobileOpen(false);
   }, [path]);
+
+  useEffect(() => {
+    if (!user) return;
+    const allowed = gatePath(path, user.role);
+    if (allowed !== path) navigate(allowed);
+  }, [path, user, navigate]);
 
   useEffect(() => {
     if (!mobileOpen) return;

@@ -24,6 +24,7 @@ import BookingsScreen from "@/screens/BookingsScreen";
 import PortalBookingsScreen from "@/screens/PortalBookingsScreen";
 import PortalProfileScreen from "@/screens/PortalProfileScreen";
 import { useAuth } from "@/lib/auth";
+import { gatePath } from "@/lib/routeAccess";
 
 function screenKey(path: string) {
   if (path.startsWith("/customers/") && path !== "/customers") return "customer-detail";
@@ -51,10 +52,15 @@ function ScreenPane({
  * Navigation feels instant; API loaders only appear on first fetch / refresh.
  */
 export function ScreenRouter() {
-  const { path } = useAppNav();
+  const { path, navigate } = useAppNav();
   const { user } = useAuth();
   const isPortal = user?.role === "customer";
-  const active = screenKey(path);
+  const gatedPath = useMemo(() => gatePath(path, user?.role), [path, user?.role]);
+  const active = screenKey(gatedPath);
+
+  useEffect(() => {
+    if (gatedPath !== path) navigate(gatedPath);
+  }, [gatedPath, path, navigate]);
   const [mounted, setMounted] = useState<Set<string>>(() => new Set([active]));
   const [detailIds, setDetailIds] = useState<Set<string>>(() => new Set());
   const [shipmentDetailIds, setShipmentDetailIds] = useState<Set<string>>(() => new Set());
@@ -105,22 +111,22 @@ export function ScreenRouter() {
           <DashboardScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("operations") ? (
+      {mounted.has("operations") && !isPortal ? (
         <ScreenPane active={active === "operations"}>
           <OperationsScreen mode="all" />
         </ScreenPane>
       ) : null}
-      {mounted.has("receive") ? (
+      {mounted.has("receive") && !isPortal ? (
         <ScreenPane active={active === "receive"}>
           <OperationsScreen mode="receive" />
         </ScreenPane>
       ) : null}
-      {mounted.has("store") ? (
+      {mounted.has("store") && !isPortal ? (
         <ScreenPane active={active === "store"}>
           <OperationsScreen mode="store" />
         </ScreenPane>
       ) : null}
-      {mounted.has("ship") ? (
+      {mounted.has("ship") && !isPortal ? (
         <ScreenPane active={active === "ship"}>
           <OperationsScreen mode="ship" />
         </ScreenPane>
@@ -135,22 +141,24 @@ export function ScreenRouter() {
           <ShipmentDetailScreen shipmentId={id} />
         </ScreenPane>
       ))}
-      {mounted.has("expected") ? (
+      {mounted.has("expected") && !isPortal ? (
         <ScreenPane active={active === "expected"}>
           <ExpectedScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("customers") ? (
+      {mounted.has("customers") && !isPortal ? (
         <ScreenPane active={active === "customers"}>
           <CustomersScreen />
         </ScreenPane>
       ) : null}
-      {[...detailIds].map((id) => (
-        <ScreenPane key={id} active={active === "customer-detail" && customerId === id}>
-          <CustomerDetailScreen customerId={id} />
-        </ScreenPane>
-      ))}
-      {mounted.has("fee-schedule") ? (
+      {!isPortal
+        ? [...detailIds].map((id) => (
+            <ScreenPane key={id} active={active === "customer-detail" && customerId === id}>
+              <CustomerDetailScreen customerId={id} />
+            </ScreenPane>
+          ))
+        : null}
+      {mounted.has("fee-schedule") && !isPortal ? (
         <ScreenPane active={active === "fee-schedule"}>
           <FeeScheduleScreen />
         </ScreenPane>
@@ -160,22 +168,22 @@ export function ScreenRouter() {
           <InventoryScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("lpns") ? (
+      {mounted.has("lpns") && !isPortal ? (
         <ScreenPane active={active === "lpns"}>
           <LpnsScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("inventory-move") ? (
+      {mounted.has("inventory-move") && !isPortal ? (
         <ScreenPane active={active === "inventory-move"}>
           <InventoryMoveScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("inventory-control") ? (
+      {mounted.has("inventory-control") && !isPortal ? (
         <ScreenPane active={active === "inventory-control"}>
           <InventoryControlScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("warehouse") ? (
+      {mounted.has("warehouse") && !isPortal ? (
         <ScreenPane active={active === "warehouse"}>
           <WarehouseScreen />
         </ScreenPane>
@@ -195,7 +203,7 @@ export function ScreenRouter() {
           <PortalProfileScreen />
         </ScreenPane>
       ) : null}
-      {mounted.has("yard-jobs") ? (
+      {mounted.has("yard-jobs") && !isPortal ? (
         <ScreenPane active={active === "yard-jobs"}>
           <YardJobsScreen />
         </ScreenPane>
